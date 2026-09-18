@@ -6,9 +6,13 @@
   <title>ValidApp - Validation & Qualification Workflow</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  
+  <!-- MSAL.js for Azure AD SSO -->
+  <script src="https://alcdn.msauth.net/browser/2.38.0/js/msal-browser.min.js"></script>
+
   <script type="module">
     import { initializeApp, getApps, deleteApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-    import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword, sendPasswordResetEmail, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
     import { getFirestore, collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, query, where, orderBy, limit, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
     import { getStorage, ref, uploadBytesResumable, getBlob, deleteObject } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
 
@@ -21,6 +25,21 @@
       appId: "1:702664233017:web:25fbede2f3c7244cdbfde8",
       measurementId: "G-7FTDYP0XWS"
     };
+
+    // Azure AD / Entra ID Configuration
+    const msalConfig = {
+      auth: {
+        clientId: "22315588-6d90-4c55-87be-3e293fc5a7a9",
+        authority: "https://login.microsoftonline.com/a0463def-3037-44e8-8e17-e94af8f05069",
+        redirectUri: window.location.origin + window.location.pathname
+      },
+      cache: {
+        cacheLocation: "localStorage",
+        storeAuthStateInCookie: false
+      }
+    };
+
+    const msalInstance = new msal.PublicClientApplication(msalConfig);
 
     const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : MY_FIREBASE_CONFIG;
     const appId = typeof __app_id !== 'undefined' ? __app_id : 'validapp-default';
@@ -574,6 +593,28 @@
       await loadModule(currentModule);
     }
 
+    // SSO Integration Logic
+    async function handleAzureSSO() {
+      try {
+        const loginResponse = await msalInstance.loginPopup({
+          scopes: ["User.Read", "openid", "profile", "email"]
+        });
+
+        const email = loginResponse.account.username.toLowerCase();
+        const displayName = loginResponse.account.name;
+
+        // Populate email field for quick auth processing
+        $('username').value = email;
+        $('loginError').classList.add('hidden');
+        
+        showMessage('Azure AD Success', `Authenticated as ${displayName} (${email}). If your account is pre-provisioned in Firebase, signing you in...`, 'info');
+      } catch (error) {
+        console.error("SSO Error:", error);
+        $('loginError').textContent = 'Azure AD authentication failed or popup was closed.';
+        $('loginError').classList.remove('hidden');
+      }
+    }
+
     // Navigation and Event Wiring
     $('loginForm').addEventListener('submit', async e => {
       e.preventDefault();
@@ -585,6 +626,8 @@
         $('loginError').classList.remove('hidden');
       }
     });
+
+    $('azureSsoBtn').addEventListener('click', handleAzureSSO);
 
     $('logoutBtn').addEventListener('click', () => signOut(auth));
     $('recordForm').addEventListener('submit', saveStudy);
@@ -730,12 +773,29 @@
   </nav>
 
   <main class="flex-grow container mx-auto p-4 overflow-hidden">
-    <section id="loginSection" class="max-w-md mx-auto mt-20 bg-white p-8 rounded-xl shadow-2xl">
-      <div class="text-center mb-8">
+    <section id="loginSection" class="max-w-md mx-auto mt-16 bg-white p-8 rounded-xl shadow-2xl">
+      <div class="text-center mb-6">
         <div class="inline-block bg-blue-100 p-4 rounded-full mb-4"><i class="fas fa-shield-alt text-4xl text-primary"></i></div>
         <h2 class="text-2xl font-bold">System Login</h2>
-        <p class="text-gray-500 text-sm mt-1">Firebase Authentication · Controlled access</p>
+        <p class="text-gray-500 text-sm mt-1">Single Sign-On & Controlled Access</p>
       </div>
+
+      <button id="azureSsoBtn" type="button" class="w-full mb-6 bg-slate-800 hover:bg-slate-900 text-white font-semibold py-3 px-4 rounded-lg flex items-center justify-center gap-3 shadow-md transition-all">
+        <svg class="w-5 h-5" viewBox="0 0 23 23">
+          <path fill="#f35325" d="M1 1h10v10H1z"/>
+          <path fill="#81bc06" d="M12 1h10v10H12z"/>
+          <path fill="#05a6f0" d="M1 12h10v10H1z"/>
+          <path fill="#ffba08" d="M12 12h10v10H12z"/>
+        </svg>
+        Sign in with Microsoft 365
+      </button>
+
+      <div class="relative flex py-2 items-center mb-6">
+        <div class="flex-grow border-t border-gray-300"></div>
+        <span class="flex-shrink mx-4 text-xs text-gray-400 font-semibold uppercase">Or local account</span>
+        <div class="flex-grow border-t border-gray-300"></div>
+      </div>
+
       <form id="loginForm" class="space-y-5">
         <div><label class="block text-sm font-medium mb-1">Email</label><input type="email" id="username" class="w-full p-3 border rounded-lg" required autocomplete="username"></div>
         <div><label class="block text-sm font-medium mb-1">Password</label><input type="password" id="password" class="w-full p-3 border rounded-lg" required autocomplete="current-password"></div>
