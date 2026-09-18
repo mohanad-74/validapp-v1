@@ -407,14 +407,13 @@
       renderFileList(parentId, module);
     }
 
-    async function viewFile(file, download=false) {
-      try {
-      const { data, error } = await supabaseClient.storage
-      .from('documents')[cite: 9]
-          .createSignedUrl(file.storagePath, 60, {
-            download: download ? file.name : false
-          });
-
+   async function viewFile(file, download = false) {
+  try {
+    const { data, error } = await supabaseClient.storage
+      .from('documents')
+      .createSignedUrl(file.storagePath, 60, {
+        download: download ? file.name : false
+      });
         if (error) throw new Error(error.message);
 
         if (download) {
