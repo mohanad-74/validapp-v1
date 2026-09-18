@@ -3,10 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ValidApp - Validation & Qualification Workflow</title>
+  <title>ValidApp - Validation & Qualification Nerhadou</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
   
+  <!-- Supabase JS Client -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
   <!-- MSAL.js for Azure AD SSO -->
   <script src="https://alcdn.msauth.net/browser/2.38.0/js/msal-browser.min.js"></script>
 
@@ -14,7 +17,11 @@
     import { initializeApp, getApps, deleteApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
     import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword, sendPasswordResetEmail, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
     import { getFirestore, collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, query, where, orderBy, limit, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-    import { getStorage, ref, uploadBytesResumable, getBlob, deleteObject } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
+
+    // Supabase Configuration
+    const SUPABASE_URL = "https://lnyignnyhihrkjauhzsk.supabase.co";
+    const SUPABASE_PUBLISHABLE_KEY = "sb_publishable__0Xw5joGtNrlh38qYOhrpw_vMALXzrV";
+    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 
     const MY_FIREBASE_CONFIG = {
       apiKey: "AIzaSyDEV8rEluViDZiA5nnv7BiIU78rgq5en8A",
@@ -46,7 +53,6 @@
     const app = initializeApp(firebaseConfig);
     const auth = getAuth(app);
     const db = getFirestore(app);
-    const storage = getStorage(app);
 
     const ROLES = Object.freeze({
       ADMIN: 'Administrator',
@@ -332,38 +338,98 @@
       filesByParent = snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>String(b.createdAt?.seconds||'').localeCompare(String(a.createdAt?.seconds||'')));
     }
     function fileTypeAllowed(file) { return !!ALLOWED_FILE_TYPES[file.type] && file.size <= MAX_FILE_SIZE; }
+
+    // UPDATED: Supabase Storage Upload
     async function uploadFiles(parentId, input, module='study') {
       if (!input.files.length) return;
       const files = [...input.files];
       for (const file of files) {
         if (!fileTypeAllowed(file)) { showMessage('Invalid file', `${file.name}: invalid type or size exceeds 25MB.`,'error'); continue; }
-        const fileId = crypto.randomUUID();
-        const path = `artifacts/${appId}/${module}/${parentId}/${fileId}_${safeFileName(file.name)}`;
+        
+        const fileName = `${Date.now()}_${safeFileName(file.name)}`;
+        $('uploadProgress').textContent = `Uploading ${file.name}...`;
+
         try {
-          const storageRef = ref(storage, path);
-          const task = uploadBytesResumable(storageRef, file, {contentType:file.type});
-          await new Promise((resolve,reject)=>{ task.on('state_changed', snap=>{ const pct=Math.round(snap.bytesTransferred/snap.totalBytes*100); $('uploadProgress').textContent=`Uploading ${esc(file.name)} — ${pct}%`; }, reject, resolve); });
-          await addDoc(colRef('studyFiles'), {parentId, studyId:module==='study'?parentId:null, module, name:file.name, contentType:file.type, size:file.size, storagePath:path, uploadedByUid:currentUser.uid, uploadedByName:currentProfile.displayName || currentUser.email, uploadedAt:serverTimestamp()});
-          await logAudit('File Uploaded',parentId,'',`${file.name}`);
-        } catch(e) { console.error(e); showMessage('Upload failed',friendlyError(e),'error'); }
+          // Upload file directly to Supabase Storage 'documents' bucket
+          const { data: storageData, error: uploadErr } = await supabaseClient.storage
+            .from('documents')
+            .upload(fileName, file, { cacheControl: '3600', upsert: false });
+
+          if (uploadErr) throw new Error(uploadErr.message);
+
+          // Retrieve Public URL
+          const { data: publicUrlData } = supabaseClient.storage
+            .from('documents')
+            .getPublicUrl(fileName);
+
+          const publicUrl = publicUrlData.publicUrl;
+
+          // Save metadata reference into Firestore
+          await addDoc(colRef('studyFiles'), {
+            parentId,
+            studyId: module === 'study' ? parentId : null,
+            module,
+            name: file.name,
+            contentType: file.type,
+            size: file.size,
+            storagePath: fileName,
+            publicUrl: publicUrl,
+            uploadedByUid: currentUser.uid,
+            uploadedByName: currentProfile.displayName || currentUser.email,
+            uploadedAt: serverTimestamp()
+          });
+
+          await logAudit('File Uploaded', parentId, '', `${file.name}`);
+        } catch(e) { 
+          console.error(e); 
+          showMessage('Upload failed', friendlyError(e), 'error'); 
+        }
       }
-      $('uploadProgress').textContent=''; await loadFiles(parentId,module); renderFileList(parentId,module);
+      $('uploadProgress').textContent = ''; 
+      await loadFiles(parentId, module); 
+      renderFileList(parentId, module);
     }
+
+    // UPDATED: View/Download File via Supabase
     async function viewFile(file, download=false) {
       try {
-        const blob = await getBlob(ref(storage,file.storagePath));
-        const url = URL.createObjectURL(blob);
-        if (download) { const a=document.createElement('a'); a.href=url; a.download=file.name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),60000); }
-        else { window.open(url,'_blank','noopener'); setTimeout(()=>URL.revokeObjectURL(url),60000); }
-      } catch(e) { showMessage('Access denied',friendlyError(e),'error'); }
+        const fileUrl = file.publicUrl || supabaseClient.storage.from('documents').getPublicUrl(file.storagePath).data.publicUrl;
+        
+        if (download) { 
+          const a = document.createElement('a'); 
+          a.href = fileUrl; 
+          a.download = file.name; 
+          a.target = '_blank';
+          document.body.appendChild(a); 
+          a.click(); 
+          a.remove(); 
+        } else { 
+          window.open(fileUrl, '_blank', 'noopener'); 
+        }
+      } catch(e) { 
+        showMessage('Access denied', friendlyError(e), 'error'); 
+      }
     }
+
+    // UPDATED: Delete File from Supabase Storage
     async function deleteFile(file) {
-      if (!isAdmin()) return showMessage('Unauthorized','Only Administrators can delete files.','error');
-      confirmAction('Delete file',`Delete "${file.name}"?`,async()=>{
-        try { await deleteObject(ref(storage,file.storagePath)); await updateDoc(docRef('studyFiles',file.id),{deletedAt:serverTimestamp()}); await logAudit('File Deleted',file.parentId || file.studyId,'',file.name); await loadFiles(file.parentId || file.studyId,file.module); renderFileList(file.parentId || file.studyId,file.module); showMessage('Deleted','File deleted.','success'); }
-        catch(e){showMessage('Delete failed',friendlyError(e),'error');}
+      if (!isAdmin()) return showMessage('Unauthorized', 'Only Administrators can delete files.', 'error');
+      confirmAction('Delete file', `Delete "${file.name}"?`, async () => {
+        try { 
+          const { error: removeErr } = await supabaseClient.storage.from('documents').remove([file.storagePath]);
+          if (removeErr) console.warn('Supabase delete notice:', removeErr.message);
+
+          await updateDoc(docRef('studyFiles', file.id), { deletedAt: serverTimestamp() }); 
+          await logAudit('File Deleted', file.parentId || file.studyId, '', file.name); 
+          await loadFiles(file.parentId || file.studyId, file.module); 
+          renderFileList(file.parentId || file.studyId, file.module); 
+          showMessage('Deleted', 'File deleted.', 'success'); 
+        } catch(e) { 
+          showMessage('Delete failed', friendlyError(e), 'error'); 
+        }
       });
     }
+
     function renderFileList(parentId,module='study') {
       $('fileList').innerHTML = filesByParent.filter(f=>!f.deletedAt).map(f=>`<div class="border rounded-lg p-3 flex flex-wrap items-center justify-between gap-3 bg-gray-50"><div><div class="font-semibold text-sm">${esc(f.name)}</div><div class="text-xs text-gray-500">${esc(f.contentType)} · ${(f.size/1024/1024).toFixed(2)} MB · ${esc(nowLabel(f.uploadedAt))}</div></div><div class="flex gap-2"><button data-view-file="${esc(f.id)}" class="text-blue-600 text-xs font-semibold">View</button><button data-download-file="${esc(f.id)}" class="text-gray-700 text-xs font-semibold">Download</button>${isAdmin()?`<button data-delete-file="${esc(f.id)}" class="text-red-600 text-xs font-semibold">Delete</button>`:''}</div></div>`).join('') || '<div class="text-sm text-gray-500">No documents found.</div>';
       $('fileParentId').value=parentId; $('fileModule').value=module;
@@ -736,9 +802,6 @@
         $('loginError').classList.remove('hidden');
       }
     });
-  </script>
-  <script>
-    tailwind.config = { theme: { extend: { colors: { primary: '#1e40af', secondary: '#3b82f6', accent: '#10b981', dark: '#1f2937', light: '#f3f4f6' } } } };
   </script>
   <style>
     body { font-family: Inter, Arial, sans-serif; background: #f3f4f6; }
