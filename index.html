@@ -403,8 +403,21 @@
     }
     async function loadAudit() { const snap=await getDocs(query(colRef('audit'),orderBy('createdAt','desc'),limit(500))); auditLogs=snap.docs.map(d=>({id:d.id,...d.data()})); renderAudit(); $('auditModal').classList.add('active'); }
 
-    function function renderUserRoleOptions(selectedRole = '') { $('#newRole').innerHTML = ROLE_LIST.map(r => `<option value="${r}" ${r === selectedRole ? 'selected' : ''}>${r}</option>`).join(''); }
-async function loadUsers() { renderUserRoleOptions(); const snap = await getDocs(colRef('users')); users = snap.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b) => String(a.displayName||a.username||a.email||'').localeCompare(String(b.displayName||b.username||b.email||''))); renderUsers(); $('#userModal').classList.add('active'); }
+   function renderUserRoleOptions(selectedRole = '') {
+  const el = document.getElementById('newRole');
+  if (el) {
+    el.innerHTML = ROLE_LIST.map(r => `<option value="${r}" ${r === selectedRole ? 'selected' : ''}>${r}</option>`).join('');
+  }
+}
+
+async function loadUsers() {
+  renderUserRoleOptions();
+  const snap = await getDocs(colRef('users'));
+  users = snap.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b) => String(a.displayName||a.username||a.email||'').localeCompare(String(b.displayName||b.username||b.email||'')));
+  renderUsers();
+  const userModal = document.getElementById('userModal');
+  if (userModal) userModal.classList.add('active');
+}
       $('userTableBody').innerHTML=users.map(u=>`<tr><td class="px-3 py-2 text-sm font-medium">${esc(u.email||'—')}<div class="text-xs text-gray-500">${esc(u.displayName||u.username||'')}</div></td><td class="px-3 py-2">${roleBadge(u.role)}</td><td class="px-3 py-2 text-sm">${esc(u.department||'—')}</td><td class="px-3 py-2 text-xs">${u.disabled?'Disabled':'Enabled'}</td><td class="px-3 py-2 text-center"><button data-edit-user="${esc(u.id)}" class="text-blue-600 text-xs font-semibold mr-2">Edit</button>${u.id!==currentUser.uid?`<button data-toggle-user="${esc(u.id)}" class="text-amber-600 text-xs font-semibold">${u.disabled?'Enable':'Disable'}</button>`:''}</td></tr>`).join('');
     }
     async function createOrUpdateUser(e) {
