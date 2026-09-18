@@ -1,0 +1,116 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function profile() { return get(/databases/$(database)/documents/artifacts/$(appId)/public/data/users/$(request.auth.uid)); }
+    function hasProfile() { return signedIn() && profile().data.disabled != true && profile().data.role != null; }
+    function role(r) { return hasProfile() && profile().data.role == r; }
+    function admin() { return role('Administrator'); }
+    function creator() { return role('Creator'); }
+    function sectionHead() { return role('Section Head'); }
+    function reviewer() { return role('Reviewer — Other Department'); }
+    function deputy() { return role('Deputy QA Manager'); }
+    function qaManager() { return role('QA Manager'); }
+    function viewer() { return role('Viewer'); }
+    function creatorOwn(data) { return creator() && (data.createdByUid == request.auth.uid || data.createdBy == profile().data.username); }
+    function immutableAuditCreate() {
+      return signedIn()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.userRole == profile().data.role
+        && request.resource.data.userName == (profile().data.displayName != null ? profile().data.displayName : profile().data.username);
+    }
+    function validStatus(s) {
+      return s in ['Draft','Pending Section Head','Pending Reviewer','Pending Deputy QA','Pending QA Manager','Returned for Revision','Approved','Rejected','Completed'];
+    }
+    function validStudyTransition(old, next) {
+      return
+        (old == 'Draft' && next == 'Pending Section Head') ||
+        (old == 'Returned for Revision' && next == 'Pending Section Head') ||
+        (old == 'Pending Section Head' && (next == 'Pending Reviewer' || next == 'Pending Deputy QA' || next == 'Returned for Revision')) ||
+        (old == 'Pending Reviewer' && (next == 'Pending Deputy QA' || next == 'Returned for Revision')) ||
+        (old == 'Pending Deputy QA' && (next == 'Pending QA Manager' || next == 'Returned for Revision')) ||
+        (old == 'Pending QA Manager' && (next == 'Approved' || next == 'Rejected' || next == 'Returned for Revision'));
+    }
+
+    match /artifacts/{appId}/public/data/users/{uid} {
+      allow read: if hasProfile() && (admin() || request.auth.uid == uid);
+      allow create: if admin() && request.resource.data.role in ['Administrator','Creator','Section Head','Deputy QA Manager','QA Manager','Reviewer — Other Department','Viewer'];
+      allow update: if admin() && request.resource.data.role in ['Administrator','Creator','Section Head','Deputy QA Manager','QA Manager','Reviewer — Other Department','Viewer'];
+      allow delete: if false;
+    }
+
+    match /artifacts/{appId}/public/data/records/{recordId} {
+      allow read: if hasProfile() && (
+        admin() || creatorOwn(resource.data) ||
+        (sectionHead() && resource.data.status == 'Pending Section Head') ||
+        (reviewer() && resource.data.status == 'Pending Reviewer') ||
+        (deputy() && resource.data.status == 'Pending Deputy QA') ||
+        (qaManager() && resource.data.status == 'Pending QA Manager') ||
+        (viewer() && (resource.data.status == 'Approved' || resource.data.status == 'Completed'))
+      );
+      allow create: if creator() || admin();
+      allow update: if hasProfile() && (
+        (creatorOwn(resource.data) && resource.data.status in ['Draft','Returned for Revision'] && request.resource.data.status in ['Draft','Returned for Revision','Pending Section Head']) ||
+        (sectionHead() && resource.data.status == 'Pending Section Head' && request.resource.data.status in ['Pending Reviewer','Pending Deputy QA','Returned for Revision']) ||
+        (reviewer() && resource.data.status == 'Pending Reviewer' && request.resource.data.status in ['Pending Deputy QA','Returned for Revision']) ||
+        (deputy() && resource.data.status == 'Pending Deputy QA' && request.resource.data.status in ['Pending QA Manager','Returned for Revision']) ||
+        (qaManager() && resource.data.status == 'Pending QA Manager' && request.resource.data.status in ['Approved','Rejected','Returned for Revision']) || admin()
+      ) && validStatus(request.resource.data.status);
+      allow delete: if false;
+    }
+
+    match /artifacts/{appId}/public/data/studyFiles/{fileId} {
+      allow read: if hasProfile() && (
+        admin() ||
+        viewer() && get(/databases/$(database)/documents/artifacts/$(appId)/public/data/records/$(resource.data.studyId)).data.status in ['Approved','Completed'] ||
+        get(/databases/$(database)/documents/artifacts/$(appId)/public/data/records/$(resource.data.studyId)).data.createdByUid == request.auth.uid ||
+        sectionHead() && get(/databases/$(database)/documents/artifacts/$(appId)/public/data/records/$(resource.data.studyId)).data.status == 'Pending Section Head' ||
+        reviewer() && get(/databases/$(database)/documents/artifacts/$(appId)/public/data/records/$(resource.data.studyId)).data.status == 'Pending Reviewer' ||
+        deputy() && get(/databases/$(database)/documents/artifacts/$(appId)/public/data/records/$(resource.data.studyId)).data.status == 'Pending Deputy QA' ||
+        qaManager() && get(/databases/$(database)/documents/artifacts/$(appId)/public/data/records/$(resource.data.studyId)).data.status == 'Pending QA Manager'
+      );
+      allow create: if hasProfile() && (admin() || creator() || sectionHead() || reviewer() || deputy() || qaManager())
+        && request.resource.data.uploadedByUid == request.auth.uid
+        && request.resource.data.contentType in ['application/pdf','application/msword','application/vnd.openxmlformats-officedocument.wordprocessingml.document','application/vnd.ms-excel','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','image/jpeg','image/png'];
+      allow update: if admin() && request.resource.data.uploadedByUid == resource.data.uploadedByUid;
+      allow delete: if false;
+    }
+
+    match /artifacts/{appId}/public/data/reviews/{reviewId} {
+      allow read: if hasProfile() && (admin() || qaManager() || deputy() || sectionHead() || reviewer() || creatorOwn(resource.data));
+      allow create: if hasProfile() && (admin() || sectionHead() || reviewer() || deputy() || qaManager())
+        && request.resource.data.reviewerUid == request.auth.uid
+        && request.resource.data.reviewerRole == profile().data.role
+        && request.resource.data.comment is string;
+      allow update, delete: if false;
+    }
+
+    match /artifacts/{appId}/public/data/audit/{auditId} {
+      allow read: if hasProfile() && (admin() || qaManager() || deputy());
+      allow create: if immutableAuditCreate();
+      allow update, delete: if false;
+    }
+
+    match /artifacts/{appId}/public/data/calibration/{recordId} {
+      allow read: if hasProfile() && (admin() || creator() || sectionHead() || deputy() || qaManager() || reviewer() || (viewer() && resource.data.status in ['Approved','Completed']));
+      allow create: if creator() || admin();
+      allow update: if hasProfile() && (
+        (creator() && resource.data.createdByUid == request.auth.uid && resource.data.status in ['Draft','Returned for Revision'] && request.resource.data.status in ['Draft','Returned for Revision','Pending Section Head']) ||
+        (sectionHead() && resource.data.status == 'Pending Section Head' && request.resource.data.status in ['Pending QA Manager','Returned for Revision']) ||
+        (qaManager() && resource.data.status == 'Pending QA Manager' && request.resource.data.status in ['Completed','Returned for Revision']) || admin()
+      );
+      allow delete: if false;
+    }
+
+    match /artifacts/{appId}/public/data/qualification/{recordId} {
+      allow read: if hasProfile() && (admin() || creator() || sectionHead() || deputy() || qaManager() || reviewer() || (viewer() && resource.data.status in ['Approved','Completed']));
+      allow create: if creator() || admin();
+      allow update: if hasProfile() && (
+        (creator() && resource.data.createdByUid == request.auth.uid && resource.data.status in ['Draft','Returned for Revision'] && request.resource.data.status in ['Draft','Returned for Revision','Pending Section Head']) ||
+        (sectionHead() && resource.data.status == 'Pending Section Head' && request.resource.data.status in ['Pending QA Manager','Returned for Revision']) ||
+        (qaManager() && resource.data.status == 'Pending QA Manager' && request.resource.data.status in ['Completed','Returned for Revision']) || admin()
+      );
+      allow delete: if false;
+    }
+  }
+}
