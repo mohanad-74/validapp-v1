@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ValidApp - Validation & Qualification Workflow</title>
+  <title>ValidApp - Validation & Qualification Nerhadou</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
   
@@ -14,12 +14,11 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <script type="module">
-    import { initializeApp, getApps, deleteApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
     import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
     import { getFirestore, collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, query, where, orderBy, limit, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-    // NOTE: Firebase Storage imports removed. We are exclusively using Supabase for Storage now.
 
-    // --- Configurations ---
+    // --- Firebase Configurations ---
     const MY_FIREBASE_CONFIG = {
       apiKey: "AIzaSyDEV8rEluViDZiA5nnv7BiIU78rgq5en8A",
       authDomain: "validapp-db.firebaseapp.com",
@@ -31,9 +30,9 @@
     };
 
     // --- Supabase Configuration ---
-    const SUPABASE_URL = "https://YOUR_SUPABASE_PROJECT_ID.supabase.co"; // Replace with your URL
-    const SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY";                   // Replace with your Anon Key
-    const SUPABASE_BUCKET = "validapp-files";                             // Ensure this bucket is created in Supabase
+    const SUPABASE_URL = "https://lnyignnyhihrkjauhzsk.supabase.co";
+    const SUPABASE_ANON_KEY = "sb_publishable__0Xw5joGtNrlh38qYOhrpw_vMALXzrV";
+    const SUPABASE_BUCKET = "validapp-files";
 
     // Azure AD / Entra ID Configuration
     const msalConfig = {
@@ -371,19 +370,17 @@
 
         const fileId = crypto.randomUUID();
         const safeName = safeFileName(file.name);
-        const storagePath = `${appId}/${module}/${parentId}/${fileId}_${safeName}`; // Removed 'artifacts/' prefix as we are using a dedicated bucket
+        const storagePath = `${appId}/${module}/${parentId}/${fileId}_${safeName}`;
 
         try {
           $('uploadProgress').textContent = `Uploading ${esc(file.name)} to Supabase...`;
           
-          // 1. Upload the file blob to Supabase Storage Bucket
           const { data, error } = await supabaseClient.storage
             .from(SUPABASE_BUCKET)
             .upload(storagePath, file, { cacheControl: '3600', upsert: false });
 
           if (error) throw new Error(error.message);
 
-          // 2. Save metadata reference in Firestore
           await addDoc(colRef('studyFiles'), {
             parentId: parentId,
             studyId: isStudyModule ? parentId : null,
@@ -412,7 +409,6 @@
 
     async function viewFile(file, download=false) {
       try {
-        // Generate short-lived signed URL for the protected file in Supabase
         const { data, error } = await supabaseClient.storage
           .from(SUPABASE_BUCKET)
           .createSignedUrl(file.storagePath, 60, {
@@ -440,14 +436,12 @@
       if (!isAdmin()) return showMessage('Unauthorized', 'Only Administrators can delete files.', 'error');
       confirmAction('Delete file', `Delete "${file.name}"?`, async () => {
         try {
-          // Remove the physical file from Supabase Storage
           const { error } = await supabaseClient.storage
             .from(SUPABASE_BUCKET)
             .remove([file.storagePath]);
             
           if (error) throw new Error(error.message);
 
-          // Soft delete in Firestore metadata
           await updateDoc(docRef('studyFiles', file.id), { deletedAt: serverTimestamp() });
           
           const targetParent = file.parentId || file.studyId;
