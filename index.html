@@ -376,7 +376,7 @@
           $('uploadProgress').textContent = `Uploading ${esc(file.name)} to Supabase...`;
           
           const { data, error } = await supabaseClient.storage
-            .from(SUPABASE_BUCKET)
+            .from(documents)
             .upload(storagePath, file, { cacheControl: '3600', upsert: false });
 
           if (error) throw new Error(error.message);
@@ -879,7 +879,7 @@
       <div class="flex items-center gap-3">
         <i class="fas fa-flask text-2xl"></i>
         <h1 class="text-2xl font-bold tracking-wider">ValidApp</h1>
-        <span class="hidden md:inline text-blue-100 text-sm">Validation & Quality Workflow</span>
+        <span class="hidden md:inline text-blue-100 text-sm">Validation & Quality Nerhadou</span>
       </div>
       <div id="userInfo" class="hidden items-center gap-3">
         <span class="bg-blue-800 px-3 py-1 rounded-full text-sm font-semibold">
