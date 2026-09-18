@@ -376,7 +376,7 @@
           $('uploadProgress').textContent = `Uploading ${esc(file.name)} to Supabase...`;
           
           const { data, error } = await supabaseClient.storage
-            .from(SUPABASE_BUCKET)
+            .from(documents)
             .upload(storagePath, file, { cacheControl: '3600', upsert: false });
 
           if (error) throw new Error(error.message);
