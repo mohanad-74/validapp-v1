@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ValidApp - Validation & Qualification Nerhadou</title>
+  <title>ValidApp - Validation & Qualification Workflow</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
   
@@ -339,7 +339,6 @@
     }
     function fileTypeAllowed(file) { return !!ALLOWED_FILE_TYPES[file.type] && file.size <= MAX_FILE_SIZE; }
 
-    // UPDATED: Supabase Storage Upload
     async function uploadFiles(parentId, input, module='study') {
       if (!input.files.length) return;
       const files = [...input.files];
@@ -350,21 +349,18 @@
         $('uploadProgress').textContent = `Uploading ${file.name}...`;
 
         try {
-          // Upload file directly to Supabase Storage 'documents' bucket
           const { data: storageData, error: uploadErr } = await supabaseClient.storage
             .from('documents')
             .upload(fileName, file, { cacheControl: '3600', upsert: false });
 
           if (uploadErr) throw new Error(uploadErr.message);
 
-          // Retrieve Public URL
           const { data: publicUrlData } = supabaseClient.storage
             .from('documents')
             .getPublicUrl(fileName);
 
           const publicUrl = publicUrlData.publicUrl;
 
-          // Save metadata reference into Firestore
           await addDoc(colRef('studyFiles'), {
             parentId,
             studyId: module === 'study' ? parentId : null,
@@ -390,7 +386,6 @@
       renderFileList(parentId, module);
     }
 
-    // UPDATED: View/Download File via Supabase
     async function viewFile(file, download=false) {
       try {
         const fileUrl = file.publicUrl || supabaseClient.storage.from('documents').getPublicUrl(file.storagePath).data.publicUrl;
@@ -411,7 +406,6 @@
       }
     }
 
-    // UPDATED: Delete File from Supabase Storage
     async function deleteFile(file) {
       if (!isAdmin()) return showMessage('Unauthorized', 'Only Administrators can delete files.', 'error');
       confirmAction('Delete file', `Delete "${file.name}"?`, async () => {
@@ -430,12 +424,18 @@
       });
     }
 
-    function renderFileList(parentId,module='study') {
-      $('fileList').innerHTML = filesByParent.filter(f=>!f.deletedAt).map(f=>`<div class="border rounded-lg p-3 flex flex-wrap items-center justify-between gap-3 bg-gray-50"><div><div class="font-semibold text-sm">${esc(f.name)}</div><div class="text-xs text-gray-500">${esc(f.contentType)} · ${(f.size/1024/1024).toFixed(2)} MB · ${esc(nowLabel(f.uploadedAt))}</div></div><div class="flex gap-2"><button data-view-file="${esc(f.id)}" class="text-blue-600 text-xs font-semibold">View</button><button data-download-file="${esc(f.id)}" class="text-gray-700 text-xs font-semibold">Download</button>${isAdmin()?`<button data-delete-file="${esc(f.id)}" class="text-red-600 text-xs font-semibold">Delete</button>`:''}</div></div>`).join('') || '<div class="text-sm text-gray-500">No documents found.</div>';
-      $('fileParentId').value=parentId; $('fileModule').value=module;
+    function renderFileList(parentId, module='study') {
+      const activeFiles = filesByParent.filter(f => !f.deletedAt);
+      $('fileList').innerHTML = activeFiles.map(f => `<div class="border rounded-lg p-3 flex flex-wrap items-center justify-between gap-3 bg-gray-50"><div><div class="font-semibold text-sm">${esc(f.name)}</div><div class="text-xs text-gray-500">${esc(f.contentType)} · ${(f.size/1024/1024).toFixed(2)} MB · ${esc(nowLabel(f.uploadedAt))}</div></div><div class="flex gap-2"><button data-view-file="${esc(f.id)}" class="text-blue-600 text-xs font-semibold">View</button><button data-download-file="${esc(f.id)}" class="text-gray-700 text-xs font-semibold">Download</button>${isAdmin()?`<button data-delete-file="${esc(f.id)}" class="text-red-600 text-xs font-semibold">Delete</button>`:''}</div></div>`).join('') || '<div class="text-sm text-gray-500 text-center py-6">No documents found.</div>';
+      $('fileParentId').value = parentId; 
+      $('fileModule').value = module;
       $('fileModal').classList.add('active');
     }
-    async function openFiles(parentId,module='study') { await loadFiles(parentId,module); renderFileList(parentId,module); }
+
+    async function openFiles(parentId, module='study') { 
+      await loadFiles(parentId, module); 
+      renderFileList(parentId, module); 
+    }
 
     async function showHistory(studyId) {
       const snap = await getDocs(query(colRef('reviews'),where('studyId','==',studyId)));
@@ -659,7 +659,6 @@
       await loadModule(currentModule);
     }
 
-    // SSO Integration Logic
     async function handleAzureSSO() {
       try {
         const loginResponse = await msalInstance.loginPopup({
@@ -669,7 +668,6 @@
         const email = loginResponse.account.username.toLowerCase();
         const displayName = loginResponse.account.name;
 
-        // Populate email field for quick auth processing
         $('username').value = email;
         $('loginError').classList.add('hidden');
         
@@ -681,7 +679,6 @@
       }
     }
 
-    // Navigation and Event Wiring
     $('loginForm').addEventListener('submit', async e => {
       e.preventDefault();
       try {
@@ -957,15 +954,22 @@
 
   <!-- File Modal -->
   <div id="fileModal" class="modal fixed inset-0 bg-gray-900/60 z-50 items-center justify-center p-4">
-    <div class="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
-      <div class="bg-dark text-white p-4 flex justify-between"><h3 class="text-xl font-bold"><i class="fas fa-folder-open mr-2"></i>Controlled Documents</h3><button data-close><i class="fas fa-times"></i></button></div>
-      <div class="p-5 overflow-auto">
-        <div class="flex flex-wrap items-center gap-3 mb-4">
-          <label class="bg-primary text-white px-4 py-2 rounded cursor-pointer"><i class="fas fa-upload mr-2"></i>Add Files<input id="fileInput" type="file" class="hidden" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png"></label>
+    <div class="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden">
+      <div class="bg-dark text-white p-4 flex justify-between items-center shrink-0">
+        <h3 class="text-xl font-bold"><i class="fas fa-folder-open mr-2"></i>Controlled Documents</h3>
+        <button data-close class="text-white hover:text-gray-300 text-xl font-bold"><i class="fas fa-times"></i></button>
+      </div>
+      <div class="p-5 flex flex-col flex-grow overflow-hidden">
+        <div class="flex flex-wrap items-center gap-3 mb-4 shrink-0 border-b pb-4">
+          <label class="bg-primary hover:bg-blue-800 text-white px-4 py-2 rounded cursor-pointer font-semibold shadow-sm transition-all flex items-center gap-2">
+            <i class="fas fa-upload"></i><span>Add Files</span>
+            <input id="fileInput" type="file" class="hidden" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png">
+          </label>
           <span id="uploadProgress" class="text-xs font-semibold text-blue-700"></span>
         </div>
-        <input type="hidden" id="fileParentId"><input type="hidden" id="fileModule">
-        <div id="fileList" class="space-y-3"></div>
+        <input type="hidden" id="fileParentId">
+        <input type="hidden" id="fileModule">
+        <div id="fileList" class="space-y-3 overflow-y-auto flex-grow scrollbar pr-1"></div>
       </div>
     </div>
   </div>
