@@ -522,7 +522,7 @@ function openModuleModal(record=null){ $('moduleForm').reset(); $('moduleEditId'
       catch(e){console.error(e);await signOut(auth);$('loginError').textContent=e.message;$('loginError').classList.remove('hidden');}
     });
   </script>
-  <script>tailwind.config={theme:{extend:{colors:{primary:'#1e40af',secondary:'#3b82f6',accent:'#10b981',dark:'#1f2937',light:'#f3f4f6'}}}};</script>
+  <script>tailwind.config={theme:{extend:{colors:{primary:'#1e40af',secondary:'#3b82f6',accent:'#10b981',dark:'#1f2937',light:'#f3f4f6'}}};</script>
   <style>
     body{font-family:Inter,Arial,sans-serif;background:#f3f4f6}.modal{display:none}.modal.active{display:flex}.study-tab{transition:.2s}.scrollbar::-webkit-scrollbar{width:8px;height:8px}.scrollbar::-webkit-scrollbar-thumb{background:#c1c1c1;border-radius:4px}
   </style>
