@@ -515,15 +515,13 @@ function openModuleModal(record=null){ $('moduleForm').reset(); $('moduleEditId'
     function setCategoryTabs(){document.querySelectorAll('.study-tab').forEach(x=>x.classList.remove('bg-white','text-primary','shadow-sm'));const id=currentCategory===CATEGORIES.PROCESS?'tabProcess':currentCategory===CATEGORIES.HOLD_TIME?'tabHoldTime':'tabCleaning';$(id).classList.add('bg-white','text-primary','shadow-sm');}
     function showStudies(){currentModule=MODULES.STUDIES;$('studiesView').classList.remove('hidden');$('moduleView').classList.add('hidden');setCategoryTabs();configureNavigation();loadData();}
     async function showModule(){ $('studiesView').classList.add('hidden');$('moduleView').classList.remove('hidden');configureNavigation();await loadModule(currentModule); }
-
-    onAuthStateChanged(auth,async user=>{
-      if(!user){currentUser=null;currentProfile=null;resetAppUI();return;}
-      try{currentUser=user;currentProfile=await loadProfile(user);$('loginSection').classList.add('hidden');$('dashboardSection').classList.remove('hidden');$('dashboardSection').classList.add('flex');$('userInfo').classList.remove('hidden');$('userInfo').classList.add('flex');configureNavigation();await logAudit('Login', '', '', 'Authenticated session established.');showStudies();}
-      catch(e){console.error(e);await signOut(auth);$('loginError').textContent=e.message;$('loginError').classList.remove('hidden');}
+onAuthStateChanged(auth, async user => {
+      if (!user) { currentUser = null; currentProfile = null; resetAppUI(); return; }
+      try { currentUser = user; currentProfile = await loadProfile(user); $('loginSection').classList.add('hidden'); $('dashboardSection').classList.remove('hidden'); $('dashboardSection').classList.add('flex'); $('userInfo').classList.remove('hidden'); $('userInfo').classList.add('flex'); configureNavigation(); await logAudit('Login', '', '', 'Authenticated session established.'); showStudies(); }
+      catch (e) { console.error(e); await signOut(auth); $('loginError').textContent = e.message; $('loginError').classList.remove('hidden'); }
     });
   </script>
   <script>tailwind.config={theme:{extend:{colors:{primary:'#1e40af',secondary:'#3b82f6',accent:'#10b981',dark:'#1f2937',light:'#f3f4f6'}}};</script>
-  <style>
     body{font-family:Inter,Arial,sans-serif;background:#f3f4f6}.modal{display:none}.modal.active{display:flex}.study-tab{transition:.2s}.scrollbar::-webkit-scrollbar{width:8px;height:8px}.scrollbar::-webkit-scrollbar-thumb{background:#c1c1c1;border-radius:4px}
   </style>
 </head>
