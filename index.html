@@ -23,7 +23,7 @@
       apiKey: "AIzaSyDEV8rEluViDZiA5nnv7BiIU78rgq5en8A",
       authDomain: "validapp-db.firebaseapp.com",
       projectId: "validapp-db",
-      storageBucket: "validapp-db.firebasestorage.app",
+      storageet: "validapp-db.firebasestorage.app",
       messagingSenderId: "702664233017",
       appId: "1:702664233017:web:25fbede2f3c7244cdbfde8",
       measurementId: "G-7FTDYP0XWS"
@@ -32,7 +32,7 @@
     // --- Supabase Configuration ---
     const SUPABASE_URL = "https://lnyignnyhihrkjauhzsk.supabase.co";
     const SUPABASE_ANON_KEY = "sb_publishable__0Xw5joGtNrlh38qYOhrpw_vMALXzrV";
-    const SUPABASE_BUCKET = "validapp-files";
+    const SUPABASE_ET = "validapp-files";
 
     // Azure AD / Entra ID Configuration
     const msalConfig = {
@@ -409,8 +409,8 @@
 
     async function viewFile(file, download=false) {
       try {
-        const { data, error } = await supabaseClient.storage
-          .from(SUPABASE_BUCKET)
+      const { data, error } = await supabaseClient.storage
+      .from('documents')[cite: 9]
           .createSignedUrl(file.storagePath, 60, {
             download: download ? file.name : false
           });
