@@ -7,22 +7,19 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
   
-  <!-- Supabase JS Client -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-
   <!-- MSAL.js for Azure AD SSO -->
   <script src="https://alcdn.msauth.net/browser/2.38.0/js/msal-browser.min.js"></script>
 
+  <!-- Supabase JS Client v2 -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
   <script type="module">
     import { initializeApp, getApps, deleteApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-    import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword, sendPasswordResetEmail, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
     import { getFirestore, collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, query, where, orderBy, limit, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    import { getStorage, ref, uploadBytesResumable, getBlob, deleteObject } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
 
-    // Supabase Configuration
-    const SUPABASE_URL = "https://lnyignnyhihrkjauhzsk.supabase.co";
-    const SUPABASE_PUBLISHABLE_KEY = "sb_publishable__0Xw5joGtNrlh38qYOhrpw_vMALXzrV";
-    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
-
+    // --- Configurations ---
     const MY_FIREBASE_CONFIG = {
       apiKey: "AIzaSyDEV8rEluViDZiA5nnv7BiIU78rgq5en8A",
       authDomain: "validapp-db.firebaseapp.com",
@@ -33,6 +30,9 @@
       measurementId: "G-7FTDYP0XWS"
     };
 
+    const SUPABASE_URL = "https://YOUR_SUPABASE_PROJECT_ID.supabase.co"; // Replace with your Supabase URL
+    const SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY";                   // Replace with your Supabase Anon Key
+
     // Azure AD / Entra ID Configuration
     const msalConfig = {
       auth: {
@@ -40,20 +40,23 @@
         authority: "https://login.microsoftonline.com/a0463def-3037-44e8-8e17-e94af8f05069",
         redirectUri: window.location.origin + window.location.pathname
       },
-      cache: {
-        cacheLocation: "localStorage",
-        storeAuthStateInCookie: false
-      }
+      cache: { cacheLocation: "localStorage", storeAuthStateInCookie: false }
     };
 
     const msalInstance = new msal.PublicClientApplication(msalConfig);
 
+    // Initialize Services
     const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : MY_FIREBASE_CONFIG;
     const appId = typeof __app_id !== 'undefined' ? __app_id : 'validapp-default';
     const app = initializeApp(firebaseConfig);
     const auth = getAuth(app);
     const db = getFirestore(app);
+    const storage = getStorage(app);
 
+    // Supabase Initialization
+    const supabaseClient = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+
+    // --- Domain Constants ---
     const ROLES = Object.freeze({
       ADMIN: 'Administrator',
       CREATOR: 'Creator',
@@ -90,6 +93,7 @@
     });
     const MAX_FILE_SIZE = 25 * 1024 * 1024;
 
+    // --- State Variables ---
     let currentUser = null;
     let currentProfile = null;
     let currentModule = MODULES.STUDIES;
@@ -101,6 +105,7 @@
     let auditLogs = [];
     let pendingAction = null;
 
+    // --- Utility Helpers ---
     const $ = id => document.getElementById(id);
     const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const safeFileName = name => String(name).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 180);
@@ -125,6 +130,7 @@
       $('messageIcon').innerHTML = type === 'error' ? '<i class="fas fa-times-circle text-4xl text-red-500"></i>' : type === 'success' ? '<i class="fas fa-check-circle text-4xl text-green-500"></i>' : '<i class="fas fa-info-circle text-4xl text-blue-500"></i>';
       $('messageModal').classList.add('active');
     }
+
     function confirmAction(title, text, callback, requireReason=false, reasonLabel='Reason / comment *') {
       pendingAction = callback;
       $('confirmTitle').textContent = title;
@@ -134,7 +140,11 @@
       $('reasonWrap').classList.toggle('hidden', !requireReason);
       $('confirmModal').classList.add('active');
     }
-    function closeModals() { document.querySelectorAll('.modal').forEach(x => x.classList.remove('active')); pendingAction = null; }
+
+    function closeModals() {
+      document.querySelectorAll('.modal').forEach(x => x.classList.remove('active'));
+      pendingAction = null;
+    }
 
     function auditPayload(action, parentId='', parentName='', details='', previousStatus='', newStatus='') {
       return {
@@ -146,6 +156,7 @@
         details: details || '', createdAt: serverTimestamp(), clientTimestamp: new Date().toISOString()
       };
     }
+
     async function logAudit(action, parentId='', parentName='', details='', previousStatus='', newStatus='') {
       try { await addDoc(colRef('audit'), auditPayload(action, parentId, parentName, details, previousStatus, newStatus)); }
       catch (e) { console.error('Audit write failed', e); }
@@ -164,6 +175,7 @@
       $('loginForm').reset();
       $('loginError').classList.add('hidden');
     }
+
     function configureNavigation() {
       $('userManagementBtn').classList.toggle('hidden', !isAdmin());
       $('auditTrailBtn').classList.toggle('hidden', !can(ROLES.ADMIN, ROLES.QA_MANAGER, ROLES.DEPUTY));
@@ -242,7 +254,8 @@
     }
 
     function openRecordModal(record=null) {
-      $('recordForm').reset(); $('recordId').value = record?.id || '';
+      $('recordForm').reset();
+      $('recordId').value = record?.id || '';
       $('modalTitle').textContent = record ? 'Edit Validation Study' : 'Add New Validation Study';
       $('studyCategory').value = record?.studyCategory || currentCategory;
       $('studyStatus').value = record?.status || STATUS.DRAFT;
@@ -263,7 +276,6 @@
       e.preventDefault();
       if (!(isAdmin() || isCreator())) return showMessage('Unauthorized', 'You are not permitted to edit studies.', 'error');
       const id = $('recordId').value;
-      const existing = records.find(r => r.id === id);
       const data = {
         productName: $('productName').value.trim(), studyCategory: $('studyCategory').value, productType: $('productType').value,
         date: $('studyDate').value, stage: $('stage').value, version: $('version').value.trim(), scale: $('scale').value,
@@ -332,122 +344,161 @@
       return e?.message || 'An unexpected error occurred.';
     }
 
+    // --- Fixed File Upload & Management Logic ---
     async function loadFiles(parentId, module='study') {
-      const field = module === 'study' ? 'studyId' : 'parentId';
-      const snap = await getDocs(query(colRef('studyFiles'), where(field,'==',parentId)));
-      filesByParent = snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>String(b.createdAt?.seconds||'').localeCompare(String(a.createdAt?.seconds||'')));
+      const field = (module === 'study' || module === MODULES.STUDIES) ? 'studyId' : 'parentId';
+      const snap = await getDocs(query(colRef('studyFiles'), where(field, '==', parentId)));
+      filesByParent = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => String(b.createdAt?.seconds || '').localeCompare(String(a.createdAt?.seconds || '')));
     }
-    function fileTypeAllowed(file) { return !!ALLOWED_FILE_TYPES[file.type] && file.size <= MAX_FILE_SIZE; }
+
+    function fileTypeAllowed(file) {
+      return !!ALLOWED_FILE_TYPES[file.type] && file.size <= MAX_FILE_SIZE;
+    }
 
     async function uploadFiles(parentId, input, module='study') {
-      if (!input.files.length) return;
-      const files = [...input.files];
+      if (!input.files || !input.files.length) return;
+      const files = Array.from(input.files);
+      const isStudyModule = (module === 'study' || module === MODULES.STUDIES);
+
       for (const file of files) {
-        if (!fileTypeAllowed(file)) { showMessage('Invalid file', `${file.name}: invalid type or size exceeds 25MB.`,'error'); continue; }
-        
-        const fileName = `${Date.now()}_${safeFileName(file.name)}`;
-        $('uploadProgress').textContent = `Uploading ${file.name}...`;
+        if (!fileTypeAllowed(file)) {
+          showMessage('Invalid file', `${file.name}: invalid type or size exceeds 25MB.`, 'error');
+          continue;
+        }
+
+        const fileId = crypto.randomUUID();
+        const safeName = safeFileName(file.name);
+        const path = `artifacts/${appId}/${module}/${parentId}/${fileId}_${safeName}`;
 
         try {
-          const { data: storageData, error: uploadErr } = await supabaseClient.storage
-            .from('documents')
-            .upload(fileName, file, { cacheControl: '3600', upsert: false });
+          const storageRef = ref(storage, path);
+          const task = uploadBytesResumable(storageRef, file, { contentType: file.type });
 
-          if (uploadErr) throw new Error(uploadErr.message);
-
-          const { data: publicUrlData } = supabaseClient.storage
-            .from('documents')
-            .getPublicUrl(fileName);
-
-          const publicUrl = publicUrlData.publicUrl;
+          await new Promise((resolve, reject) => {
+            task.on('state_changed',
+              snap => {
+                const pct = Math.round((snap.bytesTransferred / snap.totalBytes) * 100);
+                $('uploadProgress').textContent = `Uploading ${esc(file.name)} — ${pct}%`;
+              },
+              reject,
+              resolve
+            );
+          });
 
           await addDoc(colRef('studyFiles'), {
-            parentId,
-            studyId: module === 'study' ? parentId : null,
-            module,
+            parentId: parentId,
+            studyId: isStudyModule ? parentId : null,
+            module: module,
             name: file.name,
             contentType: file.type,
             size: file.size,
-            storagePath: fileName,
-            publicUrl: publicUrl,
+            storagePath: path,
             uploadedByUid: currentUser.uid,
             uploadedByName: currentProfile.displayName || currentUser.email,
-            uploadedAt: serverTimestamp()
+            uploadedAt: serverTimestamp(),
+            createdAt: serverTimestamp()
           });
 
           await logAudit('File Uploaded', parentId, '', `${file.name}`);
-        } catch(e) { 
-          console.error(e); 
-          showMessage('Upload failed', friendlyError(e), 'error'); 
+        } catch(e) {
+          console.error('File Upload Error:', e);
+          showMessage('Upload failed', friendlyError(e), 'error');
         }
       }
-      $('uploadProgress').textContent = ''; 
-      await loadFiles(parentId, module); 
+
+      $('uploadProgress').textContent = '';
+      await loadFiles(parentId, module);
       renderFileList(parentId, module);
     }
 
     async function viewFile(file, download=false) {
       try {
-        const fileUrl = file.publicUrl || supabaseClient.storage.from('documents').getPublicUrl(file.storagePath).data.publicUrl;
-        
-        if (download) { 
-          const a = document.createElement('a'); 
-          a.href = fileUrl; 
-          a.download = file.name; 
-          a.target = '_blank';
-          document.body.appendChild(a); 
-          a.click(); 
-          a.remove(); 
-        } else { 
-          window.open(fileUrl, '_blank', 'noopener'); 
+        const blob = await getBlob(ref(storage, file.storagePath));
+        const url = URL.createObjectURL(blob);
+        if (download) {
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = file.name;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 60000);
+        } else {
+          window.open(url, '_blank', 'noopener');
+          setTimeout(() => URL.revokeObjectURL(url), 60000);
         }
-      } catch(e) { 
-        showMessage('Access denied', friendlyError(e), 'error'); 
+      } catch(e) {
+        showMessage('Access denied', friendlyError(e), 'error');
       }
     }
 
     async function deleteFile(file) {
       if (!isAdmin()) return showMessage('Unauthorized', 'Only Administrators can delete files.', 'error');
       confirmAction('Delete file', `Delete "${file.name}"?`, async () => {
-        try { 
-          const { error: removeErr } = await supabaseClient.storage.from('documents').remove([file.storagePath]);
-          if (removeErr) console.warn('Supabase delete notice:', removeErr.message);
-
-          await updateDoc(docRef('studyFiles', file.id), { deletedAt: serverTimestamp() }); 
-          await logAudit('File Deleted', file.parentId || file.studyId, '', file.name); 
-          await loadFiles(file.parentId || file.studyId, file.module); 
-          renderFileList(file.parentId || file.studyId, file.module); 
-          showMessage('Deleted', 'File deleted.', 'success'); 
-        } catch(e) { 
-          showMessage('Delete failed', friendlyError(e), 'error'); 
+        try {
+          await deleteObject(ref(storage, file.storagePath));
+          await updateDoc(docRef('studyFiles', file.id), { deletedAt: serverTimestamp() });
+          const targetParent = file.parentId || file.studyId;
+          await logAudit('File Deleted', targetParent, '', file.name);
+          await loadFiles(targetParent, file.module);
+          renderFileList(targetParent, file.module);
+          showMessage('Deleted', 'File deleted.', 'success');
+        } catch(e) {
+          showMessage('Delete failed', friendlyError(e), 'error');
         }
       });
     }
 
     function renderFileList(parentId, module='study') {
-      const activeFiles = filesByParent.filter(f => !f.deletedAt);
-      $('fileList').innerHTML = activeFiles.map(f => `<div class="border rounded-lg p-3 flex flex-wrap items-center justify-between gap-3 bg-gray-50"><div><div class="font-semibold text-sm">${esc(f.name)}</div><div class="text-xs text-gray-500">${esc(f.contentType)} · ${(f.size/1024/1024).toFixed(2)} MB · ${esc(nowLabel(f.uploadedAt))}</div></div><div class="flex gap-2"><button data-view-file="${esc(f.id)}" class="text-blue-600 text-xs font-semibold">View</button><button data-download-file="${esc(f.id)}" class="text-gray-700 text-xs font-semibold">Download</button>${isAdmin()?`<button data-delete-file="${esc(f.id)}" class="text-red-600 text-xs font-semibold">Delete</button>`:''}</div></div>`).join('') || '<div class="text-sm text-gray-500 text-center py-6">No documents found.</div>';
-      $('fileParentId').value = parentId; 
+      $('fileList').innerHTML = filesByParent.filter(f => !f.deletedAt).map(f => `<div class="border rounded-lg p-3 flex flex-wrap items-center justify-between gap-3 bg-gray-50">
+        <div>
+          <div class="font-semibold text-sm">${esc(f.name)}</div>
+          <div class="text-xs text-gray-500">${esc(f.contentType)} · ${(f.size/1024/1024).toFixed(2)} MB · ${esc(nowLabel(f.uploadedAt))}</div>
+        </div>
+        <div class="flex gap-2">
+          <button data-view-file="${esc(f.id)}" class="text-blue-600 text-xs font-semibold hover:underline">View</button>
+          <button data-download-file="${esc(f.id)}" class="text-gray-700 text-xs font-semibold hover:underline">Download</button>
+          ${isAdmin() ? `<button data-delete-file="${esc(f.id)}" class="text-red-600 text-xs font-semibold hover:underline">Delete</button>` : ''}
+        </div>
+      </div>`).join('') || '<div class="text-sm text-gray-500">No documents found.</div>';
+
+      $('fileParentId').value = parentId;
       $('fileModule').value = module;
       $('fileModal').classList.add('active');
     }
 
-    async function openFiles(parentId, module='study') { 
-      await loadFiles(parentId, module); 
-      renderFileList(parentId, module); 
+    async function openFiles(parentId, module='study') {
+      await loadFiles(parentId, module);
+      renderFileList(parentId, module);
     }
 
     async function showHistory(studyId) {
-      const snap = await getDocs(query(colRef('reviews'),where('studyId','==',studyId)));
-      const items=snap.docs.map(d=>d.data()).sort((a,b)=>String(b.createdAt?.seconds||'').localeCompare(String(a.createdAt?.seconds||'')));
-      $('historyBody').innerHTML=items.map(x=>`<div class="border-l-4 border-blue-300 pl-4 py-2"><div class="font-semibold text-sm">${esc(x.action || 'Review')} — ${esc(x.reviewerRole || '')}</div><div class="text-xs text-gray-500">${esc(x.reviewerName)} · ${esc(nowLabel(x.createdAt))}</div><div class="text-sm mt-1 whitespace-pre-wrap">${esc(x.comment||'No comment recorded.')}</div></div>`).join('') || '<div class="text-sm text-gray-500">No review history.</div>';
+      const snap = await getDocs(query(colRef('reviews'), where('studyId', '==', studyId)));
+      const items = snap.docs.map(d => d.data()).sort((a,b) => String(b.createdAt?.seconds || '').localeCompare(String(a.createdAt?.seconds || '')));
+      $('historyBody').innerHTML = items.map(x => `<div class="border-l-4 border-blue-300 pl-4 py-2">
+        <div class="font-semibold text-sm">${esc(x.action || 'Review')} — ${esc(x.reviewerRole || '')}</div>
+        <div class="text-xs text-gray-500">${esc(x.reviewerName)} · ${esc(nowLabel(x.createdAt))}</div>
+        <div class="text-sm mt-1 whitespace-pre-wrap">${esc(x.comment || 'No comment recorded.')}</div>
+      </div>`).join('') || '<div class="text-sm text-gray-500">No review history.</div>';
       $('historyModal').classList.add('active');
     }
 
     function renderAudit() {
-      $('auditTableBody').innerHTML=auditLogs.map(x=>`<tr><td class="px-3 py-2 text-xs">${esc(nowLabel(x.createdAt))}</td><td class="px-3 py-2 text-xs">${esc(x.userName)}<div class="text-gray-500">${esc(x.userRole)}</div></td><td class="px-3 py-2 text-xs font-semibold">${esc(x.action)}</td><td class="px-3 py-2 text-xs">${esc(x.studyName||x.studyId||'—')}</td><td class="px-3 py-2 text-xs">${esc(x.previousStatus||'—')} → ${esc(x.newStatus||'—')}<div>${esc(x.details||'')}</div></td></tr>`).join('');
+      $('auditTableBody').innerHTML = auditLogs.map(x => `<tr>
+        <td class="px-3 py-2 text-xs">${esc(nowLabel(x.createdAt))}</td>
+        <td class="px-3 py-2 text-xs">${esc(x.userName)}<div class="text-gray-500">${esc(x.userRole)}</div></td>
+        <td class="px-3 py-2 text-xs font-semibold">${esc(x.action)}</td>
+        <td class="px-3 py-2 text-xs">${esc(x.studyName || x.studyId || '—')}</td>
+        <td class="px-3 py-2 text-xs">${esc(x.previousStatus || '—')} → ${esc(x.newStatus || '—')}<div>${esc(x.details || '')}</div></td>
+      </tr>`).join('');
     }
-    async function loadAudit() { const snap=await getDocs(query(colRef('audit'),orderBy('createdAt','desc'),limit(500))); auditLogs=snap.docs.map(d=>({id:d.id,...d.data()})); renderAudit(); $('auditModal').classList.add('active'); }
+
+    async function loadAudit() {
+      const snap = await getDocs(query(colRef('audit'), orderBy('createdAt', 'desc'), limit(500)));
+      auditLogs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      renderAudit();
+      $('auditModal').classList.add('active');
+    }
 
     function renderUserRoleOptions(selectedRole = '') {
       const el = document.getElementById('newRole');
@@ -541,7 +592,7 @@
         department: currentProfile.department || '', createdAt: serverTimestamp(), updatedAt: serverTimestamp()
       };
       if (!data.name || !data.reference) return showMessage('Missing fields', 'Name and Reference ID are required.', 'error');
-      const collectionName = module === 'Calibration' ? 'calibration' : 'qualification'; 
+      const collectionName = module === MODULES.CALIBRATION ? 'calibration' : 'qualification'; 
       try { 
         if (editId) { 
           await updateDoc(docRef(collectionName, editId), {...data, updatedAt: serverTimestamp()}); 
@@ -558,7 +609,7 @@
 
     async function loadModule(module) { 
       currentModule = module; 
-      const collectionName = module === 'Calibration' ? 'calibration' : 'qualification'; 
+      const collectionName = module === MODULES.CALIBRATION ? 'calibration' : 'qualification'; 
       try {
         let q = query(colRef(collectionName), orderBy('createdAt', 'desc')); 
         const snap = await getDocs(q); 
@@ -578,11 +629,11 @@
           <td class="px-4 py-3 text-xs">${esc(r.equipmentOrSystem || '—')}</td>
           <td class="px-4 py-3">${statusBadge(r.status)}</td>
           <td class="px-4 py-3 text-center">
-            <button data-module-files="${esc(r.id)}" class="text-gray-600 text-xs font-semibold mr-2">Files</button>
-            ${owner && [STATUS.DRAFT, STATUS.RETURNED].includes(r.status) ? `<button data-module-edit="${esc(r.id)}" class="text-purple-600 text-xs font-semibold mr-2">Edit</button>` : ''}
-            ${owner && r.status === STATUS.DRAFT ? `<button data-module-submit="${esc(r.id)}" class="text-purple-600 text-xs font-semibold mr-2">Submit</button>` : ''}
-            ${review ? `<button data-module-review="${esc(r.id)}" class="text-blue-600 text-xs font-semibold mr-2">Review</button>` : ''}
-            ${review ? `<button data-module-return="${esc(r.id)}" class="text-amber-600 text-xs font-semibold">Return</button>` : ''}
+            <button data-module-files="${esc(r.id)}" class="text-gray-600 text-xs font-semibold mr-2 hover:underline">Files</button>
+            ${owner && [STATUS.DRAFT, STATUS.RETURNED].includes(r.status) ? `<button data-module-edit="${esc(r.id)}" class="text-purple-600 text-xs font-semibold mr-2 hover:underline">Edit</button>` : ''}
+            ${owner && r.status === STATUS.DRAFT ? `<button data-module-submit="${esc(r.id)}" class="text-purple-600 text-xs font-semibold mr-2 hover:underline">Submit</button>` : ''}
+            ${review ? `<button data-module-review="${esc(r.id)}" class="text-blue-600 text-xs font-semibold mr-2 hover:underline">Review</button>` : ''}
+            ${review ? `<button data-module-return="${esc(r.id)}" class="text-amber-600 text-xs font-semibold hover:underline">Return</button>` : ''}
           </td>
         </tr>`;
       }).join(''); 
@@ -593,7 +644,7 @@
       const target = r.status === STATUS.PENDING_SECTION_HEAD ? STATUS.PENDING_QA : STATUS.COMPLETED; 
       confirmAction('Complete Review', `Complete review of ${r.name}?`, async comment => {
         try {
-          const c = currentModule === 'Calibration' ? 'calibration' : 'qualification';
+          const c = currentModule === MODULES.CALIBRATION ? 'calibration' : 'qualification';
           await updateDoc(docRef(c, id), {status: target, updatedAt: serverTimestamp()});
           await logAudit(`${currentModule} Review Completed`, id, r.name, comment || '', r.status, target);
           closeModals(); await loadModule(currentModule); showMessage('Review completed', `Advanced to ${target}.`, 'success');
@@ -605,7 +656,7 @@
       const r = moduleRecords.find(x => x.id === id); if (!r) return;
       confirmAction('Return for Correction', `Return ${r.name} to Creator?`, async reason => {
         try {
-          const c = currentModule === 'Calibration' ? 'calibration' : 'qualification';
+          const c = currentModule === MODULES.CALIBRATION ? 'calibration' : 'qualification';
           await updateDoc(docRef(c, id), {status: STATUS.RETURNED, updatedAt: serverTimestamp()});
           await logAudit(`${currentModule} Returned`, id, r.name, reason, r.status, STATUS.RETURNED);
           closeModals(); await loadModule(currentModule); showMessage('Returned', 'Record returned to Creator.', 'success');
@@ -615,7 +666,7 @@
 
     async function moduleSubmit(id) {
       const r = moduleRecords.find(x => x.id === id); if (!r) return;
-      const c = currentModule === 'Calibration' ? 'calibration' : 'qualification';
+      const c = currentModule === MODULES.CALIBRATION ? 'calibration' : 'qualification';
       try {
         await updateDoc(docRef(c, id), {status: STATUS.PENDING_SECTION_HEAD, submittedAt: serverTimestamp(), updatedAt: serverTimestamp()});
         await logAudit(`${currentModule} Submitted`, id, r.name, 'Submitted for review.', r.status, STATUS.PENDING_SECTION_HEAD);
@@ -626,7 +677,7 @@
     function openModuleModal(record = null) { 
       $('moduleForm').reset(); 
       $('moduleEditId').value = record?.id || ''; 
-      $('moduleType').value = record?.module || (currentModule === MODULES.STUDIES ? 'Calibration' : currentModule); 
+      $('moduleType').value = record?.module || (currentModule === MODULES.STUDIES ? MODULES.CALIBRATION : currentModule); 
       $('moduleName').value = record?.name || ''; 
       $('moduleReference').value = record?.reference || ''; 
       $('moduleCategory').value = record?.category || ''; 
@@ -659,6 +710,7 @@
       await loadModule(currentModule);
     }
 
+    // SSO Integration Logic
     async function handleAzureSSO() {
       try {
         const loginResponse = await msalInstance.loginPopup({
@@ -679,6 +731,7 @@
       }
     }
 
+    // --- Navigation and Event Wiring ---
     $('loginForm').addEventListener('submit', async e => {
       e.preventDefault();
       try {
@@ -691,11 +744,11 @@
     });
 
     $('azureSsoBtn').addEventListener('click', handleAzureSSO);
-
     $('logoutBtn').addEventListener('click', () => signOut(auth));
     $('recordForm').addEventListener('submit', saveStudy);
     $('moduleForm').addEventListener('submit', addModuleRecord);
     $('userForm').addEventListener('submit', createOrUpdateUser);
+
     $('sendResetBtn').addEventListener('click', async () => {
       const email = $('newEmail').value.trim();
       if (!email) return showMessage('Email required', 'Enter email first.', 'error');
@@ -735,6 +788,7 @@
 
     document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', closeModals));
 
+    // Delegation handler for dynamically created buttons
     document.addEventListener('click', async e => {
       const t = e.target.closest('button'); if (!t) return;
       if (t.dataset.edit) { const r = records.find(x => x.id === t.dataset.edit); if (r) openRecordModal(r); }
@@ -781,6 +835,7 @@
       e.target.value = '';
     });
 
+    // Auth State Tracker
     onAuthStateChanged(auth, async user => {
       if (!user) { currentUser = null; currentProfile = null; resetAppUI(); return; }
       try {
@@ -799,6 +854,9 @@
         $('loginError').classList.remove('hidden');
       }
     });
+  </script>
+  <script>
+    tailwind.config = { theme: { extend: { colors: { primary: '#1e40af', secondary: '#3b82f6', accent: '#10b981', dark: '#1f2937', light: '#f3f4f6' } } } };
   </script>
   <style>
     body { font-family: Inter, Arial, sans-serif; background: #f3f4f6; }
@@ -954,22 +1012,15 @@
 
   <!-- File Modal -->
   <div id="fileModal" class="modal fixed inset-0 bg-gray-900/60 z-50 items-center justify-center p-4">
-    <div class="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden">
-      <div class="bg-dark text-white p-4 flex justify-between items-center shrink-0">
-        <h3 class="text-xl font-bold"><i class="fas fa-folder-open mr-2"></i>Controlled Documents</h3>
-        <button data-close class="text-white hover:text-gray-300 text-xl font-bold"><i class="fas fa-times"></i></button>
-      </div>
-      <div class="p-5 flex flex-col flex-grow overflow-hidden">
-        <div class="flex flex-wrap items-center gap-3 mb-4 shrink-0 border-b pb-4">
-          <label class="bg-primary hover:bg-blue-800 text-white px-4 py-2 rounded cursor-pointer font-semibold shadow-sm transition-all flex items-center gap-2">
-            <i class="fas fa-upload"></i><span>Add Files</span>
-            <input id="fileInput" type="file" class="hidden" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png">
-          </label>
+    <div class="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+      <div class="bg-dark text-white p-4 flex justify-between"><h3 class="text-xl font-bold"><i class="fas fa-folder-open mr-2"></i>Controlled Documents</h3><button data-close><i class="fas fa-times"></i></button></div>
+      <div class="p-5 overflow-auto">
+        <div class="flex flex-wrap items-center gap-3 mb-4">
+          <label class="bg-primary text-white px-4 py-2 rounded cursor-pointer"><i class="fas fa-upload mr-2"></i>Add Files<input id="fileInput" type="file" class="hidden" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png"></label>
           <span id="uploadProgress" class="text-xs font-semibold text-blue-700"></span>
         </div>
-        <input type="hidden" id="fileParentId">
-        <input type="hidden" id="fileModule">
-        <div id="fileList" class="space-y-3 overflow-y-auto flex-grow scrollbar pr-1"></div>
+        <input type="hidden" id="fileParentId"><input type="hidden" id="fileModule">
+        <div id="fileList" class="space-y-3"></div>
       </div>
     </div>
   </div>
