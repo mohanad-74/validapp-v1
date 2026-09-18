@@ -1,0 +1,41 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() { return request.auth != null; }
+    function profile() { return firestore.get(/databases/(default)/documents/artifacts/validapp-default/public/data/users/$(request.auth.uid)); }
+    function appProfile(appId) { return firestore.get(/databases/(default)/documents/artifacts/$(appId)/public/data/users/$(request.auth.uid)); }
+    function hasRole(appId, r) { return signedIn() && appProfile(appId).data.disabled != true && appProfile(appId).data.role == r; }
+    function allowedType() { return request.resource.contentType in ['application/pdf','application/msword','application/vnd.openxmlformats-officedocument.wordprocessingml.document','application/vnd.ms-excel','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','image/jpeg','image/png']; }
+    function allowedSize() { return request.resource.size <= 25 * 1024 * 1024; }
+
+    match /artifacts/{appId}/study/{parentId}/{fileName} {
+      allow write: if signedIn()
+        && (hasRole(appId,'Administrator') || hasRole(appId,'Creator') || hasRole(appId,'Section Head') || hasRole(appId,'Reviewer — Other Department') || hasRole(appId,'Deputy QA Manager') || hasRole(appId,'QA Manager'))
+        && allowedType() && allowedSize()
+        && request.resource.metadata.parentId == parentId
+        && request.resource.metadata.uploadedByUid == request.auth.uid;
+      allow read: if signedIn() && (
+        hasRole(appId,'Administrator') ||
+        hasRole(appId,'Creator') && firestore.get(/databases/(default)/documents/artifacts/$(appId)/public/data/records/$(parentId)).data.createdByUid == request.auth.uid ||
+        hasRole(appId,'Section Head') && firestore.get(/databases/(default)/documents/artifacts/$(appId)/public/data/records/$(parentId)).data.status == 'Pending Section Head' ||
+        hasRole(appId,'Reviewer — Other Department') && firestore.get(/databases/(default)/documents/artifacts/$(appId)/public/data/records/$(parentId)).data.status == 'Pending Reviewer' ||
+        hasRole(appId,'Deputy QA Manager') && firestore.get(/databases/(default)/documents/artifacts/$(appId)/public/data/records/$(parentId)).data.status == 'Pending Deputy QA' ||
+        hasRole(appId,'QA Manager') && firestore.get(/databases/(default)/documents/artifacts/$(appId)/public/data/records/$(parentId)).data.status == 'Pending QA Manager' ||
+        hasRole(appId,'Viewer') && firestore.get(/databases/(default)/documents/artifacts/$(appId)/public/data/records/$(parentId)).data.status in ['Approved','Completed']
+      );
+      allow delete: if false;
+    }
+
+    match /artifacts/{appId}/Calibration/{parentId}/{fileName} {
+      allow write: if signedIn() && (hasRole(appId,'Administrator') || hasRole(appId,'Creator') || hasRole(appId,'Section Head') || hasRole(appId,'QA Manager')) && allowedType() && allowedSize() && request.resource.metadata.parentId == parentId && request.resource.metadata.uploadedByUid == request.auth.uid;
+      allow read: if signedIn() && (hasRole(appId,'Administrator') || hasRole(appId,'Creator') || hasRole(appId,'Section Head') || hasRole(appId,'QA Manager') || hasRole(appId,'Viewer') && firestore.get(/databases/(default)/documents/artifacts/$(appId)/public/data/calibration/$(parentId)).data.status in ['Approved','Completed']);
+      allow delete: if false;
+    }
+
+    match /artifacts/{appId}/Qualification/{parentId}/{fileName} {
+      allow write: if signedIn() && (hasRole(appId,'Administrator') || hasRole(appId,'Creator') || hasRole(appId,'Section Head') || hasRole(appId,'QA Manager')) && allowedType() && allowedSize() && request.resource.metadata.parentId == parentId && request.resource.metadata.uploadedByUid == request.auth.uid;
+      allow read: if signedIn() && (hasRole(appId,'Administrator') || hasRole(appId,'Creator') || hasRole(appId,'Section Head') || hasRole(appId,'QA Manager') || hasRole(appId,'Viewer') && firestore.get(/databases/(default)/documents/artifacts/$(appId)/public/data/qualification/$(parentId)).data.status in ['Approved','Completed']);
+      allow delete: if false;
+    }
+  }
+}
