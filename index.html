@@ -17,7 +17,7 @@
     import { initializeApp, getApps, deleteApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
     import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
     import { getFirestore, collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, query, where, orderBy, limit, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-    import { getStorage, ref, uploadBytesResumable, getBlob, deleteObject } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
+    // NOTE: Firebase Storage imports removed. We are exclusively using Supabase for Storage now.
 
     // --- Configurations ---
     const MY_FIREBASE_CONFIG = {
@@ -30,8 +30,10 @@
       measurementId: "G-7FTDYP0XWS"
     };
 
-    const SUPABASE_URL = "https://YOUR_SUPABASE_PROJECT_ID.supabase.co"; // Replace with your Supabase URL
-    const SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY";                   // Replace with your Supabase Anon Key
+    // --- Supabase Configuration ---
+    const SUPABASE_URL = "https://YOUR_SUPABASE_PROJECT_ID.supabase.co"; // Replace with your URL
+    const SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY";                   // Replace with your Anon Key
+    const SUPABASE_BUCKET = "validapp-files";                             // Ensure this bucket is created in Supabase
 
     // Azure AD / Entra ID Configuration
     const msalConfig = {
@@ -51,7 +53,6 @@
     const app = initializeApp(firebaseConfig);
     const auth = getAuth(app);
     const db = getFirestore(app);
-    const storage = getStorage(app);
 
     // Supabase Initialization
     const supabaseClient = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
@@ -344,7 +345,7 @@
       return e?.message || 'An unexpected error occurred.';
     }
 
-    // --- Fixed File Upload & Management Logic ---
+    // --- SUPABASE Storage Integration ---
     async function loadFiles(parentId, module='study') {
       const field = (module === 'study' || module === MODULES.STUDIES) ? 'studyId' : 'parentId';
       const snap = await getDocs(query(colRef('studyFiles'), where(field, '==', parentId)));
@@ -357,6 +358,8 @@
 
     async function uploadFiles(parentId, input, module='study') {
       if (!input.files || !input.files.length) return;
+      if (!supabaseClient) return showMessage('Supabase Not Initialized', 'Ensure URL and Key are set correctly.', 'error');
+      
       const files = Array.from(input.files);
       const isStudyModule = (module === 'study' || module === MODULES.STUDIES);
 
@@ -368,23 +371,19 @@
 
         const fileId = crypto.randomUUID();
         const safeName = safeFileName(file.name);
-        const path = `artifacts/${appId}/${module}/${parentId}/${fileId}_${safeName}`;
+        const storagePath = `${appId}/${module}/${parentId}/${fileId}_${safeName}`; // Removed 'artifacts/' prefix as we are using a dedicated bucket
 
         try {
-          const storageRef = ref(storage, path);
-          const task = uploadBytesResumable(storageRef, file, { contentType: file.type });
+          $('uploadProgress').textContent = `Uploading ${esc(file.name)} to Supabase...`;
+          
+          // 1. Upload the file blob to Supabase Storage Bucket
+          const { data, error } = await supabaseClient.storage
+            .from(SUPABASE_BUCKET)
+            .upload(storagePath, file, { cacheControl: '3600', upsert: false });
 
-          await new Promise((resolve, reject) => {
-            task.on('state_changed',
-              snap => {
-                const pct = Math.round((snap.bytesTransferred / snap.totalBytes) * 100);
-                $('uploadProgress').textContent = `Uploading ${esc(file.name)} — ${pct}%`;
-              },
-              reject,
-              resolve
-            );
-          });
+          if (error) throw new Error(error.message);
 
+          // 2. Save metadata reference in Firestore
           await addDoc(colRef('studyFiles'), {
             parentId: parentId,
             studyId: isStudyModule ? parentId : null,
@@ -392,7 +391,7 @@
             name: file.name,
             contentType: file.type,
             size: file.size,
-            storagePath: path,
+            storagePath: storagePath,
             uploadedByUid: currentUser.uid,
             uploadedByName: currentProfile.displayName || currentUser.email,
             uploadedAt: serverTimestamp(),
@@ -401,7 +400,7 @@
 
           await logAudit('File Uploaded', parentId, '', `${file.name}`);
         } catch(e) {
-          console.error('File Upload Error:', e);
+          console.error('Supabase Upload Error:', e);
           showMessage('Upload failed', friendlyError(e), 'error');
         }
       }
@@ -413,19 +412,24 @@
 
     async function viewFile(file, download=false) {
       try {
-        const blob = await getBlob(ref(storage, file.storagePath));
-        const url = URL.createObjectURL(blob);
+        // Generate short-lived signed URL for the protected file in Supabase
+        const { data, error } = await supabaseClient.storage
+          .from(SUPABASE_BUCKET)
+          .createSignedUrl(file.storagePath, 60, {
+            download: download ? file.name : false
+          });
+
+        if (error) throw new Error(error.message);
+
         if (download) {
           const a = document.createElement('a');
-          a.href = url;
+          a.href = data.signedUrl;
           a.download = file.name;
           document.body.appendChild(a);
           a.click();
           a.remove();
-          setTimeout(() => URL.revokeObjectURL(url), 60000);
         } else {
-          window.open(url, '_blank', 'noopener');
-          setTimeout(() => URL.revokeObjectURL(url), 60000);
+          window.open(data.signedUrl, '_blank', 'noopener');
         }
       } catch(e) {
         showMessage('Access denied', friendlyError(e), 'error');
@@ -436,8 +440,16 @@
       if (!isAdmin()) return showMessage('Unauthorized', 'Only Administrators can delete files.', 'error');
       confirmAction('Delete file', `Delete "${file.name}"?`, async () => {
         try {
-          await deleteObject(ref(storage, file.storagePath));
+          // Remove the physical file from Supabase Storage
+          const { error } = await supabaseClient.storage
+            .from(SUPABASE_BUCKET)
+            .remove([file.storagePath]);
+            
+          if (error) throw new Error(error.message);
+
+          // Soft delete in Firestore metadata
           await updateDoc(docRef('studyFiles', file.id), { deletedAt: serverTimestamp() });
+          
           const targetParent = file.parentId || file.studyId;
           await logAudit('File Deleted', targetParent, '', file.name);
           await loadFiles(targetParent, file.module);
