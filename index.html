@@ -16,6 +16,9 @@
   <!-- EmailJS SDK -->
   <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
 
+  <!-- SheetJS for Excel Bulk Import/Export -->
+  <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+
   <script type="module">
     import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
     import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
@@ -263,7 +266,6 @@
       const buttons = [];
       const owner = r.createdByUid === currentUser?.uid || r.createdBy === currentProfile?.username;
       
-      // Viewer restrictions: Viewers only see approved studies and can download files/final study, no history or adding/modifying files
       if (isViewer()) {
         if (r.status === STATUS.APPROVED) {
           buttons.push(`<button class="text-gray-700 text-xs font-semibold" data-files="${esc(r.id)}"><i class="fas fa-download mr-1"></i>Files / Download</button>`);
@@ -293,7 +295,6 @@
       
       let filtered = records.filter(r => r.studyCategory === category && (!q || `${r.productName||''} ${r.productType||''}`.toLowerCase().includes(q)) && (stage === 'All' || r.stage === stage) && (status === 'All' || r.status === status) && (scale === 'All' || r.scale === scale));
       
-      // If viewer, enforce seeing only approved studies strictly
       if (isViewer()) {
         filtered = filtered.filter(r => r.status === STATUS.APPROVED);
       }
@@ -550,7 +551,6 @@
     }
 
     function renderFileList(parentId, module='study') {
-      // If viewer, hide the file upload area container or inputs completely
       const uploadContainer = $('uploadFileContainer');
       if (uploadContainer) {
         uploadContainer.classList.toggle('hidden', isViewer());
@@ -579,7 +579,7 @@
     }
 
     async function showHistory(studyId) {
-      if (isViewer()) return; // Viewers have no access to see the history
+      if (isViewer()) return;
       const snap = await getDocs(query(colRef('reviews'), where('studyId', '==', studyId)));
       const items = snap.docs.map(d => d.data()).sort((a,b) => String(b.createdAt?.seconds || '').localeCompare(String(a.createdAt?.seconds || '')));
       $('historyBody').innerHTML = items.map(x => `<div class="border-l-4 border-blue-300 pl-4 py-2">
@@ -702,12 +702,28 @@
       if (!(isAdmin() || isCreator())) return showMessage('Unauthorized', 'Cannot create record.', 'error');
       const module = $('moduleType').value; 
       const editId = $('moduleEditId').value; 
+      
       const data = {
-        name: $('moduleName').value.trim(), reference: $('moduleReference').value.trim(), category: $('moduleCategory').value.trim(),
-        equipmentOrSystem: $('moduleEquipment').value.trim(), plannedDate: $('moduleDate').value, description: $('moduleDescription').value.trim(),
-        status: STATUS.DRAFT, createdByUid: currentUser.uid, createdByName: currentProfile.displayName || currentUser.email,
-        department: currentProfile.department || '', createdAt: serverTimestamp(), updatedAt: serverTimestamp()
+        name: $('moduleName').value.trim(), 
+        reference: $('moduleReference').value.trim(), 
+        category: $('moduleCategory').value.trim(),
+        equipmentOrSystem: $('moduleEquipment').value.trim(), 
+        plannedDate: $('moduleDate').value, 
+        description: $('moduleDescription').value.trim(),
+        certificateNo: $('modCertNo')?.value.trim() || '',
+        manufacturer: $('modManuf')?.value.trim() || '',
+        serialNumber: $('modSerial')?.value.trim() || '',
+        location: $('modLocation')?.value.trim() || '',
+        calRange: $('modRange')?.value.trim() || '',
+        acceptanceLimits: $('modLimits')?.value.trim() || '',
+        status: STATUS.DRAFT, 
+        createdByUid: currentUser.uid, 
+        createdByName: currentProfile.displayName || currentUser.email,
+        department: currentProfile.department || '', 
+        createdAt: serverTimestamp(), 
+        updatedAt: serverTimestamp()
       };
+
       if (!data.name || !data.reference) return showMessage('Missing fields', 'Name and Reference ID are required.', 'error');
       const collectionName = module === MODULES.CALIBRATION ? 'calibration' : 'qualification'; 
       try { 
@@ -735,10 +751,86 @@
       } catch(e) { showMessage('Module access error', friendlyError(e), 'error'); }
     }
 
+    // --- Excel Bulk Import Handler for Calibration ---
+    async function handleCalibrationExcelImport(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      if (!supabaseClient && !currentUser) return showMessage('Auth Error', 'You must be signed in.', 'error');
+
+      const reader = new FileReader();
+      reader.onload = async function(e) {
+        try {
+          const data = new Uint8Array(e.target.result);
+          const workbook = XLSX.read(data, { type: 'array' });
+          const firstSheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[firstSheetName];
+          const jsonRows = XLSX.utils.sheet_to_json(worksheet);
+
+          let importedCount = 0;
+          for (const row of jsonRows) {
+            const payload = {
+              name: row["Instrument"] || row["Name"] || "Imported Instrument",
+              reference: row["Code"] || row["Reference"] || `CAL-${Date.now()}-${importedCount}`,
+              category: row["Category"] || CALIBRATION_TYPES.CERTIFICATE,
+              equipmentOrSystem: row["Location"] || row["Department"] || "",
+              plannedDate: row["Due Date"] || row["Cal. Date"] || new Date().toISOString().split('T')[0],
+              description: `Imported from Excel: ${file.name}`,
+              certificateNo: row["Certificate No."] || row["CertificateNo"] || "",
+              manufacturer: row["Manuf."] || row["Manufacturer"] || "",
+              serialNumber: row["S.N"] || row["Serial Number"] || "",
+              location: row["Location"] || "",
+              calRange: row["Cal. range"] || row["CalRange"] || "",
+              acceptanceLimits: row["AcceptanceLimits"] || row["Acceptance Limits"] || "",
+              status: STATUS.DRAFT,
+              createdByUid: currentUser.uid,
+              createdByName: currentProfile.displayName || currentUser.email,
+              department: currentProfile.department || '',
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp()
+            };
+
+            await addDoc(colRef('calibration'), payload);
+            importedCount++;
+          }
+
+          await logAudit('BULK_EXCEL_IMPORT', '', '', `Imported ${importedCount} calibration records from file: ${file.name}`);
+          showMessage('Import Successful', `Successfully imported ${importedCount} records as Drafts.`, 'success');
+          await loadModule(MODULES.CALIBRATION);
+        } catch (err) {
+          console.error(err);
+          showMessage('Import Failed', friendlyError(err), 'error');
+        }
+      };
+      reader.readAsArrayBuffer(file);
+      e.target.value = '';
+    }
+
     function renderModuleTable() { 
       $('moduleTitle').textContent = currentModule; 
       
-      // If viewer, filter module records to only approved ones if applicable, or view approved final files
+      // Inject bulk import button bar if Calibration module
+      const headerActionContainer = $('moduleHeaderActions');
+      if (headerActionContainer) {
+        if (currentModule === MODULES.CALIBRATION && (isAdmin() || isCreator())) {
+          headerActionContainer.innerHTML = `
+            <label class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-semibold cursor-pointer text-sm shadow inline-flex items-center gap-2">
+              <i class="fas fa-file-excel"></i> Import Excel
+              <input type="file" id="calExcelInput" class="hidden" accept=".xlsx, .xls">
+            </label>
+            <button onclick="openModuleModal()" class="bg-accent hover:bg-green-600 text-white px-5 py-2 rounded-lg font-semibold text-sm shadow"><i class="fas fa-plus mr-2"></i>Add Record</button>
+          `;
+          setTimeout(() => {
+            const excelInput = $('calExcelInput');
+            if (excelInput) excelInput.addEventListener('change', handleCalibrationExcelImport);
+          }, 100);
+        } else {
+          headerActionContainer.innerHTML = `
+            <button onclick="openModuleModal()" class="hidden bg-accent text-white px-5 py-2 rounded-lg font-semibold"><i class="fas fa-plus mr-2"></i>Add Record</button>
+          `;
+          if (isAdmin() || isCreator()) $('addModuleBtn').classList.remove('hidden');
+        }
+      }
+
       let displayRecords = moduleRecords;
       if (isViewer()) {
         displayRecords = displayRecords.filter(r => r.status === STATUS.APPROVED || r.status === STATUS.COMPLETED);
@@ -761,9 +853,9 @@
         }
 
         return `<tr>
-          <td class="px-4 py-3 font-medium">${esc(r.name)}<div class="text-xs text-gray-500">${esc(r.reference)}</div></td>
+          <td class="px-4 py-3 font-medium">${esc(r.name)}<div class="text-xs text-gray-500">${esc(r.reference)} | Cert: ${esc(r.certificateNo || 'N/A')}</div></td>
           <td class="px-4 py-3 text-xs">${esc(r.category || '—')}</td>
-          <td class="px-4 py-3 text-xs">${esc(r.equipmentOrSystem || '—')}</td>
+          <td class="px-4 py-3 text-xs">${esc(r.equipmentOrSystem || r.location || '—')}</td>
           <td class="px-4 py-3">${statusBadge(r.status)}</td>
           <td class="px-4 py-3 text-center">
             <button data-module-files="${esc(r.id)}" class="text-gray-600 text-xs font-semibold mr-2 hover:underline">Files</button>
@@ -877,6 +969,19 @@
       $('moduleEquipment').value = record?.equipmentOrSystem || ''; 
       $('moduleDate').value = record?.plannedDate || ''; 
       $('moduleDescription').value = record?.description || ''; 
+      
+      if ($('extraCalibrationFields')) {
+        $('extraCalibrationFields').classList.toggle('hidden', currentModule !== MODULES.CALIBRATION);
+        if (currentModule === MODULES.CALIBRATION) {
+          $('modCertNo').value = record?.certificateNo || '';
+          $('modManuf').value = record?.manufacturer || '';
+          $('modSerial').value = record?.serialNumber || '';
+          $('modLocation').value = record?.location || '';
+          $('modRange').value = record?.calRange || '';
+          $('modLimits').value = record?.acceptanceLimits || '';
+        }
+      }
+
       $('moduleModalTitle').textContent = record ? 'Edit Record' : `Create ${currentModule} Record`; 
       $('moduleModal').classList.add('active'); 
     }
@@ -914,7 +1019,6 @@
       await loadModule(currentModule);
     }
 
-    // SSO Integration Logic
     async function handleAzureSSO() {
       try {
         const loginResponse = await msalInstance.loginPopup({
@@ -927,7 +1031,7 @@
         $('username').value = email;
         $('loginError').classList.add('hidden');
         
-        showMessage('Azure AD Success', `Authenticated as ${displayName} (${email}). If your account is pre-provisioned in Firebase, signing you in...`, 'info');
+        showMessage('Azure AD Success', `Authenticated as ${displayName} (${email}).`, 'info');
       } catch (error) {
         console.error("SSO Error:", error);
         $('loginError').textContent = 'Azure AD authentication failed or popup was closed.';
@@ -992,7 +1096,6 @@
 
     document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', closeModals));
 
-    // Delegation handler for dynamically created buttons
     document.addEventListener('click', async e => {
       const t = e.target.closest('button'); if (!t) return;
       if (t.dataset.edit) { const r = records.find(x => x.id === t.dataset.edit); if (r) openRecordModal(r); }
@@ -1039,7 +1142,6 @@
       e.target.value = '';
     });
 
-    // Auth State Tracker
     onAuthStateChanged(auth, async user => {
       if (!user) { currentUser = null; currentProfile = null; resetAppUI(); return; }
       try {
@@ -1170,7 +1272,9 @@
             <h2 id="moduleTitle" class="text-2xl font-bold">Module</h2>
             <p class="text-gray-500 text-sm">Controlled document and approval workflow</p>
           </div>
-          <button id="addModuleBtn" class="hidden bg-accent text-white px-5 py-2 rounded-lg font-semibold"><i class="fas fa-plus mr-2"></i>Add Record</button>
+          <div id="moduleHeaderActions" class="flex gap-3 items-center">
+            <button id="addModuleBtn" class="hidden bg-accent text-white px-5 py-2 rounded-lg font-semibold"><i class="fas fa-plus mr-2"></i>Add Record</button>
+          </div>
         </div>
         <div class="bg-white rounded-xl shadow border flex-grow overflow-auto">
           <table class="min-w-full divide-y">
@@ -1267,7 +1371,7 @@
 
   <!-- Module Record Modal -->
   <div id="moduleModal" class="modal fixed inset-0 bg-gray-900/60 z-50 items-center justify-center p-4">
-    <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl">
+    <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
       <div class="bg-primary text-white p-4 flex justify-between"><h3 id="moduleModalTitle" class="text-xl font-bold">Create Record</h3><button data-close><i class="fas fa-times"></i></button></div>
       <form id="moduleForm" class="p-6 space-y-4">
         <input type="hidden" id="moduleEditId">
@@ -1288,15 +1392,46 @@
           <label class="block text-sm font-medium mb-1">Equipment / System</label>
           <input id="moduleEquipment" class="w-full p-2 border rounded" placeholder="Equipment / System">
         </div>
+
+        <!-- Extra Calibration Fields -->
+        <div id="extraCalibrationFields" class="space-y-4 border-t pt-3 hidden">
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-medium mb-1">Certificate No.</label>
+              <input id="modCertNo" class="w-full p-2 border rounded text-sm" placeholder="Certificate No.">
+            </div>
+            <div>
+              <label class="block text-xs font-medium mb-1">Manufacturer</label>
+              <input id="modManuf" class="w-full p-2 border rounded text-sm" placeholder="Manufacturer">
+            </div>
+            <div>
+              <label class="block text-xs font-medium mb-1">Serial Number</label>
+              <input id="modSerial" class="w-full p-2 border rounded text-sm" placeholder="Serial Number">
+            </div>
+            <div>
+              <label class="block text-xs font-medium mb-1">Location / Dept</label>
+              <input id="modLocation" class="w-full p-2 border rounded text-sm" placeholder="Location">
+            </div>
+          </div>
+          <div>
+            <label class="block text-xs font-medium mb-1">Calibration Range</label>
+            <input id="modRange" class="w-full p-2 border rounded text-sm" placeholder="e.g. 0-100 °C">
+          </div>
+          <div>
+            <label class="block text-xs font-medium mb-1">Acceptance Limits</label>
+            <input id="modLimits" class="w-full p-2 border rounded text-sm" placeholder="e.g. ±0.5 °C">
+          </div>
+        </div>
+
         <div>
-          <label class="block text-sm font-medium mb-1">Planned Date</label>
+          <label class="block text-sm font-medium mb-1">Planned Date / Due Date</label>
           <input id="moduleDate" type="date" class="w-full p-2 border rounded">
         </div>
         <div>
           <label class="block text-sm font-medium mb-1">Description / Scope</label>
-          <textarea id="moduleDescription" class="w-full p-2 border rounded" rows="4" placeholder="Description / scope"></textarea>
+          <textarea id="moduleDescription" class="w-full p-2 border rounded" rows="3" placeholder="Description / scope"></textarea>
         </div>
-        <div class="flex justify-end gap-3"><button type="button" data-close class="px-4 py-2 bg-gray-200 rounded">Cancel</button><button class="px-4 py-2 bg-primary text-white rounded">Create Draft</button></div>
+        <div class="flex justify-end gap-3"><button type="button" data-close class="px-4 py-2 bg-gray-200 rounded">Cancel</button><button class="px-4 py-2 bg-primary text-white rounded">Save Record</button></div>
       </form>
     </div>
   </div>
