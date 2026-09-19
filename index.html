@@ -20,20 +20,18 @@
   <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
 
   <script type="module">
-    import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
     import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-    import { getFirestore, collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, query, where, orderBy, limit, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    import { getFirestore, collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, query, where, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
     // --- Firebase Configurations ---
     const MY_FIREBASE_CONFIG = {
-      // IMPORTANT: Insert your Firebase Config here
       apiKey: "YOUR_API_KEY_FROM_FIREBASE",
       authDomain: "YOUR_AUTH_DOMAIN_FROM_FIREBASE",
       projectId: "YOUR_PROJECT_ID_FROM_FIREBASE",
       storageBucket: "YOUR_STORAGE_BUCKET_FROM_FIREBASE",
       messagingSenderId: "YOUR_MESSAGING_SENDER_ID_FROM_FIREBASE",
-      appId: "YOUR_APP_ID_FROM_FIREBASE",
-      measurementId: "YOUR_MEASUREMENT_ID_FROM_FIREBASE"
+      appId: "YOUR_APP_ID_FROM_FIREBASE"
     };
 
     // --- Supabase Configuration ---
@@ -49,19 +47,6 @@
       emailjs.init(EMAILJS_PUBLIC_KEY);
     }
 
-    const msalConfig = {
-      auth: {
-        // IMPORTANT: Insert your Azure AD App Registration details
-        clientId: "YOUR_AZURE_CLIENT_ID",
-        authority: "https://login.microsoftonline.com/YOUR_TENANT_ID",
-        redirectUri: window.location.origin + window.location.pathname
-      },
-      cache: { cacheLocation: "localStorage", storeAuthStateInCookie: false }
-    };
-
-    const msalInstance = new msal.PublicClientApplication(msalConfig);
-
-    // Use provided config or fallback to MY_FIREBASE_CONFIG
     const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : MY_FIREBASE_CONFIG;
     const appId = typeof __app_id !== 'undefined' ? __app_id : 'validapp-default';
     const app = initializeApp(firebaseConfig);
@@ -80,7 +65,6 @@
       VIEWER: 'Viewer'
     });
 
-    const ROLE_LIST = Object.values(ROLES);
     const STATUS = Object.freeze({
       DRAFT: 'Draft',
       PENDING_SECTION_HEAD: 'Pending Section Head',
@@ -96,43 +80,19 @@
     const CATEGORIES = Object.freeze({ PROCESS: 'Process Validation', HOLD_TIME: 'Hold Time Study', CLEANING: 'Cleaning Validation' });
     const MODULES = Object.freeze({ STUDIES: 'Studies', CALIBRATION: 'Calibration', QUALIFICATION: 'Qualification' });
 
-    const ALLOWED_FILE_TYPES = Object.freeze({
-      'application/pdf': '.pdf',
-      'application/msword': '.doc',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
-      'application/vnd.ms-excel': '.xls',
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
-      'image/jpeg': '.jpg/.jpeg',
-      'image/png': '.png'
-    });
-    const MAX_FILE_SIZE = 25 * 1024 * 1024;
-
     // App State
     let currentUser = null;
     let currentProfile = null;
-    let currentModule = MODULES.STUDIES; // Default to Studies
-    let currentStudyCategory = CATEGORIES.PROCESS; // Default tab in Studies
+    let currentModule = MODULES.STUDIES;
+    let currentStudyCategory = CATEGORIES.PROCESS;
 
-    // Data Collections
-    let studiesRecords = []; // Specifically for Studies module
-    let moduleRecords = [];  // Shared for Calibration and Qualification modules
-    let filesByParent = [];
-    let users = [];
-    let auditLogs = [];
+    let studiesRecords = [];
+    let moduleRecords = [];
+    let selectedModuleIds = new Set();
     let pendingAction = null;
 
-    // Selection State (used by ALL modules now)
-    let selectedModuleIds = new Set();
-
-    // Helpers
     const $ = id => document.getElementById(id);
     const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-    const safeFileName = name => String(name).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 180);
-    const nowLabel = value => {
-      if (!value) return '—';
-      const d = value?.toDate ? value.toDate() : new Date(value);
-      return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString();
-    };
     const colRef = name => collection(db, 'artifacts', appId, 'public', 'data', name);
     const docRef = (name, id) => doc(db, 'artifacts', appId, 'public', 'data', name, id);
 
@@ -142,76 +102,10 @@
     const isReviewer = () => can(ROLES.SECTION_HEAD, ROLES.REVIEWER, ROLES.DEPUTY, ROLES.QA_MANAGER);
     const isViewer = () => can(ROLES.VIEWER);
 
-    // UI Utilities
     function showMessage(title = 'Information', text = '', type = 'info') {
-      if (!title && !text) return;
-      $('messageTitle').textContent = title \vert{}\vert{} 'Notification';$('messageText').textContent = text || title;
-      $('messageIcon').innerHTML = type === 'error' ? '<i class="fas fa-times-circle text-4xl text-red-500"></i>' : type === 'success' ? '<i class="fas fa-check-circle text-4xl text-green-500"></i>' : '<i class="fas fa-info-circle text-4xl text-blue-500"></i>';
+      $('messageTitle').textContent = title;
+      $('messageText').textContent = text;
       $('messageModal').classList.add('active');
-    }
-
-    function confirmAction(title, text, callback, requireReason=false, reasonLabel='Reason / comment *') {
-      pendingAction = callback;
-      $('confirmTitle').textContent = title;
-      $('confirmText').textContent = text;
-      $('reasonLabel').textContent = reasonLabel;
-      $('reasonInput').value = '';
-      $('reasonWrap').classList.toggle('hidden', !requireReason);$('confirmModal').classList.add('active');
-    }
-
-    function closeModals() {
-      document.querySelectorAll('.modal').forEach(x => x.classList.remove('active'));
-      pendingAction = null;
-    }
-
-    async function sendEmailNotification(recipientEmail, actionTaken, username, productDetails, currentStatus, auditDetails) {
-      if (!window.emailjs || !recipientEmail) return;
-      try {
-        await emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, {
-          to_email: recipientEmail,
-          action_taken: actionTaken || 'System Action',
-          timestamp: new Date().toLocaleString(),
-          username: username || currentProfile?.displayName || currentUser?.email || 'Unknown User',
-          product_details: productDetails || 'N/A',
-          current_status: currentStatus || 'N/A',
-          audit_details: auditDetails || 'No additional details provided.'
-        });
-      } catch (err) {
-        console.error('EmailJS dispatch failed:', err);
-      }
-    }
-
-    function statusBadge(status) {
-      const cls = status === STATUS.APPROVED || status === STATUS.COMPLETED ? 'bg-green-100 text-green-800 border-green-200' : status === STATUS.REJECTED ? 'bg-red-100 text-red-800 border-red-200' : status === STATUS.RETURNED ? 'bg-amber-100 text-amber-800 border-amber-200' : 'bg-blue-50 text-blue-800 border-blue-200';
-      return `<span class="px-2 py-1 inline-flex text-xs font-semibold rounded-full border ${cls}">${esc(status || '—')}</span>`;
-    }
-
-    async function logAudit(action, parentId='', parentName='', details='', previousStatus='', newStatus='') {
-      try { 
-        await addDoc(colRef('audit'), {
-          userId: currentUser.uid,
-          userName: currentProfile?.displayName || currentProfile?.username || currentUser.email || currentUser.uid,
-          userRole: currentProfile?.role || 'Unknown',
-          action, studyId: parentId || null, studyName: parentName || null,
-          previousStatus: previousStatus || null, newStatus: newStatus || null,
-          details: details || '', createdAt: serverTimestamp(), clientTimestamp: new Date().toISOString()
-        }); 
-      } catch (e) { console.error('Audit write failed', e); }
-    }
-
-    // Core App Management
-    function resetAppUI() {
-      $('loginSection').classList.remove('hidden');
-      $('dashboardSection').classList.add('hidden');$('userInfo').classList.add('hidden');
-      $('loginForm').reset();$('loginError').classList.add('hidden');
-    }
-
-    function configureNavigation() {
-      $('userManagementBtn').classList.toggle('hidden', !isAdmin());
-      $('auditTrailBtn').classList.toggle('hidden', !can(ROLES.ADMIN, ROLES.QA_MANAGER, ROLES.DEPUTY));$('calibrationNav').classList.toggle('hidden', !(isAdmin() || isCreator() || isReviewer() || isViewer()));
-      $('qualificationNav').classList.toggle('hidden', !(isAdmin() \vert{}\vert{} isCreator() \vert{}\vert{} isReviewer() \vert{}\vert{} isViewer()));$('addRecordBtn').classList.toggle('hidden', !(isAdmin() || isCreator()));
-      $('addModuleBtn').classList.toggle('hidden', !(isAdmin() \vert{}\vert{} isCreator())); // Ensure this is available for Cal/Qual$('currentUserDisplay').textContent = currentProfile?.displayName || currentProfile?.username || currentUser.email;
-      $('currentUserRole').textContent = currentProfile?.role \vert{}\vert{} 'Unassigned';$('currentUserDepartment').textContent = currentProfile?.department || '—';
     }
 
     async function loadProfile(user) {
@@ -222,23 +116,12 @@
       return { id: snap.id, ...profile };
     }
 
-    // --- STUDIES MODULE LOGIC ---
     async function loadStudies() {
       if (!currentProfile) return;
       try {
-        let q;
-        if (isAdmin()) q = query(colRef('records'), orderBy('createdAt', 'desc'));
-        else if (isCreator()) q = query(colRef('records'), where('createdByUid', '==', currentUser.uid));
-        else if (can(ROLES.SECTION_HEAD)) q = query(colRef('records'), where('status', '==', STATUS.PENDING_SECTION_HEAD));
-        else if (can(ROLES.REVIEWER)) q = query(colRef('records'), where('status', '==', STATUS.PENDING_REVIEWER));
-        else if (can(ROLES.DEPUTY)) q = query(colRef('records'), where('status', '==', STATUS.PENDING_DEPUTY));
-        else if (can(ROLES.QA_MANAGER)) q = query(colRef('records'), where('status', '==', STATUS.PENDING_QA));
-        else q = query(colRef('records'), where('status', '==', STATUS.APPROVED));
+        let q = query(colRef('records'), orderBy('createdAt', 'desc'));
         const snap = await getDocs(q);
-        studiesRecords = snap.docs.map(d => ({id:d.id, ...d.data()}));
-        studiesRecords.sort((a,b) => String(b.createdAt?.seconds || '').localeCompare(String(a.createdAt?.seconds || '')));
-        
-        // Re-populate dropdown filters
+        studiesRecords = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         populateStudyFilters();
         renderStudiesTable();
       } catch (e) {
@@ -247,15 +130,186 @@
       }
     }
 
-    function setStudyCategoryTabs() {
-      document.querySelectorAll('.study-tab').forEach(x => x.classList.remove('bg-white', 'text-primary', 'shadow-sm'));
-      const tabMap = { [CATEGORIES.PROCESS]: 'tabProcess', [CATEGORIES.HOLD_TIME]: 'tabHoldTime', [CATEGORIES.CLEANING]: 'tabCleaning' };
-      const activeTabId = tabMap[currentStudyCategory];
-      if ($(activeTabId))$(activeTabId).classList.add('bg-white', 'text-primary', 'shadow-sm');
+    function populateStudyFilters() {
+      const currentCatRecords = studiesRecords.filter(r => r.studyCategory === currentStudyCategory);
+      const stages = [...new Set(currentCatRecords.map(r => r.stage).filter(Boolean))].sort();
+      const scales = [...new Set(currentCatRecords.map(r => r.scale).filter(Boolean))].sort();
+
+      const stageSelect = $('filterStage');
+      const scaleSelect = $('filterScale');
+      if (stageSelect) {
+        stageSelect.innerHTML = `<option value="All">All Stages</option>` + stages.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
+      }
+      if (scaleSelect) {
+        scaleSelect.innerHTML = `<option value="All">All Scales</option>` + scales.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
+      }
     }
 
-    function populateStudyFilters() {
-      const stages = [...new Set(studiesRecords.filter(r => r.studyCategory === currentStudyCategory).map(r => r.stage).filter(Boolean))].sort();
-      const scales = [...new Set(studiesRecords.filter(r => r.studyCategory === currentStudyCategory).map(r => r.scale).filter(Boolean))].sort();
+    function renderStudiesTable() {
+      const tbody = $('studiesTableBody');
+      if (!tbody) return;
 
-      $('filterStage').innerHTML = `<option value="All">All Stages</option>` + stages.map(
+      const searchTerm = ($('searchStudies')?.value || '').toLowerCase();
+      const filterStage = $('filterStage')?.value || 'All';
+      const filterScale = $('filterScale')?.value || 'All';
+      const filterStatus = $('filterStatus')?.value || 'All';
+
+      const filtered = studiesRecords.filter(r => {
+        if (r.studyCategory !== currentStudyCategory) return false;
+        if (filterStage !== 'All' && r.stage !== filterStage) return false;
+        if (filterScale !== 'All' && r.scale !== filterScale) return false;
+        if (filterStatus !== 'All' && r.status !== filterStatus) return false;
+        if (searchTerm) {
+          const matchStr = `${r.studyName} ${r.productName} ${r.protocolNumber}`.toLowerCase();
+          if (!matchStr.includes(searchTerm)) return false;
+        }
+        return true;
+      });
+
+      if (filtered.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="9" class="text-center py-8 text-gray-500">No records found.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = filtered.map(r => `
+        <tr class="hover:bg-gray-50 border-b">
+          <td class="px-4 py-3"><input type="checkbox" class="study-checkbox" data-id="${r.id}" ${selectedModuleIds.has(r.id) ? 'checked' : ''}></td>
+          <td class="px-4 py-3 font-medium text-gray-900">${esc(r.studyName || r.productName)}</td>
+          <td class="px-4 py-3">${esc(r.protocolNumber || '—')}</td>
+          <td class="px-4 py-3">${esc(r.stage || '—')}</td>
+          <td class="px-4 py-3">${esc(r.scale || '—')}</td>
+          <td class="px-4 py-3">${esc(r.status || STATUS.DRAFT)}</td>
+          <td class="px-4 py-3 text-right">
+            <button onclick="window.viewStudy('${r.id}')" class="text-blue-600 hover:text-blue-800"><i class="fas fa-eye"></i></button>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    // Auth State Listener
+    onAuthStateChanged(auth, async (user) => {
+      try {
+        if (user) {
+          currentUser = user;
+          currentProfile = await loadProfile(user);
+          $('loginSection').classList.add('hidden');$('dashboardSection').classList.remove('hidden');
+          $('userInfo').classList.remove('hidden');$('currentUserDisplay').textContent = currentProfile.displayName || user.email;
+          $('currentUserRole').textContent = currentProfile.role;
+          await loadStudies();
+        } else {
+          currentUser = null;
+          currentProfile = null;
+          $('loginSection').classList.remove('hidden');
+          $('dashboardSection').classList.add('hidden');$('userInfo').classList.add('hidden');
+        }
+      } catch (err) {
+        console.error("Auth state error:", err);
+        signOut(auth);
+      }
+    });
+
+    // Login Form Listener
+    $('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email = $('loginEmail').value.trim();
+      const pass = $('loginPassword').value;
+      $('loginError').classList.add('hidden');
+      try {
+        await signInWithEmailAndPassword(auth, email, pass);
+      } catch (err) {
+        $('loginError').textContent = err.message;
+        $('loginError').classList.remove('hidden');
+      }
+    });
+  </script>
+</head>
+<body class="bg-gray-100 h-screen flex flex-col overflow-hidden">
+  
+  <!-- Login Section -->
+  <div id="loginSection" class="flex items-center justify-center h-full bg-slate-900">
+    <div class="bg-white p-8 rounded-lg shadow-xl w-96">
+      <h2 class="text-2xl font-bold mb-6 text-center text-slate-800">ValidApp Login</h2>
+      <div id="loginError" class="hidden bg-red-100 text-red-700 p-3 rounded mb-4 text-sm"></div>
+      <form id="loginForm" class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-gray-700">Email Address</label>
+          <input type="email" id="loginEmail" required class="w-full mt-1 px-3 py-2 border rounded-md focus:ring focus:ring-blue-300">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700">Password</label>
+          <input type="password" id="loginPassword" required class="w-full mt-1 px-3 py-2 border rounded-md focus:ring focus:ring-blue-300">
+        </div>
+        <button type="submit" class="w-full py-2 bg-blue-600 text-white rounded-md font-semibold hover:bg-blue-700 transition">Sign In</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Dashboard Section -->
+  <div id="dashboardSection" class="hidden flex flex-col h-full overflow-hidden">
+    <!-- Top Header -->
+    <header class="bg-white border-b px-6 py-4 flex justify-between items-center shadow-sm">
+      <div class="flex items-center space-x-3">
+        <h1 class="text-xl font-bold text-slate-800">ValidApp - Validation & Qualification</h1>
+      </div>
+      <div id="userInfo" class="flex items-center space-x-4">
+        <div class="text-right">
+          <span id="currentUserDisplay" class="block font-semibold text-sm text-gray-800"></span>
+          <span id="currentUserRole" class="block text-xs text-blue-600 font-medium"></span>
+        </div>
+        <button onclick="window.location.reload()" class="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded text-sm font-medium transition">Logout</button>
+      </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="flex-grow flex flex-col overflow-hidden p-6 bg-slate-50">
+      <div class="bg-white rounded-lg shadow flex flex-col flex-grow overflow-hidden">
+        <div class="p-4 border-b flex justify-between items-center bg-white">
+          <div class="flex items-center space-x-3">
+            <input type="text" id="searchStudies" placeholder="Search studies..." class="px-3 py-1.5 border rounded-md text-sm w-64 focus:ring focus:ring-blue-300" oninput="window.renderStudiesTable()">
+            <select id="filterStage" class="px-3 py-1.5 border rounded-md text-sm" onchange="window.renderStudiesTable()"><option value="All">All Stages</option></select>
+            <select id="filterScale" class="px-3 py-1.5 border rounded-md text-sm" onchange="window.renderStudiesTable()"><option value="All">All Scales</option></select>
+            <select id="filterStatus" class="px-3 py-1.5 border rounded-md text-sm" onchange="window.renderStudiesTable()">
+              <option value="All">All Statuses</option>
+              <option value="Draft">Draft</option>
+              <option value="Approved">Approved</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Table Container with Vertical & Horizontal Scrolling -->
+        <div class="flex-grow overflow-auto">
+          <table class="w-full text-left border-collapse">
+            <thead class="bg-gray-100 sticky top-0 text-xs uppercase text-gray-600 font-semibold">
+              <tr>
+                <th class="px-4 py-3"><input type="checkbox" id="selectAllModule"></th>
+                <th class="px-4 py-3">Study / Product Name</th>
+                <th class="px-4 py-3">Protocol No.</th>
+                <th class="px-4 py-3">Stage</th>
+                <th class="px-4 py-3">Scale</th>
+                <th class="px-4 py-3">Status</th>
+                <th class="px-4 py-3 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="studiesTableBody" class="text-sm divide-y divide-gray-200">
+              <!-- Dynamically populated -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Global Modals -->
+  <div id="messageModal" class="modal fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50">
+    <div class="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full">
+      <h3 id="messageTitle" class="text-lg font-bold mb-2"></h3>
+      <p id="messageText" class="text-sm text-gray-600 mb-4"></p>
+      <button onclick="document.getElementById('messageModal').classList.remove('active')" class="w-full py-2 bg-blue-600 text-white rounded font-medium">OK</button>
+    </div>
+  </div>
+
+  <style>
+    .modal.active { display: flex !important; }
+  </style>
+</body>
+</html>
