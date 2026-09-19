@@ -38,12 +38,12 @@
     const SUPABASE_BUCKET = "documents";
 
     // --- EmailJS Configuration ---
-    const EMAILJS_PUBLIC_KEY = "tx8P6mYyi6C6APSXn"; // 
-    const EMAILJS_SERVICE_ID = "service_nyq8c6p";        // 
-    const EMAILJS_TEMPLATE_ID = "template_008bbdj";      // 
+    const EMAILJS_PUBLIC_KEY = "tx8P6mYyi6C6APSXn";
+    const EMAILJS_SERVICE_ID = "service_nyq8c6p";
+    const EMAILJS_TEMPLATE_ID = "template_008bbdj";
 
     if (window.emailjs) {
-      emailjs.init("tx8P6mYyi6C6APSXn");
+      emailjs.init(EMAILJS_PUBLIC_KEY);
     }
 
     // Azure AD / Entra ID Configuration
@@ -135,23 +135,23 @@
     const isReviewer = () => can(ROLES.SECTION_HEAD, ROLES.REVIEWER, ROLES.DEPUTY, ROLES.QA_MANAGER);
     const isViewer = () => can(ROLES.VIEWER);
 
-   // --- EmailJS Notification Helper ---
-async function sendEmailNotification(recipientEmail, actionTaken, username, productDetails, currentStatus, auditDetails) {
-    if (!window.emailjs || !recipientEmail) return;
-    try {
+    // --- EmailJS Notification Helper ---
+    async function sendEmailNotification(recipientEmail, actionTaken, username, productDetails, currentStatus, auditDetails) {
+      if (!window.emailjs || !recipientEmail) return;
+      try {
         await emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, {
-            to_email: recipientEmail,
-            action_taken: actionTaken || 'System Action',
-            timestamp: new Date().toLocaleString(),
-            username: username || currentProfile?.displayName || currentUser?.email || 'Unknown User',
-            product_details: productDetails || 'N/A',
-            current_status: currentStatus || 'N/A',
-            audit_details: auditDetails || 'No additional details provided.'
+          to_email: recipientEmail,
+          action_taken: actionTaken || 'System Action',
+          timestamp: new Date().toLocaleString(),
+          username: username || currentProfile?.displayName || currentUser?.email || 'Unknown User',
+          product_details: productDetails || 'N/A',
+          current_status: currentStatus || 'N/A',
+          audit_details: auditDetails || 'No additional details provided.'
         });
-    } catch (err) {
+      } catch (err) {
         console.error('EmailJS dispatch failed:', err);
+      }
     }
-}
      
     function showMessage(title = 'Information', text = '', type = 'info') {
       if (!title && !text) return;
@@ -347,7 +347,14 @@ async function sendEmailNotification(recipientEmail, actionTaken, username, prod
       await logAudit('Workflow Progressed', id, r.productName, comment || `Advanced by ${actorRole}`, old, targetStatus);
       
       // Trigger EmailJS Notification
-      await sendEmailNotification(currentUser.email, `ValidApp Study Update: ${r.productName}`, `The study ${r.productName} has progressed from ${old} to ${targetStatus}.\nComment: ${comment || 'None'}`);
+      await sendEmailNotification(
+        currentUser.email,
+        `ValidApp Status Update: ${r.productName}`,
+        currentProfile?.displayName || currentUser.email,
+        r.productName,
+        targetStatus,
+        comment || `Study transitioned from ${old} to ${targetStatus}.`
+      );
       
       await loadData();
     }
@@ -361,7 +368,14 @@ async function sendEmailNotification(recipientEmail, actionTaken, username, prod
           await addDoc(colRef('reviews'), {studyId:id, studyName:r.productName, reviewerUid:currentUser.uid, reviewerName:currentProfile.displayName || currentUser.email, reviewerRole:currentProfile.role, action:'Returned', comment:reason.trim(), createdAt:serverTimestamp()});
           await logAudit('Study Returned', id, r.productName, reason.trim(), r.status, STATUS.RETURNED);
           
-          await sendEmailNotification(currentUser.email, `Study Returned for Revision: ${r.productName}`, `Your study ${r.productName} has been returned.\nReason: ${reason.trim()}`);
+          await sendEmailNotification(
+            currentUser.email,
+            `Study Returned for Revision: ${r.productName}`,
+            currentProfile?.displayName || currentUser.email,
+            r.productName,
+            STATUS.RETURNED,
+            reason.trim()
+          );
 
           closeModals(); showMessage('Returned','Study returned to Creator.','success'); await loadData();
         } catch(e){ showMessage('Return failed', friendlyError(e),'error'); }
@@ -374,7 +388,14 @@ async function sendEmailNotification(recipientEmail, actionTaken, username, prod
         await updateDoc(docRef('records',id),{status:STATUS.PENDING_SECTION_HEAD,submittedAt:serverTimestamp(),updatedAt:serverTimestamp()}); 
         await logAudit('Study Submitted',id,r.productName,'Submitted for review.',r.status,STATUS.PENDING_SECTION_HEAD); 
         
-        await sendEmailNotification(currentUser.email, `Study Submitted: ${r.productName}`, `Your study ${r.productName} has been submitted for Section Head review.`);
+        await sendEmailNotification(
+          currentUser.email,
+          `Study Submitted: ${r.productName}`,
+          currentProfile?.displayName || currentUser.email,
+          r.productName,
+          STATUS.PENDING_SECTION_HEAD,
+          'Submitted for Section Head review.'
+        );
 
         showMessage('Submitted','Submitted to Section Head.','success'); 
         await loadData(); 
@@ -597,7 +618,14 @@ async function sendEmailNotification(recipientEmail, actionTaken, username, prod
           await deleteApp(secondary);
           await logAudit('User Created', cred.user.uid, displayName, `Role=${role}`);
           
-          await sendEmailNotification(email, 'ValidApp Account Created', `Your account has been created with role: ${role}.`);
+          await sendEmailNotification(
+            email,
+            'ValidApp Account Created',
+            displayName,
+            'New User Account',
+            'Active',
+            `Your account has been created with role: ${role}.`
+          );
 
           showMessage('Created', `User profile created for ${email}`, 'success');
         }
@@ -702,7 +730,14 @@ async function sendEmailNotification(recipientEmail, actionTaken, username, prod
           await updateDoc(docRef(c, id), {status: target, updatedAt: serverTimestamp()});
           await logAudit(`${currentModule} Review Completed`, id, r.name, comment || '', r.status, target);
           
-          await sendEmailNotification(currentUser.email, `${currentModule} Review Completed: ${r.name}`, `Record ${r.name} advanced to ${target}.`);
+          await sendEmailNotification(
+            currentUser.email,
+            `${currentModule} Review Completed: ${r.name}`,
+            currentProfile?.displayName || currentUser.email,
+            r.name,
+            target,
+            comment || `Record reviewed and advanced to ${target}.`
+          );
 
           closeModals(); await loadModule(currentModule); showMessage('Review completed', `Advanced to ${target}.`, 'success');
         } catch(e) { showMessage('Review failed', friendlyError(e), 'error'); }
@@ -717,7 +752,14 @@ async function sendEmailNotification(recipientEmail, actionTaken, username, prod
           await updateDoc(docRef(c, id), {status: STATUS.RETURNED, updatedAt: serverTimestamp()});
           await logAudit(`${currentModule} Returned`, id, r.name, reason, r.status, STATUS.RETURNED);
           
-          await sendEmailNotification(currentUser.email, `${currentModule} Record Returned: ${r.name}`, `Record returned. Reason: ${reason}`);
+          await sendEmailNotification(
+            currentUser.email,
+            `${currentModule} Record Returned: ${r.name}`,
+            currentProfile?.displayName || currentUser.email,
+            r.name,
+            STATUS.RETURNED,
+            reason
+          );
 
           closeModals(); await loadModule(currentModule); showMessage('Returned', 'Record returned to Creator.', 'success');
         } catch(e) { showMessage('Return failed', friendlyError(e), 'error'); }
@@ -731,7 +773,14 @@ async function sendEmailNotification(recipientEmail, actionTaken, username, prod
         await updateDoc(docRef(c, id), {status: STATUS.PENDING_SECTION_HEAD, submittedAt: serverTimestamp(), updatedAt: serverTimestamp()});
         await logAudit(`${currentModule} Submitted`, id, r.name, 'Submitted for review.', r.status, STATUS.PENDING_SECTION_HEAD);
         
-        await sendEmailNotification(currentUser.email, `${currentModule} Submitted: ${r.name}`, `Record ${r.name} has been submitted.`);
+        await sendEmailNotification(
+          currentUser.email,
+          `${currentModule} Submitted: ${r.name}`,
+          currentProfile?.displayName || currentUser.email,
+          r.name,
+          STATUS.PENDING_SECTION_HEAD,
+          'Record submitted for review.'
+        );
 
         await loadModule(currentModule); showMessage('Submitted', 'Record submitted to Section Head.', 'success');
       } catch(e) { showMessage('Submission failed', friendlyError(e), 'error'); }
