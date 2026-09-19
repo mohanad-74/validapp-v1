@@ -23,7 +23,7 @@
       apiKey: "AIzaSyDEV8rEluViDZiA5nnv7BiIU78rgq5en8A",
       authDomain: "validapp-db.firebaseapp.com",
       projectId: "validapp-db",
-      storageet: "validapp-db.firebasestorage.app",
+      storageBucket: "validapp-db.firebasestorage.app",
       messagingSenderId: "702664233017",
       appId: "1:702664233017:web:25fbede2f3c7244cdbfde8",
       measurementId: "G-7FTDYP0XWS"
@@ -32,7 +32,7 @@
     // --- Supabase Configuration ---
     const SUPABASE_URL = "https://lnyignnyhihrkjauhzsk.supabase.co";
     const SUPABASE_ANON_KEY = "sb_publishable__0Xw5joGtNrlh38qYOhrpw_vMALXzrV";
-    const SUPABASE_ET = "validapp-files";
+    const SUPABASE_BUCKET = "validapp-files";
 
     // Azure AD / Entra ID Configuration
     const msalConfig = {
@@ -240,7 +240,7 @@
       const status = $('filterStatus').value;
       const scale = $('filterScale').value;
       const category = currentCategory;
-      const filtered = records.filter(r => r.studyCategory === category && (!q || `${r.productName||''} ${r.productType||''} ${r.reason||''}`.toLowerCase().includes(q)) && (stage === 'All' || r.stage === stage) && (status === 'All' || r.status === status) && (scale === 'All' || r.scale === scale));
+      const filtered = records.filter(r => r.studyCategory === category && (!q || `${r.productName||''} ${r.productType||''}`.toLowerCase().includes(q)) && (stage === 'All' || r.stage === stage) && (status === 'All' || r.status === status) && (scale === 'All' || r.scale === scale));
       $('dataTableBody').innerHTML = filtered.map(r => `<tr class="hover:bg-gray-50">
         <td class="px-4 py-3 font-medium text-gray-900">${esc(r.productName)}<div class="text-xs text-gray-500">${esc(r.productType)}</div></td>
         <td class="px-4 py-3 text-xs">${esc(r.studyCategory)}</td>
@@ -376,7 +376,7 @@
           $('uploadProgress').textContent = `Uploading ${esc(file.name)} to Supabase...`;
           
           const { data, error } = await supabaseClient.storage
-            .from(documents)
+            .from(SUPABASE_BUCKET)
             .upload(storagePath, file, { cacheControl: '3600', upsert: false });
 
           if (error) throw new Error(error.message);
@@ -407,13 +407,14 @@
       renderFileList(parentId, module);
     }
 
-   async function viewFile(file, download = false) {
-  try {
-    const { data, error } = await supabaseClient.storage
-      .from('documents')
-      .createSignedUrl(file.storagePath, 60, {
-        download: download ? file.name : false
-      });
+    async function viewFile(file, download=false) {
+      try {
+        const { data, error } = await supabaseClient.storage
+          .from(SUPABASE_BUCKET)
+          .createSignedUrl(file.storagePath, 60, {
+            download: download ? file.name : false
+          });
+
         if (error) throw new Error(error.message);
 
         if (download) {
@@ -540,7 +541,6 @@
         if (editing) {
           await updateDoc(docRef('users', editing), { displayName, role, department, updatedAt: serverTimestamp(), disabled: $('newDisabled').checked });
           await logAudit('User Updated', editing, displayName, `Role=${role}`);
-          showMessage('Updated', `User profile updated for ${displayName}`, 'success');
         } else {
           const secondary = initializeApp(firebaseConfig, `ValidAppUserCreation_${Date.now()}`);
           const secAuth = getAuth(secondary);
@@ -609,10 +609,7 @@
           await logAudit(`${module} Record Created`, refDoc.id, data.name, 'Created as Draft.', '', STATUS.DRAFT); 
           showMessage('Created', `${module} record created successfully.`, 'success'); 
         } 
-        $('moduleForm').reset();
-        $('moduleEditId').value = '';
-        closeModals();
-        await loadModule(module);
+        $('moduleForm').reset(); closeModals(); await loadModule(module);
       } catch(e) { showMessage('Save failed', friendlyError(e), 'error'); }
     }
 
