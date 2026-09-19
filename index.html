@@ -242,7 +242,7 @@
 
     function recordActionButtons(r) {
       const buttons = [];
-      const owner = r.createdByUid === currentUser?.uid || r.createdBy === currentProfile?.username;
+      const owner = isAdmin() || r.createdByUid === currentUser?.uid || r.createdBy === currentProfile?.username;
       
       if (isViewer()) {
         if (r.status === STATUS.APPROVED) {
@@ -251,8 +251,8 @@
         return buttons.join(' ');
       }
 
-      if ((isAdmin() || isCreator()) && owner && [STATUS.DRAFT, STATUS.RETURNED].includes(r.status)) buttons.push(`<button class="text-purple-600 hover:text-purple-800 text-xs font-semibold" data-edit="${esc(r.id)}"><i class="fas fa-edit mr-1"></i>Edit</button>`);
-      if ((isAdmin() || isCreator()) && owner && r.status === STATUS.DRAFT) {
+      if (owner && [STATUS.DRAFT, STATUS.RETURNED].includes(r.status)) buttons.push(`<button class="text-purple-600 hover:text-purple-800 text-xs font-semibold" data-edit="${esc(r.id)}"><i class="fas fa-edit mr-1"></i>Edit</button>`);
+      if (owner && r.status === STATUS.DRAFT) {
         buttons.push(`<button class="text-blue-600 hover:text-blue-800 text-xs font-semibold" data-submit="${esc(r.id)}"><i class="fas fa-paper-plane mr-1"></i>Submit</button>`);
         buttons.push(`<button class="text-red-600 hover:text-red-800 text-xs font-semibold" data-delete-study="${esc(r.id)}"><i class="fas fa-trash-alt mr-1"></i>Delete / Cancel</button>`);
       }
@@ -287,6 +287,24 @@
 
           showMessage('Deleted', 'Study successfully deleted.', 'success');
           await loadData();
+        } catch (e) {
+          showMessage('Deletion failed', friendlyError(e), 'error');
+        }
+      });
+    }
+
+    async function deleteModuleRecord(id) {
+      const r = moduleRecords.find(x => x.id === id); if (!r) return;
+      if (r.status !== STATUS.DRAFT) return showMessage('Cannot Delete', 'Only unsubmitted (Draft) records can be deleted.', 'error');
+      
+      confirmAction('Delete Record', `Are you sure you want to delete the draft record "${r.name || r.instrument || r.certificateNo}"?`, async () => {
+        try {
+          const collectionName = currentModule === MODULES.CALIBRATION ? 'calibration' : 'qualification';
+          await deleteDoc(docRef(collectionName, id));
+          await logAudit(`${currentModule} Record Deleted`, id, r.name || r.instrument, 'Draft record deleted.', STATUS.DRAFT, 'Deleted');
+
+          showMessage('Deleted', 'Record successfully deleted.', 'success');
+          await loadModule(currentModule);
         } catch (e) {
           showMessage('Deletion failed', friendlyError(e), 'error');
         }
@@ -362,13 +380,6 @@
         }
         closeModals(); await loadData();
       } catch (err) { console.error(err); showMessage('Save failed', friendlyError(err), 'error'); }
-    }
-
-    function nextStatusForReview(r) {
-      if (r.status === STATUS.PENDING_SECTION_HEAD) return r.requireOtherDeptReview ? STATUS.PENDING_REVIEWER : STATUS.PENDING_DEPUTY;
-      if (r.status === STATUS.PENDING_REVIEWER) return STATUS.PENDING_DEPUTY;
-      if (r.status === STATUS.PENDING_DEPUTY) return STATUS.PENDING_QA;
-      return null;
     }
 
     async function updateWorkflow(id, targetStatus, comment='') {
@@ -874,7 +885,7 @@
       }
 
       $('moduleTableBody').innerHTML = displayRecords.map(r => {
-        const owner = r.createdByUid === currentUser.uid || isAdmin(); 
+        const owner = isAdmin() || r.createdByUid === currentUser.uid || r.createdByName === currentProfile?.displayName; 
         const review = (can(ROLES.SECTION_HEAD) && r.status === STATUS.PENDING_SECTION_HEAD) || (can(ROLES.QA_MANAGER) && r.status === STATUS.PENDING_QA); 
         
         if (currentModule === MODULES.CALIBRATION) {
@@ -888,6 +899,7 @@
               <button data-module-files="${esc(r.id)}" class="text-gray-600 text-xs font-semibold mr-2 hover:underline">Files</button>
               ${owner && [STATUS.DRAFT, STATUS.RETURNED].includes(r.status) ? `<button data-module-edit="${esc(r.id)}" class="text-purple-600 text-xs font-semibold mr-2 hover:underline">Edit</button>` : ''}
               ${owner && r.status === STATUS.DRAFT ? `<button data-module-submit="${esc(r.id)}" class="text-purple-600 text-xs font-semibold mr-2 hover:underline">Submit</button>` : ''}
+              ${owner && r.status === STATUS.DRAFT ? `<button data-module-delete="${esc(r.id)}" class="text-red-600 text-xs font-semibold mr-2 hover:underline">Delete</button>` : ''}
               ${review ? `<button data-module-review="${esc(r.id)}" class="text-blue-600 text-xs font-semibold mr-2 hover:underline">Review</button>` : ''}
             </td>
           </tr>`;
@@ -901,6 +913,7 @@
               <button data-module-files="${esc(r.id)}" class="text-gray-600 text-xs font-semibold mr-2 hover:underline">Files</button>
               ${owner && [STATUS.DRAFT, STATUS.RETURNED].includes(r.status) ? `<button data-module-edit="${esc(r.id)}" class="text-purple-600 text-xs font-semibold mr-2 hover:underline">Edit</button>` : ''}
               ${owner && r.status === STATUS.DRAFT ? `<button data-module-submit="${esc(r.id)}" class="text-purple-600 text-xs font-semibold mr-2 hover:underline">Submit</button>` : ''}
+              ${owner && r.status === STATUS.DRAFT ? `<button data-module-delete="${esc(r.id)}" class="text-red-600 text-xs font-semibold mr-2 hover:underline">Delete</button>` : ''}
               ${review ? `<button data-module-review="${esc(r.id)}" class="text-blue-600 text-xs font-semibold mr-2 hover:underline">Review</button>` : ''}
             </td>
           </tr>`;
@@ -1136,6 +1149,7 @@
       if (t.dataset.moduleReview) await moduleReview(t.dataset.moduleReview);
       if (t.dataset.moduleEdit) { const r = moduleRecords.find(x => x.id === t.dataset.moduleEdit); if (r) openModuleModal(r); }
       if (t.dataset.moduleSubmit) await moduleSubmit(t.dataset.moduleSubmit);
+      if (t.dataset.moduleDelete) await deleteModuleRecord(t.dataset.moduleDelete);
     });
 
     $('fileInput').addEventListener('change', e => {
