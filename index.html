@@ -21,8 +21,8 @@
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-    import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-    import { getFirestore, collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, query, where, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, collection, doc, getDoc, getDocs, query, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
     // --- Firebase Configurations ---
     const MY_FIREBASE_CONFIG = {
@@ -34,16 +34,16 @@
       appId: "YOUR_APP_ID_FROM_FIREBASE"
     };
 
-    // --- Supabase Configuration ---
-    const SUPABASE_URL = "YOUR_SUPABASE_URL";
-    const SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY";
+    // --- Supabase Configuration (Safely handled if placeholders are present) ---
+    const SUPABASE_URL = "https://placeholder.supabase.co"; // Replace with your URL if using
+    const SUPABASE_ANON_KEY = "placeholder-key"; // Replace with your key if using
 
     // --- EmailJS Configuration ---
     const EMAILJS_PUBLIC_KEY = "YOUR_EMAILJS_PUBLIC_KEY";
     const EMAILJS_SERVICE_ID = "YOUR_EMAILJS_SERVICE_ID";
     const EMAILJS_TEMPLATE_ID = "YOUR_EMAILJS_TEMPLATE_ID";
 
-    if (window.emailjs) {
+    if (window.emailjs && EMAILJS_PUBLIC_KEY !== "YOUR_EMAILJS_PUBLIC_KEY") {
       emailjs.init(EMAILJS_PUBLIC_KEY);
     }
 
@@ -53,7 +53,14 @@
     const auth = getAuth(app);
     const db = getFirestore(app);
 
-    const supabaseClient = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+    let supabaseClient = null;
+    try {
+      if (window.supabase && SUPABASE_URL.startsWith('http')) {
+        supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      }
+    } catch (e) {
+      console.warn("Supabase initialization skipped:", e);
+    }
 
     const ROLES = Object.freeze({
       ADMIN: 'Administrator',
@@ -80,27 +87,18 @@
     const CATEGORIES = Object.freeze({ PROCESS: 'Process Validation', HOLD_TIME: 'Hold Time Study', CLEANING: 'Cleaning Validation' });
     const MODULES = Object.freeze({ STUDIES: 'Studies', CALIBRATION: 'Calibration', QUALIFICATION: 'Qualification' });
 
-    // App State
     let currentUser = null;
     let currentProfile = null;
     let currentModule = MODULES.STUDIES;
     let currentStudyCategory = CATEGORIES.PROCESS;
 
     let studiesRecords = [];
-    let moduleRecords = [];
     let selectedModuleIds = new Set();
-    let pendingAction = null;
 
     const $ = id => document.getElementById(id);
     const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const colRef = name => collection(db, 'artifacts', appId, 'public', 'data', name);
     const docRef = (name, id) => doc(db, 'artifacts', appId, 'public', 'data', name, id);
-
-    const can = (...roles) => !!currentProfile && roles.includes(currentProfile.role);
-    const isAdmin = () => can(ROLES.ADMIN);
-    const isCreator = () => can(ROLES.CREATOR);
-    const isReviewer = () => can(ROLES.SECTION_HEAD, ROLES.REVIEWER, ROLES.DEPUTY, ROLES.QA_MANAGER);
-    const isViewer = () => can(ROLES.VIEWER);
 
     function showMessage(title = 'Information', text = '', type = 'info') {
       $('messageTitle').textContent = title;
@@ -167,7 +165,7 @@
       });
 
       if (filtered.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="9" class="text-center py-8 text-gray-500">No records found.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-gray-500">No records found.</td></tr>`;
         return;
       }
 
@@ -186,7 +184,6 @@
       `).join('');
     }
 
-    // Auth State Listener
     onAuthStateChanged(auth, async (user) => {
       try {
         if (user) {
@@ -208,7 +205,6 @@
       }
     });
 
-    // Login Form Listener
     $('loginForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const email = $('loginEmail').value.trim();
@@ -246,7 +242,6 @@
 
   <!-- Dashboard Section -->
   <div id="dashboardSection" class="hidden flex flex-col h-full overflow-hidden">
-    <!-- Top Header -->
     <header class="bg-white border-b px-6 py-4 flex justify-between items-center shadow-sm">
       <div class="flex items-center space-x-3">
         <h1 class="text-xl font-bold text-slate-800">ValidApp - Validation & Qualification</h1>
@@ -260,7 +255,6 @@
       </div>
     </header>
 
-    <!-- Main Content Area -->
     <main class="flex-grow flex flex-col overflow-hidden p-6 bg-slate-50">
       <div class="bg-white rounded-lg shadow flex flex-col flex-grow overflow-hidden">
         <div class="p-4 border-b flex justify-between items-center bg-white">
@@ -276,7 +270,6 @@
           </div>
         </div>
 
-        <!-- Table Container with Vertical & Horizontal Scrolling -->
         <div class="flex-grow overflow-auto">
           <table class="w-full text-left border-collapse">
             <thead class="bg-gray-100 sticky top-0 text-xs uppercase text-gray-600 font-semibold">
@@ -299,7 +292,6 @@
     </main>
   </div>
 
-  <!-- Global Modals -->
   <div id="messageModal" class="modal fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50">
     <div class="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full">
       <h3 id="messageTitle" class="text-lg font-bold mb-2"></h3>
