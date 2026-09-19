@@ -13,6 +13,9 @@
   <!-- Supabase JS Client v2 -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
+  <!-- EmailJS SDK -->
+  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
+
   <script type="module">
     import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
     import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
@@ -33,6 +36,15 @@
     const SUPABASE_URL = "https://lnyignnyhihrkjauhzsk.supabase.co";
     const SUPABASE_ANON_KEY = "sb_publishable__0Xw5joGtNrlh38qYOhrpw_vMALXzrV";
     const SUPABASE_BUCKET = "documents";
+
+    // --- EmailJS Configuration ---
+    const EMAILJS_PUBLIC_KEY = "tx8P6mYyi6C6APSXn"; // 
+    const EMAILJS_SERVICE_ID = "service_nyq8c6p";        // 
+    const EMAILJS_TEMPLATE_ID = "template_008bbdj";      // 
+
+    if (window.emailjs) {
+      emailjs.init("tx8P6mYyi6C6APSXn");
+    }
 
     // Azure AD / Entra ID Configuration
     const msalConfig = {
@@ -122,6 +134,22 @@
     const isCreator = () => can(ROLES.CREATOR);
     const isReviewer = () => can(ROLES.SECTION_HEAD, ROLES.REVIEWER, ROLES.DEPUTY, ROLES.QA_MANAGER);
     const isViewer = () => can(ROLES.VIEWER);
+
+    // --- EmailJS Notification Helper ---
+    async function sendEmailNotification(recipientEmail, subjectLine, messageBody) {
+      if (!window.emailjs || !recipientEmail) return;
+      try {
+        await emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, {
+          to_email: recipientEmail,
+          subject: subjectLine,
+          message: messageBody,
+          sender_name: currentProfile?.displayName || currentUser?.email || 'ValidApp System',
+          timestamp: new Date().toLocaleString()
+        });
+      } catch (err) {
+        console.error('EmailJS dispatch failed:', err);
+      }
+    }
 
     function showMessage(title = 'Information', text = '', type = 'info') {
       if (!title && !text) return;
@@ -315,6 +343,10 @@
       await updateDoc(docRef('records', id), updates);
       await addDoc(colRef('reviews'), {studyId:id, studyName:r.productName, reviewerUid:currentUser.uid, reviewerName:currentProfile.displayName || currentUser.email, reviewerRole:actorRole, comment, createdAt:serverTimestamp()});
       await logAudit('Workflow Progressed', id, r.productName, comment || `Advanced by ${actorRole}`, old, targetStatus);
+      
+      // Trigger EmailJS Notification
+      await sendEmailNotification(currentUser.email, `ValidApp Study Update: ${r.productName}`, `The study ${r.productName} has progressed from ${old} to ${targetStatus}.\nComment: ${comment || 'None'}`);
+      
       await loadData();
     }
 
@@ -326,6 +358,9 @@
           await updateDoc(docRef('records', id), {status:STATUS.RETURNED, updatedAt:serverTimestamp()});
           await addDoc(colRef('reviews'), {studyId:id, studyName:r.productName, reviewerUid:currentUser.uid, reviewerName:currentProfile.displayName || currentUser.email, reviewerRole:currentProfile.role, action:'Returned', comment:reason.trim(), createdAt:serverTimestamp()});
           await logAudit('Study Returned', id, r.productName, reason.trim(), r.status, STATUS.RETURNED);
+          
+          await sendEmailNotification(currentUser.email, `Study Returned for Revision: ${r.productName}`, `Your study ${r.productName} has been returned.\nReason: ${reason.trim()}`);
+
           closeModals(); showMessage('Returned','Study returned to Creator.','success'); await loadData();
         } catch(e){ showMessage('Return failed', friendlyError(e),'error'); }
       }, true, 'Return reason *');
@@ -333,7 +368,15 @@
 
     async function submitStudy(id) {
       const r = records.find(x=>x.id===id); if (!r) return;
-      try { await updateDoc(docRef('records',id),{status:STATUS.PENDING_SECTION_HEAD,submittedAt:serverTimestamp(),updatedAt:serverTimestamp()}); await logAudit('Study Submitted',id,r.productName,'Submitted for review.',r.status,STATUS.PENDING_SECTION_HEAD); showMessage('Submitted','Submitted to Section Head.','success'); await loadData(); }
+      try { 
+        await updateDoc(docRef('records',id),{status:STATUS.PENDING_SECTION_HEAD,submittedAt:serverTimestamp(),updatedAt:serverTimestamp()}); 
+        await logAudit('Study Submitted',id,r.productName,'Submitted for review.',r.status,STATUS.PENDING_SECTION_HEAD); 
+        
+        await sendEmailNotification(currentUser.email, `Study Submitted: ${r.productName}`, `Your study ${r.productName} has been submitted for Section Head review.`);
+
+        showMessage('Submitted','Submitted to Section Head.','success'); 
+        await loadData(); 
+      }
       catch(e){showMessage('Submission failed',friendlyError(e),'error');}
     }
 
@@ -551,6 +594,9 @@
           await signOut(secAuth);
           await deleteApp(secondary);
           await logAudit('User Created', cred.user.uid, displayName, `Role=${role}`);
+          
+          await sendEmailNotification(email, 'ValidApp Account Created', `Your account has been created with role: ${role}.`);
+
           showMessage('Created', `User profile created for ${email}`, 'success');
         }
         $('userForm').reset();
@@ -653,6 +699,9 @@
           const c = currentModule === MODULES.CALIBRATION ? 'calibration' : 'qualification';
           await updateDoc(docRef(c, id), {status: target, updatedAt: serverTimestamp()});
           await logAudit(`${currentModule} Review Completed`, id, r.name, comment || '', r.status, target);
+          
+          await sendEmailNotification(currentUser.email, `${currentModule} Review Completed: ${r.name}`, `Record ${r.name} advanced to ${target}.`);
+
           closeModals(); await loadModule(currentModule); showMessage('Review completed', `Advanced to ${target}.`, 'success');
         } catch(e) { showMessage('Review failed', friendlyError(e), 'error'); }
       }, false, 'Review comment');
@@ -665,6 +714,9 @@
           const c = currentModule === MODULES.CALIBRATION ? 'calibration' : 'qualification';
           await updateDoc(docRef(c, id), {status: STATUS.RETURNED, updatedAt: serverTimestamp()});
           await logAudit(`${currentModule} Returned`, id, r.name, reason, r.status, STATUS.RETURNED);
+          
+          await sendEmailNotification(currentUser.email, `${currentModule} Record Returned: ${r.name}`, `Record returned. Reason: ${reason}`);
+
           closeModals(); await loadModule(currentModule); showMessage('Returned', 'Record returned to Creator.', 'success');
         } catch(e) { showMessage('Return failed', friendlyError(e), 'error'); }
       }, true, 'Correction reason *');
@@ -676,6 +728,9 @@
       try {
         await updateDoc(docRef(c, id), {status: STATUS.PENDING_SECTION_HEAD, submittedAt: serverTimestamp(), updatedAt: serverTimestamp()});
         await logAudit(`${currentModule} Submitted`, id, r.name, 'Submitted for review.', r.status, STATUS.PENDING_SECTION_HEAD);
+        
+        await sendEmailNotification(currentUser.email, `${currentModule} Submitted: ${r.name}`, `Record ${r.name} has been submitted.`);
+
         await loadModule(currentModule); showMessage('Submitted', 'Record submitted to Section Head.', 'success');
       } catch(e) { showMessage('Submission failed', friendlyError(e), 'error'); }
     }
@@ -879,7 +934,7 @@
       <div class="flex items-center gap-3">
         <i class="fas fa-flask text-2xl"></i>
         <h1 class="text-2xl font-bold tracking-wider">ValidApp</h1>
-        <span class="hidden md:inline text-blue-100 text-sm">Validation & Quality Nerhadou</span>
+        <span class="hidden md:inline text-blue-100 text-sm">Validation & Qualification Nerhadou</span>
       </div>
       <div id="userInfo" class="hidden items-center gap-3">
         <span class="bg-blue-800 px-3 py-1 rounded-full text-sm font-semibold">
