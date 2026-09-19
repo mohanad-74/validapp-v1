@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+[cite: 13]<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -97,15 +97,18 @@
 
     const CATEGORIES = Object.freeze({ PROCESS: 'Process Validation', HOLD_TIME: 'Hold Time Study', CLEANING: 'Cleaning Validation' });
     const MODULES = Object.freeze({ STUDIES: 'Studies', CALIBRATION: 'Calibration', QUALIFICATION: 'Qualification' });
+    
     const CALIBRATION_TYPES = Object.freeze({
       PLAN: 'Calibration Plan',
       CERTIFICATE: 'Calibration certificate',
       OUT_OF_CAL: 'Out of calibration document',
       ADDENDUM: 'Addendeum of calibration'
     });
+
     const QUALIFICATION_TYPES = Object.freeze({
-      PLAN: 'Qualification plan',
-      DOCUMENT: 'Qualification document'
+      UTILITIES: 'Utilities',
+      EQUIPMENT: 'Equipment',
+      SYSTEM: 'System'
     });
 
     const ALLOWED_FILE_TYPES = Object.freeze({
@@ -716,6 +719,11 @@
         location: $('modLocation')?.value.trim() || '',
         calRange: $('modRange')?.value.trim() || '',
         acceptanceLimits: $('modLimits')?.value.trim() || '',
+        qualificationType: $('qualType')?.value || '',
+        stageOfQualification: $('qualStage')?.value.trim() || '',
+        qualificationDate: $('qualDate')?.value || '',
+        dueDate: $('qualDueDate')?.value || '',
+        documentNo: $('qualDocNo')?.value.trim() || '',
         status: STATUS.DRAFT, 
         createdByUid: currentUser.uid, 
         createdByName: currentProfile.displayName || currentUser.email,
@@ -794,8 +802,60 @@
           }
 
           await logAudit('BULK_EXCEL_IMPORT', '', '', `Imported ${importedCount} calibration records from file: ${file.name}`);
-          showMessage('Import Successful', `Successfully imported ${importedCount} records as Drafts.`, 'success');
+          showMessage('Import Successful', `Successfully imported ${importedCount} calibration records as Drafts.`, 'success');
           await loadModule(MODULES.CALIBRATION);
+        } catch (err) {
+          console.error(err);
+          showMessage('Import Failed', friendlyError(err), 'error');
+        }
+      };
+      reader.readAsArrayBuffer(file);
+      e.target.value = '';
+    }
+
+    // --- Excel Bulk Import Handler for Qualification ---
+    async function handleQualificationExcelImport(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      if (!supabaseClient && !currentUser) return showMessage('Auth Error', 'You must be signed in.', 'error');
+
+      const reader = new FileReader();
+      reader.onload = async function(e) {
+        try {
+          const data = new Uint8Array(e.target.result);
+          const workbook = XLSX.read(data, { type: 'array' });
+          const firstSheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[firstSheetName];
+          const jsonRows = XLSX.utils.sheet_to_json(worksheet);
+
+          let importedCount = 0;
+          for (const row of jsonRows) {
+            const payload = {
+              name: row["Name"] || row["Equipment Name"] || "Imported Qualification Record",
+              reference: row["Reference"] || row["ID"] || `QUAL-${Date.now()}-${importedCount}`,
+              category: row["Category"] || QUALIFICATION_TYPES.EQUIPMENT,
+              equipmentOrSystem: row["Equipment/System"] || row["System"] || "",
+              qualificationType: row["Type of Qualification"] || row["Qualification Type"] || "Equipment",
+              stageOfQualification: row["Stage of Qualification"] || row["Stage"] || "",
+              qualificationDate: row["Qualification Date"] || new Date().toISOString().split('T')[0],
+              dueDate: row["Due Date"] || "",
+              documentNo: row["Document No"] || row["Document No."] || "",
+              description: `Imported from Excel: ${file.name}`,
+              status: STATUS.DRAFT,
+              createdByUid: currentUser.uid,
+              createdByName: currentProfile.displayName || currentUser.email,
+              department: currentProfile.department || '',
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp()
+            };
+
+            await addDoc(colRef('qualification'), payload);
+            importedCount++;
+          }
+
+          await logAudit('BULK_EXCEL_IMPORT', '', '', `Imported ${importedCount} qualification records from file: ${file.name}`);
+          showMessage('Import Successful', `Successfully imported ${importedCount} qualification records as Drafts.`, 'success');
+          await loadModule(MODULES.QUALIFICATION);
         } catch (err) {
           console.error(err);
           showMessage('Import Failed', friendlyError(err), 'error');
@@ -808,7 +868,6 @@
     function renderModuleTable() { 
       $('moduleTitle').textContent = currentModule; 
       
-      // Inject bulk import button bar if Calibration module
       const headerActionContainer = $('moduleHeaderActions');
       if (headerActionContainer) {
         if (currentModule === MODULES.CALIBRATION && (isAdmin() || isCreator())) {
@@ -823,11 +882,22 @@
             const excelInput = $('calExcelInput');
             if (excelInput) excelInput.addEventListener('change', handleCalibrationExcelImport);
           }, 100);
+        } else if (currentModule === MODULES.QUALIFICATION && (isAdmin() || isCreator())) {
+          headerActionContainer.innerHTML = `
+            <label class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-semibold cursor-pointer text-sm shadow inline-flex items-center gap-2">
+              <i class="fas fa-file-excel"></i> Import Excel
+              <input type="file" id="qualExcelInput" class="hidden" accept=".xlsx, .xls">
+            </label>
+            <button onclick="openModuleModal()" class="bg-accent hover:bg-green-600 text-white px-5 py-2 rounded-lg font-semibold text-sm shadow"><i class="fas fa-plus mr-2"></i>Add Record</button>
+          `;
+          setTimeout(() => {
+            const qualExcelInput = $('qualExcelInput');
+            if (qualExcelInput) qualExcelInput.addEventListener('change', handleQualificationExcelImport);
+          }, 100);
         } else {
           headerActionContainer.innerHTML = `
-            <button onclick="openModuleModal()" class="hidden bg-accent text-white px-5 py-2 rounded-lg font-semibold"><i class="fas fa-plus mr-2"></i>Add Record</button>
+            <button onclick="openModuleModal()" class="${isAdmin() || isCreator() ? '' : 'hidden'} bg-accent text-white px-5 py-2 rounded-lg font-semibold shadow"><i class="fas fa-plus mr-2"></i>Add Record</button>
           `;
-          if (isAdmin() || isCreator()) $('addModuleBtn').classList.remove('hidden');
         }
       }
 
@@ -836,18 +906,67 @@
         displayRecords = displayRecords.filter(r => r.status === STATUS.APPROVED || r.status === STATUS.COMPLETED);
       }
 
+      const tableHead = $('moduleTableHead');
+      if (currentModule === MODULES.QUALIFICATION) {
+        tableHead.innerHTML = `
+          <tr>
+            <th class="px-4 py-3 text-left text-xs">Name / Reference</th>
+            <th class="px-4 py-3 text-left text-xs">Type & Stage</th>
+            <th class="px-4 py-3 text-left text-xs">Qual. & Due Date</th>
+            <th class="px-4 py-3 text-left text-xs">Document No.</th>
+            <th class="px-4 py-3 text-left text-xs">Status</th>
+            <th class="px-4 py-3 text-center text-xs">Actions</th>
+          </tr>
+        `;
+      } else {
+        tableHead.innerHTML = `
+          <tr>
+            <th class="px-4 py-3 text-left text-xs">Name / Reference</th>
+            <th class="px-4 py-3 text-left text-xs">Category</th>
+            <th class="px-4 py-3 text-left text-xs">Equipment/System</th>
+            <th class="px-4 py-3 text-left text-xs">Status</th>
+            <th class="px-4 py-3 text-center text-xs">Actions</th>
+          </tr>
+        `;
+      }
+
       $('moduleTableBody').innerHTML = displayRecords.map(r => {
         const owner = r.createdByUid === currentUser.uid || isAdmin(); 
         const review = (can(ROLES.SECTION_HEAD) && r.status === STATUS.PENDING_SECTION_HEAD) || (can(ROLES.QA_MANAGER) && r.status === STATUS.PENDING_QA); 
         
         if (isViewer()) {
+          if (currentModule === MODULES.QUALIFICATION) {
+            return `<tr>
+              <td class="px-4 py-3 font-medium">${esc(r.name)}<div class="text-xs text-gray-500">${esc(r.reference)}</div></td>
+              <td class="px-4 py-3 text-xs"><span class="bg-gray-100 px-2 py-0.5 rounded font-medium">${esc(r.qualificationType || '—')}</span><div class="mt-1 font-semibold">${esc(r.stageOfQualification || '—')}</div></td>
+              <td class="px-4 py-3 text-xs">Qual: ${esc(r.qualificationDate || '—')}<div class="text-gray-500">Due: ${esc(r.dueDate || '—')}</div></td>
+              <td class="px-4 py-3 text-xs font-mono">${esc(r.documentNo || '—')}</td>
+              <td class="px-4 py-3">${statusBadge(r.status)}</td>
+              <td class="px-4 py-3 text-center"><button data-module-files="${esc(r.id)}" class="text-gray-700 text-xs font-semibold hover:underline"><i class="fas fa-download mr-1"></i>Download</button></td>
+            </tr>`;
+          }
           return `<tr>
             <td class="px-4 py-3 font-medium">${esc(r.name)}<div class="text-xs text-gray-500">${esc(r.reference)}</div></td>
             <td class="px-4 py-3 text-xs">${esc(r.category || '—')}</td>
             <td class="px-4 py-3 text-xs">${esc(r.equipmentOrSystem || '—')}</td>
             <td class="px-4 py-3">${statusBadge(r.status)}</td>
+            <td class="px-4 py-3 text-center"><button data-module-files="${esc(r.id)}" class="text-gray-700 text-xs font-semibold hover:underline"><i class="fas fa-download mr-1"></i>Download Final</button></td>
+          </tr>`;
+        }
+
+        if (currentModule === MODULES.QUALIFICATION) {
+          return `<tr>
+            <td class="px-4 py-3 font-medium">${esc(r.name)}<div class="text-xs text-gray-500">${esc(r.reference)}</div></td>
+            <td class="px-4 py-3 text-xs"><span class="bg-blue-50 text-blue-800 px-2 py-0.5 rounded font-medium">${esc(r.qualificationType || '—')}</span><div class="mt-1 font-semibold">${esc(r.stageOfQualification || '—')}</div></td>
+            <td class="px-4 py-3 text-xs">Qual: ${esc(r.qualificationDate || '—')}<div class="text-gray-500">Due: ${esc(r.dueDate || '—')}</div></td>
+            <td class="px-4 py-3 text-xs font-mono">${esc(r.documentNo || '—')}</td>
+            <td class="px-4 py-3">${statusBadge(r.status)}</td>
             <td class="px-4 py-3 text-center">
-              <button data-module-files="${esc(r.id)}" class="text-gray-700 text-xs font-semibold hover:underline"><i class="fas fa-download mr-1"></i>Download Final</button>
+              <button data-module-files="${esc(r.id)}" class="text-gray-600 text-xs font-semibold mr-2 hover:underline">Files</button>
+              ${owner && [STATUS.DRAFT, STATUS.RETURNED].includes(r.status) ? `<button data-module-edit="${esc(r.id)}" class="text-purple-600 text-xs font-semibold mr-2 hover:underline">Edit</button>` : ''}
+              ${owner && r.status === STATUS.DRAFT ? `<button data-module-submit="${esc(r.id)}" class="text-purple-600 text-xs font-semibold mr-2 hover:underline">Submit</button>` : ''}
+              ${review ? `<button data-module-review="${esc(r.id)}" class="text-blue-600 text-xs font-semibold mr-2 hover:underline">Review</button>` : ''}
+              ${review ? `<button data-module-return="${esc(r.id)}" class="text-amber-600 text-xs font-semibold hover:underline">Return</button>` : ''}
             </td>
           </tr>`;
         }
@@ -982,6 +1101,17 @@
         }
       }
 
+      if ($('extraQualificationFields')) {
+        $('extraQualificationFields').classList.toggle('hidden', currentModule !== MODULES.QUALIFICATION);
+        if (currentModule === MODULES.QUALIFICATION) {
+          $('qualType').value = record?.qualificationType || 'Utilities';
+          $('qualStage').value = record?.stageOfQualification || '';
+          $('qualDate').value = record?.qualificationDate || '';
+          $('qualDueDate').value = record?.dueDate || '';
+          $('qualDocNo').value = record?.documentNo || '';
+        }
+      }
+
       $('moduleModalTitle').textContent = record ? 'Edit Record' : `Create ${currentModule} Record`; 
       $('moduleModal').classList.add('active'); 
     }
@@ -1040,125 +1170,127 @@
     }
 
     // --- Navigation and Event Wiring ---
-    $('loginForm').addEventListener('submit', async e => {
-      e.preventDefault();
-      try {
-        await signInWithEmailAndPassword(auth, $('username').value.trim(), $('password').value);
-        $('loginError').classList.add('hidden');
-      } catch (err) {
-        $('loginError').textContent = 'Invalid email or password.';
-        $('loginError').classList.remove('hidden');
-      }
-    });
+    document.addEventListener('DOMContentLoaded', () => {
+      $('loginForm').addEventListener('submit', async e => {
+        e.preventDefault();
+        try {
+          await signInWithEmailAndPassword(auth, $('username').value.trim(), $('password').value);
+          $('loginError').classList.add('hidden');
+        } catch (err) {
+          $('loginError').textContent = 'Invalid email or password.';
+          $('loginError').classList.remove('hidden');
+        }
+      });
 
-    $('azureSsoBtn').addEventListener('click', handleAzureSSO);
-    $('logoutBtn').addEventListener('click', () => signOut(auth));
-    $('recordForm').addEventListener('submit', saveStudy);
-    $('moduleForm').addEventListener('submit', addModuleRecord);
-    $('userForm').addEventListener('submit', createOrUpdateUser);
+      $('azureSsoBtn').addEventListener('click', handleAzureSSO);
+      $('logoutBtn').addEventListener('click', () => signOut(auth));
+      $('recordForm').addEventListener('submit', saveStudy);
+      $('moduleForm').addEventListener('submit', addModuleRecord);
+      $('userForm').addEventListener('submit', createOrUpdateUser);
 
-    $('sendResetBtn').addEventListener('click', async () => {
-      const email = $('newEmail').value.trim();
-      if (!email) return showMessage('Email required', 'Enter email first.', 'error');
-      try {
-        await sendPasswordResetEmail(auth, email);
-        showMessage('Reset Sent', 'Password reset email sent.', 'success');
-      } catch (e) { showMessage('Reset failed', friendlyError(e), 'error'); }
-    });
+      $('sendResetBtn').addEventListener('click', async () => {
+        const email = $('newEmail').value.trim();
+        if (!email) return showMessage('Email required', 'Enter email first.', 'error');
+        try {
+          await sendPasswordResetEmail(auth, email);
+          showMessage('Reset Sent', 'Password reset email sent.', 'success');
+        } catch (e) { showMessage('Reset failed', friendlyError(e), 'error'); }
+      });
 
-    $('addRecordBtn').addEventListener('click', () => openRecordModal());
-    $('addModuleBtn').addEventListener('click', () => openModuleModal());
-    $('userManagementBtn').addEventListener('click', loadUsers);
-    $('auditTrailBtn').addEventListener('click', loadAudit);
-    $('calibrationNav').addEventListener('click', () => showModule(MODULES.CALIBRATION));
-    $('qualificationNav').addEventListener('click', () => showModule(MODULES.QUALIFICATION));
-    $('studiesNav').addEventListener('click', () => showStudies());
-    
-    $('tabProcess').addEventListener('click', () => { currentCategory = CATEGORIES.PROCESS; setCategoryTabs(); renderStudies(); });
-    $('tabHoldTime').addEventListener('click', () => { currentCategory = CATEGORIES.HOLD_TIME; setCategoryTabs(); renderStudies(); });
-    $('tabCleaning').addEventListener('click', () => { currentCategory = CATEGORIES.CLEANING; setCategoryTabs(); renderStudies(); });
+      $('addRecordBtn').addEventListener('click', () => openRecordModal());
+      $('addModuleBtn').addEventListener('click', () => openModuleModal());
+      $('userManagementBtn').addEventListener('click', loadUsers);
+      $('auditTrailBtn').addEventListener('click', loadAudit);
+      $('calibrationNav').addEventListener('click', () => showModule(MODULES.CALIBRATION));
+      $('qualificationNav').addEventListener('click', () => showModule(MODULES.QUALIFICATION));
+      $('studiesNav').addEventListener('click', () => showStudies());
+      
+      $('tabProcess').addEventListener('click', () => { currentCategory = CATEGORIES.PROCESS; setCategoryTabs(); renderStudies(); });
+      $('tabHoldTime').addEventListener('click', () => { currentCategory = CATEGORIES.HOLD_TIME; setCategoryTabs(); renderStudies(); });
+      $('tabCleaning').addEventListener('click', () => { currentCategory = CATEGORIES.CLEANING; setCategoryTabs(); renderStudies(); });
 
-    ['searchInput', 'filterStage', 'filterStatus', 'filterScale'].forEach(id => $(id).addEventListener('input', renderStudies));
-    $('clearFiltersBtn').addEventListener('click', () => {
-      $('searchInput').value = '';
-      ['filterStage', 'filterStatus', 'filterScale'].forEach(id => $(id).value = 'All');
-      renderStudies();
-    });
+      ['searchInput', 'filterStage', 'filterStatus', 'filterScale'].forEach(id => $(id).addEventListener('input', renderStudies));
+      $('clearFiltersBtn').addEventListener('click', () => {
+        $('searchInput').value = '';
+        ['filterStage', 'filterStatus', 'filterScale'].forEach(id => $(id).value = 'All');
+        renderStudies();
+      });
 
-    $('acceptConfirmBtn').addEventListener('click', async () => {
-      const cb = pendingAction;
-      const reason = $('reasonInput').value.trim();
-      if (!$('reasonWrap').classList.contains('hidden') && !reason) return showMessage('Comment required', 'A reason is mandatory.', 'error');
-      $('confirmModal').classList.remove('active');
-      pendingAction = null;
-      if (cb) await cb(reason);
-    });
+      $('acceptConfirmBtn').addEventListener('click', async () => {
+        const cb = pendingAction;
+        const reason = $('reasonInput').value.trim();
+        if (!$('reasonWrap').classList.contains('hidden') && !reason) return showMessage('Comment required', 'A reason is mandatory.', 'error');
+        $('confirmModal').classList.remove('active');
+        pendingAction = null;
+        if (cb) await cb(reason);
+      });
 
-    document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', closeModals));
+      document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', closeModals));
 
-    document.addEventListener('click', async e => {
-      const t = e.target.closest('button'); if (!t) return;
-      if (t.dataset.edit) { const r = records.find(x => x.id === t.dataset.edit); if (r) openRecordModal(r); }
-      if (t.dataset.submit) await submitStudy(t.dataset.submit);
-      if (t.dataset.review) {
-        const r = records.find(x => x.id === t.dataset.review);
-        if (r) confirmAction('Complete Review', `Complete review for ${r.productName}?`, async comment => {
-          try { await updateWorkflow(r.id, nextStatusForReview(r), comment); showMessage('Success', 'Advanced to next stage.', 'success'); }
-          catch (e) { showMessage('Failed', friendlyError(e), 'error'); }
-        });
-      }
-      if (t.dataset.approve) {
-        const r = records.find(x => x.id === t.dataset.approve);
-        if (r) confirmAction('Approve Study', `Approve ${r.productName}?`, async () => {
-          try { await updateWorkflow(r.id, STATUS.APPROVED, 'QA Approval'); showMessage('Approved', 'Study approved.', 'success'); }
-          catch (e) { showMessage('Failed', friendlyError(e), 'error'); }
-        });
-      }
-      if (t.dataset.reject) {
-        const r = records.find(x => x.id === t.dataset.reject);
-        if (r) confirmAction('Reject Study', `Reject ${r.productName}?`, async reason => {
-          try { await updateWorkflow(r.id, STATUS.REJECTED, reason); showMessage('Rejected', 'Study rejected.', 'success'); }
-          catch (e) { showMessage('Failed', friendlyError(e), 'error'); }
-        }, true, 'Rejection reason *');
-      }
-      if (t.dataset.return) await returnStudy(t.dataset.return);
-      if (t.dataset.files) await openFiles(t.dataset.files, 'study');
-      if (t.dataset.history) await showHistory(t.dataset.history);
-      if (t.dataset.viewFile) { const f = filesByParent.find(x => x.id === t.dataset.viewFile); if (f) await viewFile(f, false); }
-      if (t.dataset.downloadFile) { const f = filesByParent.find(x => x.id === t.dataset.downloadFile); if (f) await viewFile(f, true); }
-      if (t.dataset.deleteFile) { const f = filesByParent.find(x => x.id === t.dataset.deleteFile); if (f) await deleteFile(f); }
-      if (t.dataset.editUser) await editUser(t.dataset.editUser);
-      if (t.dataset.toggleUser) await toggleUser(t.dataset.toggleUser);
-      if (t.dataset.moduleFiles) await openFiles(t.dataset.moduleFiles, currentModule);
-      if (t.dataset.moduleReview) await moduleReview(t.dataset.moduleReview);
-      if (t.dataset.moduleReturn) await moduleReturn(t.dataset.moduleReturn);
-      if (t.dataset.moduleEdit) { const r = moduleRecords.find(x => x.id === t.dataset.moduleEdit); if (r) openModuleModal(r); }
-      if (t.dataset.moduleSubmit) await moduleSubmit(t.dataset.moduleSubmit);
-    });
+      document.addEventListener('click', async e => {
+        const t = e.target.closest('button'); if (!t) return;
+        if (t.dataset.edit) { const r = records.find(x => x.id === t.dataset.edit); if (r) openRecordModal(r); }
+        if (t.dataset.submit) await submitStudy(t.dataset.submit);
+        if (t.dataset.review) {
+          const r = records.find(x => x.id === t.dataset.review);
+          if (r) confirmAction('Complete Review', `Complete review for ${r.productName}?`, async comment => {
+            try { await updateWorkflow(r.id, nextStatusForReview(r), comment); showMessage('Success', 'Advanced to next stage.', 'success'); }
+            catch (e) { showMessage('Failed', friendlyError(e), 'error'); }
+          });
+        }
+        if (t.dataset.approve) {
+          const r = records.find(x => x.id === t.dataset.approve);
+          if (r) confirmAction('Approve Study', `Approve ${r.productName}?`, async () => {
+            try { await updateWorkflow(r.id, STATUS.APPROVED, 'QA Approval'); showMessage('Approved', 'Study approved.', 'success'); }
+            catch (e) { showMessage('Failed', friendlyError(e), 'error'); }
+          });
+        }
+        if (t.dataset.reject) {
+          const r = records.find(x => x.id === t.dataset.reject);
+          if (r) confirmAction('Reject Study', `Reject ${r.productName}?`, async reason => {
+            try { await updateWorkflow(r.id, STATUS.REJECTED, reason); showMessage('Rejected', 'Study rejected.', 'success'); }
+            catch (e) { showMessage('Failed', friendlyError(e), 'error'); }
+          }, true, 'Rejection reason *');
+        }
+        if (t.dataset.return) await returnStudy(t.dataset.return);
+        if (t.dataset.files) await openFiles(t.dataset.files, 'study');
+        if (t.dataset.history) await showHistory(t.dataset.history);
+        if (t.dataset.viewFile) { const f = filesByParent.find(x => x.id === t.dataset.viewFile); if (f) await viewFile(f, false); }
+        if (t.dataset.downloadFile) { const f = filesByParent.find(x => x.id === t.dataset.downloadFile); if (f) await viewFile(f, true); }
+        if (t.dataset.deleteFile) { const f = filesByParent.find(x => x.id === t.dataset.deleteFile); if (f) await deleteFile(f); }
+        if (t.dataset.editUser) await editUser(t.dataset.editUser);
+        if (t.dataset.toggleUser) await toggleUser(t.dataset.toggleUser);
+        if (t.dataset.moduleFiles) await openFiles(t.dataset.moduleFiles, currentModule);
+        if (t.dataset.moduleReview) await moduleReview(t.dataset.moduleReview);
+        if (t.dataset.moduleReturn) await moduleReturn(t.dataset.moduleReturn);
+        if (t.dataset.moduleEdit) { const r = moduleRecords.find(x => x.id === t.dataset.moduleEdit); if (r) openModuleModal(r); }
+        if (t.dataset.moduleSubmit) await moduleSubmit(t.dataset.moduleSubmit);
+      });
 
-    $('fileInput').addEventListener('change', e => {
-      const id = $('fileParentId').value, mod =$('fileModule').value;
-      uploadFiles(id, e.target, mod);
-      e.target.value = '';
-    });
+      $('fileInput').addEventListener('change', e => {
+        const id = $('fileParentId').value, mod = $('fileModule').value;
+        uploadFiles(id, e.target, mod);
+        e.target.value = '';
+      });
 
-    onAuthStateChanged(auth, async user => {
-      if (!user) { currentUser = null; currentProfile = null; resetAppUI(); return; }
-      try {
-        currentUser = user;
-        currentProfile = await loadProfile(user);
-        $('loginSection').classList.add('hidden');
-        $('dashboardSection').classList.remove('hidden');$('dashboardSection').classList.add('flex');
-        $('userInfo').classList.remove('hidden');$('userInfo').classList.add('flex');
-        configureNavigation();
-        await logAudit('Login', '', '', 'Session established.');
-        showStudies();
-      } catch (e) {
-        console.error(e);
-        await signOut(auth);
-        $('loginError').textContent = e.message;
-        $('loginError').classList.remove('hidden');
-      }
+      onAuthStateChanged(auth, async user => {
+        if (!user) { currentUser = null; currentProfile = null; resetAppUI(); return; }
+        try {
+          currentUser = user;
+          currentProfile = await loadProfile(user);
+          $('loginSection').classList.add('hidden');
+          $('dashboardSection').classList.remove('hidden'); $('dashboardSection').classList.add('flex');
+          $('userInfo').classList.remove('hidden'); $('userInfo').classList.add('flex');
+          configureNavigation();
+          await logAudit('Login', '', '', 'Session established.');
+          showStudies();
+        } catch (e) {
+          console.error(e);
+          await signOut(auth);
+          $('loginError').textContent = e.message;
+          $('loginError').classList.remove('hidden');
+        }
+      });
     });
   </script>
   <script>
@@ -1174,30 +1306,33 @@
   </style>
 </head>
 <body class="text-gray-800 h-screen flex flex-col overflow-hidden">
+  <!-- Adjusted Header -->
   <nav class="bg-primary text-white shadow-lg p-4 flex-shrink-0">
     <div class="container mx-auto flex justify-between items-center gap-4">
       <div class="flex items-center gap-3">
         <i class="fas fa-flask text-2xl"></i>
-        <h1 class="text-2xl font-bold tracking-wider">ValidApp</h1>
-        <span class="hidden md:inline text-blue-100 text-sm">Validation & Qualification Nerhadou</span>
+        <div>
+          <h1 class="text-xl font-bold tracking-wider leading-none">ValidApp</h1>
+          <span class="text-blue-100 text-xs">Validation & Qualification Management</span>
+        </div>
       </div>
       <div id="userInfo" class="hidden items-center gap-3">
-        <span class="bg-blue-800 px-3 py-1 rounded-full text-sm font-semibold">
-          <i class="fas fa-user-circle mr-1"></i>
-          <span id="currentUserDisplay"></span> · <span id="currentUserRole"></span> · <span id="currentUserDepartment"></span>
+        <span class="bg-blue-800 px-3 py-1 rounded-full text-xs font-semibold hidden md:inline-flex items-center">
+          <i class="fas fa-user-circle mr-1 text-sm"></i>
+          <span id="currentUserDisplay"></span> · <span id="currentUserRole"></span> (<span id="currentUserDepartment"></span>)
         </span>
-        <button id="studiesNav" class="main-nav-tab hover:bg-blue-700 px-2 py-1 rounded">Studies</button>
-        <button id="calibrationNav" class="main-nav-tab hover:bg-blue-700 px-2 py-1 rounded">Calibration</button>
-        <button id="qualificationNav" class="main-nav-tab hover:bg-blue-700 px-2 py-1 rounded">Qualification</button>
-        <button id="userManagementBtn" class="hidden hover:bg-blue-700 px-2 py-1 rounded"><i class="fas fa-users-cog mr-1"></i>Users</button>
-        <button id="auditTrailBtn" class="hidden hover:bg-blue-700 px-2 py-1 rounded"><i class="fas fa-history mr-1"></i>Audit</button>
-        <button id="logoutBtn" class="bg-red-500 hover:bg-red-600 px-3 py-1 rounded font-semibold"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
+        <button id="studiesNav" class="main-nav-tab hover:bg-blue-700 px-3 py-1.5 rounded text-sm transition">Studies</button>
+        <button id="calibrationNav" class="main-nav-tab hover:bg-blue-700 px-3 py-1.5 rounded text-sm transition">Calibration</button>
+        <button id="qualificationNav" class="main-nav-tab hover:bg-blue-700 px-3 py-1.5 rounded text-sm transition">Qualification</button>
+        <button id="userManagementBtn" class="hidden hover:bg-blue-700 px-3 py-1.5 rounded text-sm transition"><i class="fas fa-users-cog mr-1"></i>Users</button>
+        <button id="auditTrailBtn" class="hidden hover:bg-blue-700 px-3 py-1.5 rounded text-sm transition"><i class="fas fa-history mr-1"></i>Audit</button>
+        <button id="logoutBtn" class="bg-red-500 hover:bg-red-600 px-3 py-1.5 rounded text-sm font-semibold transition"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
       </div>
     </div>
   </nav>
 
-  <main class="flex-grow container mx-auto p-4 overflow-hidden">
-    <section id="loginSection" class="max-w-md mx-auto mt-16 bg-white p-8 rounded-xl shadow-2xl">
+  <main class="flex-grow container mx-auto p-4 overflow-hidden flex flex-col">
+    <section id="loginSection" class="max-w-md mx-auto mt-16 bg-white p-8 rounded-xl shadow-2xl w-full">
       <div class="text-center mb-6">
         <div class="inline-block bg-blue-100 p-4 rounded-full mb-4"><i class="fas fa-shield-alt text-4xl text-primary"></i></div>
         <h2 class="text-2xl font-bold">System Login</h2>
@@ -1224,29 +1359,29 @@
         <div><label class="block text-sm font-medium mb-1">Email</label><input type="email" id="username" class="w-full p-3 border rounded-lg" required autocomplete="username"></div>
         <div><label class="block text-sm font-medium mb-1">Password</label><input type="password" id="password" class="w-full p-3 border rounded-lg" required autocomplete="current-password"></div>
         <div id="loginError" class="text-red-600 text-sm hidden font-medium text-center bg-red-50 p-3 rounded"></div>
-        <button class="w-full bg-primary hover:bg-blue-800 text-white font-bold py-3 rounded-lg">Sign In</button>
+        <button class="w-full bg-primary hover:bg-blue-800 text-white font-bold py-3 rounded-lg transition">Sign In</button>
       </form>
     </section>
 
     <section id="dashboardSection" class="hidden flex-col h-full overflow-hidden">
       <div id="studiesView" class="flex flex-col h-full overflow-hidden">
-        <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4">
+        <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4 flex-shrink-0">
           <div class="flex bg-gray-200 p-1 rounded-lg overflow-x-auto">
-            <button id="tabProcess" class="study-tab bg-white text-primary shadow-sm px-4 py-2 rounded-md font-semibold">Process Validation</button>
-            <button id="tabHoldTime" class="study-tab text-gray-600 px-4 py-2 rounded-md font-semibold">Hold Time Studies</button>
-            <button id="tabCleaning" class="study-tab text-gray-600 px-4 py-2 rounded-md font-semibold">Cleaning Validation</button>
+            <button id="tabProcess" class="study-tab bg-white text-primary shadow-sm px-4 py-2 rounded-md font-semibold text-sm">Process Validation</button>
+            <button id="tabHoldTime" class="study-tab text-gray-600 px-4 py-2 rounded-md font-semibold text-sm">Hold Time Studies</button>
+            <button id="tabCleaning" class="study-tab text-gray-600 px-4 py-2 rounded-md font-semibold text-sm">Cleaning Validation</button>
           </div>
-          <button id="addRecordBtn" class="hidden bg-accent hover:bg-green-600 text-white px-5 py-2 rounded-lg font-semibold"><i class="fas fa-plus mr-2"></i>Add Study</button>
+          <button id="addRecordBtn" class="hidden bg-accent hover:bg-green-600 text-white px-5 py-2 rounded-lg font-semibold text-sm shadow"><i class="fas fa-plus mr-2"></i>Add Study</button>
         </div>
-        <div class="bg-white p-4 rounded-t-xl shadow-sm border flex flex-wrap gap-4 items-end">
-          <div class="flex-grow min-w-[200px]"><label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Search Product / API</label><input id="searchInput" class="w-full p-2 border rounded-md" placeholder="Search by name..."></div>
-          <div><label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Stage</label><select id="filterStage" class="p-2 border rounded-md"><option>All</option><option>Raw</option><option>Bulk</option><option>Finished Product</option><option>Cleaning Validation</option><option>CHT</option><option>DHT</option><option>Campaign Length</option></select></div>
-          <div><label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Status</label><select id="filterStatus" class="p-2 border rounded-md"><option>All</option><option>Draft</option><option>Pending Section Head</option><option>Pending Reviewer</option><option>Pending Deputy QA</option><option>Pending QA Manager</option><option>Returned for Revision</option><option>Approved</option><option>Rejected</option></select></div>
-          <div><label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Scale</label><select id="filterScale" class="p-2 border rounded-md"><option>All</option><option>Lab Scale</option><option>Pilot Scale</option><option>Commercial Scale</option></select></div>
-          <button id="clearFiltersBtn" class="px-4 py-2 text-gray-500 hover:bg-gray-100 rounded">Clear Filters</button>
+        <div class="bg-white p-4 rounded-t-xl shadow-sm border flex flex-wrap gap-4 items-end flex-shrink-0">
+          <div class="flex-grow min-w-[200px]"><label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Search Product / API</label><input id="searchInput" class="w-full p-2 border rounded-md text-sm" placeholder="Search by name..."></div>
+          <div><label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Stage</label><select id="filterStage" class="p-2 border rounded-md text-sm"><option>All</option><option>Raw</option><option>Bulk</option><option>Finished Product</option><option>Cleaning Validation</option><option>CHT</option><option>DHT</option><option>Campaign Length</option></select></div>
+          <div><label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Status</label><select id="filterStatus" class="p-2 border rounded-md text-sm"><option>All</option><option>Draft</option><option>Pending Section Head</option><option>Pending Reviewer</option><option>Pending Deputy QA</option><option>Pending QA Manager</option><option>Returned for Revision</option><option>Approved</option><option>Rejected</option></select></div>
+          <div><label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Scale</label><select id="filterScale" class="p-2 border rounded-md text-sm"><option>All</option><option>Lab Scale</option><option>Pilot Scale</option><option>Commercial Scale</option></select></div>
+          <button id="clearFiltersBtn" class="px-4 py-2 text-gray-500 hover:bg-gray-100 rounded text-sm">Clear Filters</button>
         </div>
-        <div class="bg-white rounded-b-xl shadow-md border flex-grow overflow-hidden">
-          <div class="overflow-auto scrollbar h-full">
+        <div class="bg-white rounded-b-xl shadow-md border flex-grow overflow-hidden flex flex-col">
+          <div class="overflow-auto scrollbar flex-grow">
             <table class="min-w-full divide-y divide-gray-200">
               <thead class="bg-gray-50 sticky top-0 z-10">
                 <tr>
@@ -1267,32 +1402,32 @@
       </div>
 
       <div id="moduleView" class="hidden flex-col h-full overflow-hidden">
-        <div class="flex justify-between items-center mb-4">
+        <div class="flex justify-between items-center mb-4 flex-shrink-0">
           <div>
             <h2 id="moduleTitle" class="text-2xl font-bold">Module</h2>
             <p class="text-gray-500 text-sm">Controlled document and approval workflow</p>
           </div>
           <div id="moduleHeaderActions" class="flex gap-3 items-center">
-            <button id="addModuleBtn" class="hidden bg-accent text-white px-5 py-2 rounded-lg font-semibold"><i class="fas fa-plus mr-2"></i>Add Record</button>
+            <button id="addModuleBtn" class="hidden bg-accent text-white px-5 py-2 rounded-lg font-semibold text-sm shadow"><i class="fas fa-plus mr-2"></i>Add Record</button>
           </div>
         </div>
         <div class="bg-white rounded-xl shadow border flex-grow overflow-auto">
           <table class="min-w-full divide-y">
-            <thead class="bg-gray-50">
-              <tr>
-                <th class="px-4 py-3 text-left text-xs">Name / Reference</th>
-                <th class="px-4 py-3 text-left text-xs">Category</th>
-                <th class="px-4 py-3 text-left text-xs">Equipment/System</th>
-                <th class="px-4 py-3 text-left text-xs">Status</th>
-                <th class="px-4 py-3 text-center text-xs">Actions</th>
-              </tr>
-            </thead>
+            <thead id="moduleTableHead" class="bg-gray-50"></thead>
             <tbody id="moduleTableBody" class="divide-y text-sm"></tbody>
           </table>
         </div>
       </div>
     </section>
   </main>
+
+  <!-- Adjusted Footer -->
+  <footer class="bg-dark text-gray-400 text-xs py-3 px-4 text-center flex-shrink-0 border-t border-gray-700">
+    <div class="container mx-auto flex flex-col sm:flex-row justify-between items-center gap-2">
+      <div>&copy; 2026 <strong>ValidApp</strong> — Pharmaceutical Validation & Qualification System. All rights reserved.</div>
+      <div class="text-gray-400">Compliance Standard: GMP / GAMP 5 / 21 CFR Part 11</div>
+    </div>
+  </footer>
 
   <!-- Record Modal -->
   <div id="recordModal" class="modal fixed inset-0 bg-gray-900/60 z-50 items-center justify-center p-4">
@@ -1324,7 +1459,7 @@
       <div class="bg-dark text-white p-4 flex justify-between"><h3 class="text-xl font-bold"><i class="fas fa-folder-open mr-2"></i>Controlled Documents</h3><button data-close><i class="fas fa-times"></i></button></div>
       <div class="p-5 overflow-auto">
         <div id="uploadFileContainer" class="flex flex-wrap items-center gap-3 mb-4">
-          <label class="bg-primary text-white px-4 py-2 rounded cursor-pointer"><i class="fas fa-upload mr-2"></i>Add Files<input id="fileInput" type="file" class="hidden" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png"></label>
+          <label class="bg-primary text-white px-4 py-2 rounded cursor-pointer text-sm font-semibold"><i class="fas fa-upload mr-2"></i>Add Files<input id="fileInput" type="file" class="hidden" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png"></label>
           <span id="uploadProgress" class="text-xs font-semibold text-blue-700"></span>
         </div>
         <input type="hidden" id="fileParentId"><input type="hidden" id="fileModule">
@@ -1385,7 +1520,7 @@
           <input id="moduleReference" class="w-full p-2 border rounded" placeholder="Reference / ID *" required>
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">Action Type *</label>
+          <label class="block text-sm font-medium mb-1">Action Type / Category *</label>
           <select id="moduleCategory" class="w-full p-2 border rounded" required></select>
         </div>
         <div>
@@ -1420,6 +1555,36 @@
           <div>
             <label class="block text-xs font-medium mb-1">Acceptance Limits</label>
             <input id="modLimits" class="w-full p-2 border rounded text-sm" placeholder="e.g. ±0.5 °C">
+          </div>
+        </div>
+
+        <!-- Extra Qualification Fields (Utilities / Equipment / System / Stage / Dates / Doc No) -->
+        <div id="extraQualificationFields" class="space-y-4 border-t pt-3 hidden">
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-medium mb-1">Type of Qualification *</label>
+              <select id="qualType" class="w-full p-2 border rounded text-sm">
+                <option value="Utilities">Utilities</option>
+                <option value="Equipment">Equipment</option>
+                <option value="System">System</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-medium mb-1">Stage of Qualification *</label>
+              <input id="qualStage" class="w-full p-2 border rounded text-sm" placeholder="e.g. IQ, OQ, PQ">
+            </div>
+            <div>
+              <label class="block text-xs font-medium mb-1">Qualification Date *</label>
+              <input id="qualDate" type="date" class="w-full p-2 border rounded text-sm">
+            </div>
+            <div>
+              <label class="block text-xs font-medium mb-1">Due Date *</label>
+              <input id="qualDueDate" type="date" class="w-full p-2 border rounded text-sm">
+            </div>
+            <div class="col-span-2">
+              <label class="block text-xs font-medium mb-1">Document No. *</label>
+              <input id="qualDocNo" class="w-full p-2 border rounded text-sm font-mono" placeholder="e.g. VAL-PRO-001">
+            </div>
           </div>
         </div>
 
