@@ -114,7 +114,6 @@
     let users = [];
     let auditLogs = [];
     let pendingAction = null;
-    let replacementTargetFileId = null; // Track file being replaced
 
     const $ = id => document.getElementById(id);
     const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -171,7 +170,6 @@
     function closeModals() {
       document.querySelectorAll('.modal').forEach(x => x.classList.remove('active'));
       pendingAction = null;
-      replacementTargetFileId = null;
     }
 
     async function logAudit(action, parentId='', parentName='', details='', previousStatus='', newStatus='') {
@@ -436,17 +434,6 @@
       const files = Array.from(input.files);
       const isStudyModule = (module === 'study' || module === MODULES.STUDIES);
 
-      // Handle file replacement if replacementTargetFileId is set
-      if (replacementTargetFileId) {
-        const targetFile = filesByParent.find(f => f.id === replacementTargetFileId);
-        if (targetFile) {
-          await replaceFile(targetFile, files[0], parentId, module);
-          replacementTargetFileId = null;
-          input.value = '';
-          return;
-        }
-      }
-
       for (const file of files) {
         if (!fileTypeAllowed(file)) {
           showMessage('Invalid file', `${file.name}: invalid type or size exceeds 25MB.`, 'error');
@@ -460,7 +447,7 @@
         try {
           $('uploadProgress').textContent = `Uploading ${esc(file.name)} to Supabase...`;
           
-          const { error } = await supabaseClient.storage
+          const { data, error } = await supabaseClient.storage
             .from("documents")
             .upload(storagePath, file, { cacheControl: '3600', upsert: false });
 
@@ -480,73 +467,11 @@
             createdAt: serverTimestamp()
           });
 
-          // Log internally & via email audit trail
-          await logAudit('File Uploaded', parentId, '', `Uploaded file: ${file.name}`);
-          await sendEmailNotification(
-            currentUser.email,
-            `Document Uploaded: ${file.name}`,
-            currentProfile?.displayName || currentUser.email,
-            parentId,
-            'Active',
-            `File successfully uploaded to module ${module}.`
-          );
-
+          await logAudit('File Uploaded', parentId, '', `${file.name}`);
         } catch(e) {
           console.error('Supabase Upload Error:', e);
           showMessage('Upload failed', friendlyError(e), 'error');
         }
-      }
-
-      $('uploadProgress').textContent = '';
-      await loadFiles(parentId, module);
-      renderFileList(parentId, module);
-    }
-
-    async function replaceFile(oldFile, newFile, parentId, module) {
-      if (!fileTypeAllowed(newFile)) {
-        return showMessage('Invalid file', `${newFile.name}: invalid type or size exceeds 25MB.`, 'error');
-      }
-
-      const fileId = crypto.randomUUID();
-      const safeName = safeFileName(newFile.name);
-      const storagePath = `${appId}/${module}/${parentId}/${fileId}_${safeName}`;
-
-      try {
-        $('uploadProgress').textContent = `Replacing with ${esc(newFile.name)}...`;
-
-        // 1. Upload new file to Supabase storage
-        const { error: uploadError } = await supabaseClient.storage
-          .from("documents")
-          .upload(storagePath, newFile, { cacheControl: '3600', upsert: false });
-
-        if (uploadError) throw new Error(uploadError.message);
-
-        // 2. Remove old file from Supabase storage
-        await supabaseClient.storage.from("documents").remove([oldFile.storagePath]);
-
-        // 3. Update Firestore metadata reference
-        await updateDoc(docRef('studyFiles', oldFile.id), {
-          name: newFile.name,
-          contentType: newFile.type,
-          size: newFile.size,
-          storagePath: storagePath,
-          updatedAt: serverTimestamp()
-        });
-
-        // 4. Audit Trail (Internal & Email)
-        await logAudit('File Replaced', parentId, '', `Replaced "${oldFile.name}" with "${newFile.name}"`);
-        await sendEmailNotification(
-          currentUser.email,
-          `Document Replaced: ${newFile.name}`,
-          currentProfile?.displayName || currentUser.email,
-          parentId,
-          'Active',
-          `Old file "${oldFile.name}" was replaced by "${newFile.name}".`
-        );
-
-        showMessage('Success', 'File replaced successfully.', 'success');
-      } catch (e) {
-        showMessage('Replacement failed', friendlyError(e), 'error');
       }
 
       $('uploadProgress').textContent = '';
@@ -580,8 +505,9 @@
     }
 
     async function deleteFile(file) {
-      if (!isAdmin()) return showMessage('Unauthorized', 'Only Administrators can delete files.', 'error');
-      confirmAction('Delete file', `Delete "${file.name}"?`, async () => {
+      if (isViewer()) return showMessage('Unauthorized', 'Viewers cannot delete files.', 'error');
+      
+      confirmAction('Delete file', `Are you sure you want to delete "${file.name}"?`, async () => {
         try {
           const { error } = await supabaseClient.storage
             .from("documents")
@@ -592,21 +518,11 @@
           await updateDoc(docRef('studyFiles', file.id), { deletedAt: serverTimestamp() });
           
           const targetParent = file.parentId || file.studyId;
-          
-          // Log internally & via email audit trail
           await logAudit('File Deleted', targetParent, '', `Deleted file: ${file.name}`);
-          await sendEmailNotification(
-            currentUser.email,
-            `Document Deleted: ${file.name}`,
-            currentProfile?.displayName || currentUser.email,
-            targetParent,
-            'Deleted',
-            `File "${file.name}" was deleted from the repository.`
-          );
-
+          
           await loadFiles(targetParent, file.module);
           renderFileList(targetParent, file.module);
-          showMessage('Deleted', 'File deleted.', 'success');
+          showMessage('Deleted', 'File successfully removed.', 'success');
         } catch(e) {
           showMessage('Delete failed', friendlyError(e), 'error');
         }
@@ -619,16 +535,17 @@
         uploadContainer.classList.toggle('hidden', isViewer());
       }
 
-      $('fileList').innerHTML = filesByParent.filter(f => !f.deletedAt).map(f => `<div class="border rounded-lg p-3 flex flex-wrap items-center justify-between gap-3 bg-gray-50">
+      const activeFiles = filesByParent.filter(f => !f.deletedAt);
+
+      $('fileList').innerHTML = activeFiles.map(f => `<div class="border rounded-lg p-3 flex flex-wrap items-center justify-between gap-3 bg-gray-50">
         <div>
           <div class="font-semibold text-sm">${esc(f.name)}</div>
           <div class="text-xs text-gray-500">${esc(f.contentType)} · ${(f.size/1024/1024).toFixed(2)} MB · ${esc(nowLabel(f.uploadedAt))}</div>
         </div>
-        <div class="flex gap-2">
+        <div class="flex gap-3 items-center">
           ${!isViewer() ? `<button data-view-file="${esc(f.id)}" class="text-blue-600 text-xs font-semibold hover:underline">View</button>` : ''}
           <button data-download-file="${esc(f.id)}" class="text-gray-700 text-xs font-semibold hover:underline">Download</button>
-          ${!isViewer() ? `<button data-replace-file="${esc(f.id)}" class="text-amber-600 text-xs font-semibold hover:underline">Replace</button>` : ''}
-          ${isAdmin() && !isViewer() ? `<button data-delete-file="${esc(f.id)}" class="text-red-600 text-xs font-semibold hover:underline">Delete</button>` : ''}
+          ${!isViewer() ? `<button data-delete-file="${esc(f.id)}" class="text-red-600 text-xs font-semibold hover:underline flex items-center gap-1"><i class="fas fa-trash-alt text-[10px]"></i>Delete</button>` : ''}
         </div>
       </div>`).join('') || '<div class="text-sm text-gray-500">No documents found.</div>';
 
@@ -753,7 +670,6 @@
       }); 
     }
 
-    // --- Module Handling with Excel & Qualification Specs ---
     async function addModuleRecord(e) {
       e.preventDefault(); 
       if (!(isAdmin() || isCreator())) return showMessage('Unauthorized', 'Cannot create record.', 'error');
@@ -830,7 +746,6 @@
       } catch(e) { showMessage('Save failed', friendlyError(e), 'error'); }
     }
 
-    // Excel Import Parser for Calibration
     async function handleCalibrationExcelImport(event) {
       const file = event.target.files[0];
       if (!file) return;
@@ -901,7 +816,6 @@
 
     function renderModuleTable() { 
       $('moduleTitle').textContent = currentModule; 
-      
       $('excelImportContainer').classList.toggle('hidden', currentModule !== MODULES.CALIBRATION);
 
       let displayRecords = moduleRecords;
@@ -1184,10 +1098,6 @@
       if (t.dataset.history) await showHistory(t.dataset.history);
       if (t.dataset.viewFile) { const f = filesByParent.find(x => x.id === t.dataset.viewFile); if (f) await viewFile(f, false); }
       if (t.dataset.downloadFile) { const f = filesByParent.find(x => x.id === t.dataset.downloadFile); if (f) await viewFile(f, true); }
-      if (t.dataset.replaceFile) {
-        replacementTargetFileId = t.dataset.replaceFile;
-        $('fileInput').click(); // Trigger native file picker for replacement selection
-      }
       if (t.dataset.deleteFile) { const f = filesByParent.find(x => x.id === t.dataset.deleteFile); if (f) await deleteFile(f); }
       if (t.dataset.editUser) await editUser(t.dataset.editUser);
       if (t.dataset.toggleUser) await toggleUser(t.dataset.toggleUser);
@@ -1336,7 +1246,7 @@
           <div class="flex items-center gap-3">
             <div id="excelImportContainer" class="hidden">
               <label class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg cursor-pointer text-sm font-semibold inline-flex items-center gap-2">
-                <i class="fas file-excel fas fa-file-excel"></i> Import Excel Data
+                <i class="fas fa-file-excel"></i> Import Excel Data
                 <input id="excelImportInput" type="file" class="hidden" accept=".xlsx, .xls">
               </label>
             </div>
@@ -1486,7 +1396,6 @@
               </select>
             </div>
 
-            <!-- Utility Sub-Type -->
             <div id="utilitySubtypeGroup" class="hidden md:col-span-2">
               <label class="block text-xs font-semibold mb-1">Utility Classification *</label>
               <select id="qualUtilityType" class="w-full p-2 border rounded text-sm">
@@ -1497,14 +1406,14 @@
               </select>
             </div>
 
-            <!-- Equipment Info / Code -->
             <div id="equipmentGroup" class="md:col-span-2">
-              <label class="block text-xs font-semibold mb-1">Equipment Information & Code *</label><input id="qualEquipmentInfo" class="w-full p-2 border rounded text-sm" placeholder="Equipment Code, Make, Model">
+              <label class="block text-xs font-semibold mb-1">Equipment Information & Code *</label>
+              <input id="qualEquipmentInfo" class="w-full p-2 border rounded text-sm" placeholder="Equipment Code, Make, Model">
             </div>
 
-            <!-- System Info -->
             <div id="systemGroup" class="hidden md:col-span-2">
-              <label class="block text-xs font-semibold mb-1">System Information *</label><input id="qualSystemInfo" class="w-full p-2 border rounded text-sm" placeholder="Computerized / Process System details">
+              <label class="block text-xs font-semibold mb-1">System Information *</label>
+              <input id="qualSystemInfo" class="w-full p-2 border rounded text-sm" placeholder="Computerized / Process System details">
             </div>
 
             <div><label class="block text-xs font-semibold mb-1">Qualification Date</label><input type="date" id="qualDate" class="w-full p-2 border rounded text-sm"></div>
