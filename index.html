@@ -32,7 +32,8 @@
       projectId: "YOUR_PROJECT_ID_FROM_FIREBASE",
       storageBucket: "YOUR_STORAGE_BUCKET_FROM_FIREBASE",
       messagingSenderId: "YOUR_MESSAGING_SENDER_ID_FROM_FIREBASE",
-      appId: "YOUR_APP_ID_FROM_FIREBASE"
+      appId: "YOUR_APP_ID_FROM_FIREBASE",
+      measurementId: "YOUR_MEASUREMENT_ID_FROM_FIREBASE"
     };
 
     // --- Supabase Configuration ---
@@ -60,6 +61,7 @@
 
     const msalInstance = new msal.PublicClientApplication(msalConfig);
 
+    // Use provided config or fallback to MY_FIREBASE_CONFIG
     const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : MY_FIREBASE_CONFIG;
     const appId = typeof __app_id !== 'undefined' ? __app_id : 'validapp-default';
     const app = initializeApp(firebaseConfig);
@@ -143,8 +145,7 @@
     // UI Utilities
     function showMessage(title = 'Information', text = '', type = 'info') {
       if (!title && !text) return;
-      $('messageTitle').textContent = title || 'Notification';
-      $('messageText').textContent = text || title;
+      $('messageTitle').textContent = title \vert{}\vert{} 'Notification';$('messageText').textContent = text || title;
       $('messageIcon').innerHTML = type === 'error' ? '<i class="fas fa-times-circle text-4xl text-red-500"></i>' : type === 'success' ? '<i class="fas fa-check-circle text-4xl text-green-500"></i>' : '<i class="fas fa-info-circle text-4xl text-blue-500"></i>';
       $('messageModal').classList.add('active');
     }
@@ -155,8 +156,7 @@
       $('confirmText').textContent = text;
       $('reasonLabel').textContent = reasonLabel;
       $('reasonInput').value = '';
-      $('reasonWrap').classList.toggle('hidden', !requireReason);
-      $('confirmModal').classList.add('active');
+      $('reasonWrap').classList.toggle('hidden', !requireReason);$('confirmModal').classList.add('active');
     }
 
     function closeModals() {
@@ -202,21 +202,16 @@
     // Core App Management
     function resetAppUI() {
       $('loginSection').classList.remove('hidden');
-      $('dashboardSection').classList.add('hidden');
-      $('userInfo').classList.add('hidden');
-      $('loginForm').reset();
-      $('loginError').classList.add('hidden');
+      $('dashboardSection').classList.add('hidden');$('userInfo').classList.add('hidden');
+      $('loginForm').reset();$('loginError').classList.add('hidden');
     }
 
     function configureNavigation() {
       $('userManagementBtn').classList.toggle('hidden', !isAdmin());
-      $('auditTrailBtn').classList.toggle('hidden', !can(ROLES.ADMIN, ROLES.QA_MANAGER, ROLES.DEPUTY));
-      $('calibrationNav').classList.toggle('hidden', !(isAdmin() || isCreator() || isReviewer() || isViewer()));
-      $('qualificationNav').classList.toggle('hidden', !(isAdmin() || isCreator() || isReviewer() || isViewer()));
-      $('addRecordBtn').classList.toggle('hidden', !(isAdmin() || isCreator()));
-      $('currentUserDisplay').textContent = currentProfile?.displayName || currentProfile?.username || currentUser.email;
-      $('currentUserRole').textContent = currentProfile?.role || 'Unassigned';
-      $('currentUserDepartment').textContent = currentProfile?.department || '—';
+      $('auditTrailBtn').classList.toggle('hidden', !can(ROLES.ADMIN, ROLES.QA_MANAGER, ROLES.DEPUTY));$('calibrationNav').classList.toggle('hidden', !(isAdmin() || isCreator() || isReviewer() || isViewer()));
+      $('qualificationNav').classList.toggle('hidden', !(isAdmin() \vert{}\vert{} isCreator() \vert{}\vert{} isReviewer() \vert{}\vert{} isViewer()));$('addRecordBtn').classList.toggle('hidden', !(isAdmin() || isCreator()));
+      $('addModuleBtn').classList.toggle('hidden', !(isAdmin() \vert{}\vert{} isCreator())); // Ensure this is available for Cal/Qual$('currentUserDisplay').textContent = currentProfile?.displayName || currentProfile?.username || currentUser.email;
+      $('currentUserRole').textContent = currentProfile?.role \vert{}\vert{} 'Unassigned';$('currentUserDepartment').textContent = currentProfile?.department || '—';
     }
 
     async function loadProfile(user) {
@@ -242,6 +237,9 @@
         const snap = await getDocs(q);
         studiesRecords = snap.docs.map(d => ({id:d.id, ...d.data()}));
         studiesRecords.sort((a,b) => String(b.createdAt?.seconds || '').localeCompare(String(a.createdAt?.seconds || '')));
+        
+        // Re-populate dropdown filters
+        populateStudyFilters();
         renderStudiesTable();
       } catch (e) {
         console.error(e);
@@ -253,29 +251,11 @@
       document.querySelectorAll('.study-tab').forEach(x => x.classList.remove('bg-white', 'text-primary', 'shadow-sm'));
       const tabMap = { [CATEGORIES.PROCESS]: 'tabProcess', [CATEGORIES.HOLD_TIME]: 'tabHoldTime', [CATEGORIES.CLEANING]: 'tabCleaning' };
       const activeTabId = tabMap[currentStudyCategory];
-      if ($(activeTabId)) $(activeTabId).classList.add('bg-white', 'text-primary', 'shadow-sm');
+      if ($(activeTabId))$(activeTabId).classList.add('bg-white', 'text-primary', 'shadow-sm');
     }
 
-    function renderStudiesTable() {
-      setStudyCategoryTabs();
-      const q = $('searchInput').value.trim().toLowerCase();
-      const stage = $('filterStage').value;
-      const status = $('filterStatus').value;
-      const scale = $('filterScale').value;
+    function populateStudyFilters() {
+      const stages = [...new Set(studiesRecords.filter(r => r.studyCategory === currentStudyCategory).map(r => r.stage).filter(Boolean))].sort();
+      const scales = [...new Set(studiesRecords.filter(r => r.studyCategory === currentStudyCategory).map(r => r.scale).filter(Boolean))].sort();
 
-      // Filter by category, then by search/filters
-      let filtered = studiesRecords.filter(r =>
-        r.studyCategory === currentStudyCategory &&
-        (!q || `${r.productName\vert{}\vert{}''}${r.productType||''}`.toLowerCase().includes(q)) &&
-        (stage === 'All' || r.stage === stage) &&
-        (status === 'All' || r.status === status) &&
-        (scale === 'All' || r.scale === scale)
-      );
-
-      if (isViewer()) filtered = filtered.filter(r => r.status === STATUS.APPROVED);
-
-      const allSelected = filtered.length > 0 && filtered.every(r => selectedModuleIds.has(r.id));
-      const headerHtml = `
-        <tr>
-          <th class="px-4 py-3 text-left text-xs w-10"><input type="checkbox" id="selectAllModule" ${allSelected ? 'checked' : ''}></th>
-          <th class="px-4 py-3 text-left text-xs
+      $('filterStage').innerHTML = `<option value="All">All Stages</option>` + stages.map(
