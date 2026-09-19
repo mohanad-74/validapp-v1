@@ -110,6 +110,7 @@
     let currentCategory = CATEGORIES.PROCESS;
     let records = [];
     let moduleRecords = [];
+    let selectedModuleIds = new Set();
     let filesByParent = [];
     let users = [];
     let auditLogs = [];
@@ -845,13 +846,39 @@
 
     async function loadModule(module) { 
       currentModule = module; 
+      selectedModuleIds.clear();
       const collectionName = module === MODULES.CALIBRATION ? 'calibration' : 'qualification'; 
       try {
         let q = query(colRef(collectionName), orderBy('createdAt', 'desc')); 
         const snap = await getDocs(q); 
         moduleRecords = snap.docs.map(d => ({id:d.id, ...d.data()})); 
+        populateModuleFilters();
         renderModuleTable();
       } catch(e) { showMessage('Module access error', friendlyError(e), 'error'); }
+    }
+
+    function populateModuleFilters() {
+      const isCal = currentModule === MODULES.CALIBRATION;
+      $('modSearchLabel').textContent = isCal ? 'Search Cert / Instrument / Code' : 'Search Name / Reference';
+      $('modFilterLabel1').textContent = isCal ? 'Department' : 'Type';
+      $('modFilterLabel2').textContent = isCal ? 'Location' : 'Stage';
+
+      const filter1El = $('modFilter1');
+      const filter2El = $('modFilter2');
+
+      if (isCal) {
+        const depts = [...new Set(moduleRecords.map(r => r.department).filter(Boolean))].sort();
+        const locations = [...new Set(moduleRecords.map(r => r.location).filter(Boolean))].sort();
+        
+        filter1El.innerHTML = `<option value="All">All Departments</option>` + depts.map(d => `<option value="${esc(d)}">${esc(d)}</option>`).join('');
+        filter2El.innerHTML = `<option value="All">All Locations</option>` + locations.map(l => `<option value="${esc(l)}">${esc(l)}</option>`).join('');
+      } else {
+        const types = [...new Set(moduleRecords.map(r => r.qualificationType).filter(Boolean))].sort();
+        const stages = [...new Set(moduleRecords.map(r => r.stage).filter(Boolean))].sort();
+
+        filter1El.innerHTML = `<option value="All">All Types</option>` + types.map(t => `<option value="${esc(t)}">${esc(t.toUpperCase())}</option>`).join('');
+        filter2El.innerHTML = `<option value="All">All Stages</option>` + stages.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
+      }
     }
 
     function renderModuleTable() { 
@@ -864,32 +891,66 @@
         displayRecords = displayRecords.filter(r => r.status === STATUS.APPROVED || r.status === STATUS.COMPLETED);
       }
 
+      const q = $('modSearchInput').value.trim().toLowerCase();
+      const f1 = $('modFilter1').value;
+      const f2 = $('modFilter2').value;
+      const st = $('modFilterStatus').value;
+
+      displayRecords = displayRecords.filter(r => {
+        const matchQ = !q || (currentModule === MODULES.CALIBRATION ? 
+          `${r.certificateNo||''} ${r.instrument||''} ${r.code||''} ${r.serialNumber||''}`.toLowerCase().includes(q) : 
+          `${r.name||''} ${r.reference||''} ${r.equipmentSystemInfo||''}`.toLowerCase().includes(q));
+        
+        let matchF1 = true;
+        let matchF2 = true;
+        if (currentModule === MODULES.CALIBRATION) {
+          if (f1 !== 'All' && r.department !== f1) matchF1 = false;
+          if (f2 !== 'All' && r.location !== f2) matchF2 = false;
+        } else {
+          if (f1 !== 'All' && r.qualificationType !== f1) matchF1 = false;
+          if (f2 !== 'All' && r.stage !== f2) matchF2 = false;
+        }
+
+        const matchStatus = st === 'All' || r.status === st;
+        return matchQ && matchF1 && matchF2 && matchStatus;
+      });
+
       const headerEl = $('moduleTableHead');
+      const allSelected = displayRecords.length > 0 && displayRecords.every(r => selectedModuleIds.has(r.id));
+
       if (currentModule === MODULES.CALIBRATION) {
         headerEl.innerHTML = `
-          <th class="px-4 py-3 text-left text-xs">Cert. No & Instrument</th>
-          <th class="px-4 py-3 text-left text-xs">Code / S.N</th>
-          <th class="px-4 py-3 text-left text-xs">Dept / Location</th>
-          <th class="px-4 py-3 text-left text-xs">Cal / Due Date</th>
-          <th class="px-4 py-3 text-left text-xs">Status</th>
-          <th class="px-4 py-3 text-center text-xs">Actions</th>
+          <tr>
+            <th class="px-4 py-3 text-left text-xs w-10"><input type="checkbox" id="selectAllModule" ${allSelected && displayRecords.length > 0 ? 'checked' : ''}></th>
+            <th class="px-4 py-3 text-left text-xs">Cert. No & Instrument</th>
+            <th class="px-4 py-3 text-left text-xs">Code / S.N</th>
+            <th class="px-4 py-3 text-left text-xs">Dept / Location</th>
+            <th class="px-4 py-3 text-left text-xs">Cal / Due Date</th>
+            <th class="px-4 py-3 text-left text-xs">Status</th>
+            <th class="px-4 py-3 text-center text-xs">Actions</th>
+          </tr>
         `;
       } else {
         headerEl.innerHTML = `
-          <th class="px-4 py-3 text-left text-xs">Name / Reference</th>
-          <th class="px-4 py-3 text-left text-xs">Type & Subtype</th>
-          <th class="px-4 py-3 text-left text-xs">Stage / Info</th>
-          <th class="px-4 py-3 text-left text-xs">Status</th>
-          <th class="px-4 py-3 text-center text-xs">Actions</th>
+          <tr>
+            <th class="px-4 py-3 text-left text-xs w-10"><input type="checkbox" id="selectAllModule" ${allSelected && displayRecords.length > 0 ? 'checked' : ''}></th>
+            <th class="px-4 py-3 text-left text-xs">Name / Reference</th>
+            <th class="px-4 py-3 text-left text-xs">Type & Subtype</th>
+            <th class="px-4 py-3 text-left text-xs">Stage / Info</th>
+            <th class="px-4 py-3 text-left text-xs">Status</th>
+            <th class="px-4 py-3 text-center text-xs">Actions</th>
+          </tr>
         `;
       }
 
       $('moduleTableBody').innerHTML = displayRecords.map(r => {
-        const owner = isAdmin() || r.createdByUid === currentUser.uid || r.createdByName === currentProfile?.displayName; 
+        const owner = isAdmin() || r.createdByUid === currentUser?.uid || r.createdByName === currentProfile?.displayName; 
         const review = (can(ROLES.SECTION_HEAD) && r.status === STATUS.PENDING_SECTION_HEAD) || (can(ROLES.QA_MANAGER) && r.status === STATUS.PENDING_QA); 
+        const isChecked = selectedModuleIds.has(r.id);
         
         if (currentModule === MODULES.CALIBRATION) {
-          return `<tr>
+          return `<tr class="hover:bg-gray-50">
+            <td class="px-4 py-3"><input type="checkbox" data-select-id="${esc(r.id)}" ${isChecked ? 'checked' : ''}></td>
             <td class="px-4 py-3 font-medium">${esc(r.certificateNo || r.reference)}<div class="text-xs text-gray-500">${esc(r.instrument || r.name)}</div></td>
             <td class="px-4 py-3 text-xs">${esc(r.code)}<div class="text-gray-400">S/N: ${esc(r.serialNumber || '—')}</div></td>
             <td class="px-4 py-3 text-xs">${esc(r.department)}<div class="text-gray-400">${esc(r.location)}</div></td>
@@ -904,7 +965,8 @@
             </td>
           </tr>`;
         } else {
-          return `<tr>
+          return `<tr class="hover:bg-gray-50">
+            <td class="px-4 py-3"><input type="checkbox" data-select-id="${esc(r.id)}" ${isChecked ? 'checked' : ''}></td>
             <td class="px-4 py-3 font-medium">${esc(r.name)}<div class="text-xs text-gray-500">${esc(r.reference)}</div></td>
             <td class="px-4 py-3 text-xs uppercase font-semibold text-blue-600">${esc(r.qualificationType)}<div class="text-gray-500 normal-case font-normal">${esc(r.utilitySubtype || '—')}</div></td>
             <td class="px-4 py-3 text-xs"><span class="bg-gray-100 font-semibold px-1 py-0.5 rounded">${esc(r.stage)}</span><div class="text-gray-500 truncate max-w-[150px]">${esc(r.equipmentSystemInfo || '')}</div></td>
@@ -919,18 +981,77 @@
           </tr>`;
         }
       }).join(''); 
+
+      $('moduleEmptyState').classList.toggle('hidden', displayRecords.length !== 0);
+      updateModuleBulkBar();
+    }
+
+    function updateModuleBulkBar() {
+      const count = selectedModuleIds.size;
+      $('moduleSelectedCount').textContent = count;
+      $('moduleBulkBar').classList.toggle('hidden', count === 0);
+    }
+
+    async function bulkSubmitModuleRecords() {
+      if (selectedModuleIds.size === 0) return;
+      confirmAction('Bulk Submit', `Are you sure you want to submit ${selectedModuleIds.size} selected record(s) for review?`, async () => {
+        try {
+          const collectionName = currentModule === MODULES.CALIBRATION ? 'calibration' : 'qualification';
+          let count = 0;
+          for (const id of selectedModuleIds) {
+            const r = moduleRecords.find(x => x.id === id);
+            if (r && r.status === STATUS.DRAFT && (isAdmin() || r.createdByUid === currentUser?.uid)) {
+              await updateDoc(docRef(collectionName, id), {
+                status: STATUS.PENDING_SECTION_HEAD,
+                submittedAt: serverTimestamp(),
+                updatedAt: serverTimestamp()
+              });
+              await logAudit(`${currentModule} Bulk Submitted`, id, r.name || r.certificateNo, 'Submitted via bulk action.');
+              count++;
+            }
+          }
+          selectedModuleIds.clear();
+          await loadModule(currentModule);
+          showMessage('Success', `Successfully submitted ${count} record(s).`, 'success');
+        } catch (e) {
+          showMessage('Bulk action failed', friendlyError(e), 'error');
+        }
+      });
+    }
+
+    async function bulkDeleteModuleRecords() {
+      if (selectedModuleIds.size === 0) return;
+      confirmAction('Bulk Delete', `Are you sure you want to delete ${selectedModuleIds.size} selected draft record(s)?`, async () => {
+        try {
+          const collectionName = currentModule === MODULES.CALIBRATION ? 'calibration' : 'qualification';
+          let count = 0;
+          for (const id of selectedModuleIds) {
+            const r = moduleRecords.find(x => x.id === id);
+            if (r && r.status === STATUS.DRAFT && (isAdmin() || r.createdByUid === currentUser?.uid)) {
+              await deleteDoc(docRef(collectionName, id));
+              await logAudit(`${currentModule} Bulk Deleted`, id, r.name || r.certificateNo, 'Deleted via bulk action.');
+              count++;
+            }
+          }
+          selectedModuleIds.clear();
+          await loadModule(currentModule);
+          showMessage('Success', `Successfully deleted ${count} draft record(s).`, 'success');
+        } catch (e) {
+          showMessage('Bulk action failed', friendlyError(e), 'error');
+        }
+      });
     }
 
     async function moduleReview(id) {
       const r = moduleRecords.find(x => x.id === id); if (!r) return; 
       const target = r.status === STATUS.PENDING_SECTION_HEAD ? STATUS.PENDING_QA : STATUS.COMPLETED; 
-      confirmAction('Complete Review', `Complete review of ${r.name}?`, async comment => {
+      confirmAction('Complete Review', `Complete review of ${r.name || r.certificateNo}?`, async comment => {
         try {
           const c = currentModule === MODULES.CALIBRATION ? 'calibration' : 'qualification';
           await updateDoc(docRef(c, id), {status: target, updatedAt: serverTimestamp()});
-          await logAudit(`${currentModule} Review Completed`, id, r.name, comment || '', r.status, target);
+          await logAudit(`${currentModule} Review Completed`, id, r.name || r.certificateNo, comment || '', r.status, target);
           
-          await sendEmailNotification(currentUser.email, `${currentModule} Review Completed: ${r.name}`, currentProfile?.displayName || currentUser.email, r.name, target, comment || `Advanced to ${target}.`);
+          await sendEmailNotification(currentUser.email, `${currentModule} Review Completed: ${r.name || r.certificateNo}`, currentProfile?.displayName || currentUser.email, r.name || r.certificateNo, target, comment || `Advanced to ${target}.`);
           closeModals(); await loadModule(currentModule); showMessage('Review completed', `Advanced to ${target}.`, 'success');
         } catch(e) { showMessage('Review failed', friendlyError(e), 'error'); }
       }, false, 'Review comment');
@@ -941,9 +1062,9 @@
       const c = currentModule === MODULES.CALIBRATION ? 'calibration' : 'qualification';
       try {
         await updateDoc(docRef(c, id), {status: STATUS.PENDING_SECTION_HEAD, submittedAt: serverTimestamp(), updatedAt: serverTimestamp()});
-        await logAudit(`${currentModule} Submitted`, id, r.name, 'Submitted for review.', r.status, STATUS.PENDING_SECTION_HEAD);
+        await logAudit(`${currentModule} Submitted`, id, r.name || r.certificateNo, 'Submitted for review.', r.status, STATUS.PENDING_SECTION_HEAD);
         
-        await sendEmailNotification(currentUser.email, `${currentModule} Submitted: ${r.name}`, currentProfile?.displayName || currentUser.email, r.name, STATUS.PENDING_SECTION_HEAD, 'Record submitted for review.');
+        await sendEmailNotification(currentUser.email, `${currentModule} Submitted: ${r.name || r.certificateNo}`, currentProfile?.displayName || currentUser.email, r.name || r.certificateNo, STATUS.PENDING_SECTION_HEAD, 'Record submitted for review.');
         await loadModule(currentModule); showMessage('Submitted', 'Record submitted to Section Head.', 'success');
       } catch(e) { showMessage('Submission failed', friendlyError(e), 'error'); }
     }
@@ -1099,6 +1220,73 @@
       ['filterStage', 'filterStatus', 'filterScale'].forEach(id => $(id).value = 'All');
       renderStudies();
     });
+
+    // Module Filters & Multi-select Listeners
+    ['modSearchInput', 'modFilter1', 'modFilter2', 'modFilterStatus'].forEach(id => {
+      if ($(id)) $(id).addEventListener('input', renderModuleTable);
+      if ($(id)) $(id).addEventListener('change', renderModuleTable);
+    });
+
+    if ($('modClearFiltersBtn')) {
+      $('modClearFiltersBtn').addEventListener('click', () => {
+        $('modSearchInput').value = '';
+        $('modFilter1').value = 'All';
+        $('modFilter2').value = 'All';
+        $('modFilterStatus').value = 'All';
+        renderModuleTable();
+      });
+    }
+
+    document.addEventListener('change', e => {
+      if (e.target && e.target.id === 'selectAllModule') {
+        const checked = e.target.checked;
+        const q = $('modSearchInput').value.trim().toLowerCase();
+        const f1 = $('modFilter1').value;
+        const f2 = $('modFilter2').value;
+        const st = $('modFilterStatus').value;
+
+        let displayRecords = moduleRecords;
+        if (isViewer()) {
+          displayRecords = displayRecords.filter(r => r.status === STATUS.APPROVED || r.status === STATUS.COMPLETED);
+        }
+
+        displayRecords = displayRecords.filter(r => {
+          const matchQ = !q || (currentModule === MODULES.CALIBRATION ? 
+            `${r.certificateNo||''} ${r.instrument||''} ${r.code||''} ${r.serialNumber||''}`.toLowerCase().includes(q) : 
+            `${r.name||''} ${r.reference||''} ${r.equipmentSystemInfo||''}`.toLowerCase().includes(q));
+          let matchF1 = true; let matchF2 = true;
+          if (currentModule === MODULES.CALIBRATION) {
+            if (f1 !== 'All' && r.department !== f1) matchF1 = false;
+            if (f2 !== 'All' && r.location !== f2) matchF2 = false;
+          } else {
+            if (f1 !== 'All' && r.qualificationType !== f1) matchF1 = false;
+            if (f2 !== 'All' && r.stage !== f2) matchF2 = false;
+          }
+          const matchStatus = st === 'All' || r.status === st;
+          return matchQ && matchF1 && matchF2 && matchStatus;
+        });
+
+        if (checked) {
+          displayRecords.forEach(r => selectedModuleIds.add(r.id));
+        } else {
+          displayRecords.forEach(r => selectedModuleIds.delete(r.id));
+        }
+        renderModuleTable();
+      }
+
+      if (e.target && e.target.dataset.selectId) {
+        const id = e.target.dataset.selectId;
+        if (e.target.checked) {
+          selectedModuleIds.add(id);
+        } else {
+          selectedModuleIds.delete(id);
+        }
+        updateModuleBulkBar();
+      }
+    });
+
+    if ($('bulkModuleSubmitBtn')) $('bulkModuleSubmitBtn').addEventListener('click', bulkSubmitModuleRecords);
+    if ($('bulkModuleDeleteBtn')) $('bulkModuleDeleteBtn').addEventListener('click', bulkDeleteModuleRecords);
 
     $('acceptConfirmBtn').addEventListener('click', async () => {
       const cb = pendingAction;
@@ -1298,11 +1486,51 @@
             <button id="addModuleBtn" class="bg-accent hover:bg-green-600 text-white px-5 py-2 rounded-lg font-semibold text-sm"><i class="fas fa-plus mr-2"></i>Add Record</button>
           </div>
         </div>
-        <div class="bg-white rounded-xl shadow border flex-grow overflow-auto">
+
+        <!-- Module Filter Bar -->
+        <div class="bg-white p-4 rounded-t-xl shadow-sm border flex flex-wrap gap-4 items-end">
+          <div class="flex-grow min-w-[200px]">
+            <label id="modSearchLabel" class="block text-xs font-semibold text-gray-500 uppercase mb-1">Search</label>
+            <input id="modSearchInput" class="w-full p-2 border rounded-md text-sm" placeholder="Search records...">
+          </div>
+          <div id="modFilterGroup1">
+            <label id="modFilterLabel1" class="block text-xs font-semibold text-gray-500 uppercase mb-1">Department / Type</label>
+            <select id="modFilter1" class="p-2 border rounded-md text-sm"><option value="All">All</option></select>
+          </div>
+          <div id="modFilterGroup2">
+            <label id="modFilterLabel2" class="block text-xs font-semibold text-gray-500 uppercase mb-1">Location / Stage</label>
+            <select id="modFilter2" class="p-2 border rounded-md text-sm"><option value="All">All</option></select>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Status</label>
+            <select id="modFilterStatus" class="p-2 border rounded-md text-sm">
+              <option value="All">All</option>
+              <option value="Draft">Draft</option>
+              <option value="Pending Section Head">Pending Section Head</option>
+              <option value="Pending QA Manager">Pending QA Manager</option>
+              <option value="Completed">Completed</option>
+              <option value="Approved">Approved</option>
+              <option value="Rejected">Rejected</option>
+            </select>
+          </div>
+          <button id="modClearFiltersBtn" class="px-4 py-2 text-gray-500 hover:bg-gray-100 rounded text-sm">Clear Filters</button>
+        </div>
+
+        <!-- Module Bulk Actions Bar -->
+        <div id="moduleBulkBar" class="hidden bg-blue-50 border-x border-b border-blue-200 px-4 py-2 flex items-center justify-between">
+          <div class="text-sm font-semibold text-blue-900"><span id="moduleSelectedCount">0</span> records selected</div>
+          <div class="flex gap-2">
+            <button id="bulkModuleSubmitBtn" class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded text-xs font-semibold"><i class="fas fa-paper-plane mr-1"></i>Bulk Submit</button>
+            <button id="bulkModuleDeleteBtn" class="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-xs font-semibold"><i class="fas fa-trash-alt mr-1"></i>Bulk Delete</button>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-b-xl shadow border flex-grow overflow-auto">
           <table class="min-w-full divide-y">
-            <thead id="moduleTableHead" class="bg-gray-50"></thead>
+            <thead id="moduleTableHead" class="bg-gray-50 sticky top-0 z-10"></thead>
             <tbody id="moduleTableBody" class="divide-y text-sm"></tbody>
           </table>
+          <div id="moduleEmptyState" class="hidden p-10 text-center text-gray-500">No records match your criteria.</div>
         </div>
       </div>
     </section>
