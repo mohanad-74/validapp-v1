@@ -804,6 +804,17 @@
     async function loadModule(module) { 
       currentModule = module; 
       const collectionName = module === MODULES.CALIBRATION ? 'calibration' : 'qualification'; 
+      
+      // Dynamic Creative Subtitles Update
+      const subtitleEl = $('moduleSubtitleDesc');
+      if (subtitleEl) {
+        if (module === MODULES.CALIBRATION) {
+          subtitleEl.textContent = 'Precision metrology tracking, calibration lifecycle validity, and audit-ready compliance';
+        } else {
+          subtitleEl.textContent = 'Rigorous equipment/utility qualification protocols, system verification, and lifecycle control';
+        }
+      }
+
       try {
         let q = query(colRef(collectionName), orderBy('createdAt', 'desc')); 
         const snap = await getDocs(q); 
@@ -1243,7 +1254,7 @@
         <div class="flex justify-between items-center mb-4 flex-wrap gap-3">
           <div>
             <h2 id="moduleTitle" class="text-2xl font-bold">Module</h2>
-            <p class="text-gray-500 text-sm">Controlled module records and approval workflows</p>
+            <p id="moduleSubtitleDesc" class="text-gray-500 text-sm">Precision metrology tracking, calibration validity, and compliance lifecycles</p>
           </div>
           <div class="flex items-center gap-3">
             <div id="excelImportContainer" class="hidden">
@@ -1267,7 +1278,7 @@
 
   <!-- Footer -->
   <footer class="bg-white border-t py-3 px-6 text-center text-xs text-gray-500 flex-shrink-0">
-    powered by validation team nerhadou
+    powered by Validation Team Nerhadou
   </footer>
 
   <!-- Record Modal -->
