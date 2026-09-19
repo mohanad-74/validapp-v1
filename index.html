@@ -135,22 +135,24 @@
     const isReviewer = () => can(ROLES.SECTION_HEAD, ROLES.REVIEWER, ROLES.DEPUTY, ROLES.QA_MANAGER);
     const isViewer = () => can(ROLES.VIEWER);
 
-    // --- EmailJS Notification Helper ---
-    async function sendEmailNotification(recipientEmail, subjectLine, messageBody) {
-      if (!window.emailjs || !recipientEmail) return;
-      try {
+   // --- EmailJS Notification Helper ---
+async function sendEmailNotification(recipientEmail, actionTaken, username, productDetails, currentStatus, auditDetails) {
+    if (!window.emailjs || !recipientEmail) return;
+    try {
         await emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, {
-          to_email: recipientEmail,
-          subject: subjectLine,
-          message: messageBody,
-          sender_name: currentProfile?.displayName || currentUser?.email || 'ValidApp System',
-          timestamp: new Date().toLocaleString()
+            to_email: recipientEmail,
+            action_taken: actionTaken || 'System Action',
+            timestamp: new Date().toLocaleString(),
+            username: username || currentProfile?.displayName || currentUser?.email || 'Unknown User',
+            product_details: productDetails || 'N/A',
+            current_status: currentStatus || 'N/A',
+            audit_details: auditDetails || 'No additional details provided.'
         });
-      } catch (err) {
+    } catch (err) {
         console.error('EmailJS dispatch failed:', err);
-      }
     }
-
+}
+     
     function showMessage(title = 'Information', text = '', type = 'info') {
       if (!title && !text) return;
       $('messageTitle').textContent = title || 'Notification';
