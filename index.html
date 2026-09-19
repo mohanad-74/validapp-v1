@@ -94,6 +94,17 @@
 
     const CATEGORIES = Object.freeze({ PROCESS: 'Process Validation', HOLD_TIME: 'Hold Time Study', CLEANING: 'Cleaning Validation' });
     const MODULES = Object.freeze({ STUDIES: 'Studies', CALIBRATION: 'Calibration', QUALIFICATION: 'Qualification' });
+    const CALIBRATION_TYPES = Object.freeze({
+      PLAN: 'Calibration Plan',
+      CERTIFICATE: 'Calibration certificate',
+      OUT_OF_CAL: 'Out of calibration document',
+      ADDENDUM: 'Addendeum of calibration'
+    });
+    const QUALIFICATION_TYPES = Object.freeze({
+      PLAN: 'Qualification plan',
+      DOCUMENT: 'Qualification document'
+    });
+
     const ALLOWED_FILE_TYPES = Object.freeze({
       'application/pdf': '.pdf',
       'application/msword': '.doc',
@@ -251,6 +262,15 @@
     function recordActionButtons(r) {
       const buttons = [];
       const owner = r.createdByUid === currentUser?.uid || r.createdBy === currentProfile?.username;
+      
+      // Viewer restrictions: Viewers only see approved studies and can download files/final study, no history or adding/modifying files
+      if (isViewer()) {
+        if (r.status === STATUS.APPROVED) {
+          buttons.push(`<button class="text-gray-700 text-xs font-semibold" data-files="${esc(r.id)}"><i class="fas fa-download mr-1"></i>Files / Download</button>`);
+        }
+        return buttons.join(' ');
+      }
+
       if ((isAdmin() || isCreator()) && owner && [STATUS.DRAFT, STATUS.RETURNED].includes(r.status)) buttons.push(`<button class="text-purple-600 hover:text-purple-800 text-xs font-semibold" data-edit="${esc(r.id)}"><i class="fas fa-edit mr-1"></i>Edit</button>`);
       if ((isAdmin() || isCreator()) && owner && r.status === STATUS.DRAFT) buttons.push(`<button class="text-blue-600 hover:text-blue-800 text-xs font-semibold" data-submit="${esc(r.id)}"><i class="fas fa-paper-plane mr-1"></i>Submit</button>`);
       if (can(ROLES.SECTION_HEAD) && r.status === STATUS.PENDING_SECTION_HEAD) buttons.push(`<button class="text-blue-600 text-xs font-semibold" data-review="${esc(r.id)}"><i class="fas fa-check-circle mr-1"></i>Complete Review</button>`);
@@ -270,7 +290,14 @@
       const status = $('filterStatus').value;
       const scale = $('filterScale').value;
       const category = currentCategory;
-      const filtered = records.filter(r => r.studyCategory === category && (!q || `${r.productName||''} ${r.productType||''}`.toLowerCase().includes(q)) && (stage === 'All' || r.stage === stage) && (status === 'All' || r.status === status) && (scale === 'All' || r.scale === scale));
+      
+      let filtered = records.filter(r => r.studyCategory === category && (!q || `${r.productName||''} ${r.productType||''}`.toLowerCase().includes(q)) && (stage === 'All' || r.stage === stage) && (status === 'All' || r.status === status) && (scale === 'All' || r.scale === scale));
+      
+      // If viewer, enforce seeing only approved studies strictly
+      if (isViewer()) {
+        filtered = filtered.filter(r => r.status === STATUS.APPROVED);
+      }
+
       $('dataTableBody').innerHTML = filtered.map(r => `<tr class="hover:bg-gray-50">
         <td class="px-4 py-3 font-medium text-gray-900">${esc(r.productName)}<div class="text-xs text-gray-500">${esc(r.productType)}</div></td>
         <td class="px-4 py-3 text-xs">${esc(r.studyCategory)}</td>
@@ -284,6 +311,7 @@
     }
 
     function openRecordModal(record=null) {
+      if (isViewer()) return;
       $('recordForm').reset();
       $('recordId').value = record?.id || '';
       $('modalTitle').textContent = record ? 'Edit Validation Study' : 'Add New Validation Study';
@@ -346,7 +374,6 @@
       await addDoc(colRef('reviews'), {studyId:id, studyName:r.productName, reviewerUid:currentUser.uid, reviewerName:currentProfile.displayName || currentUser.email, reviewerRole:actorRole, comment, createdAt:serverTimestamp()});
       await logAudit('Workflow Progressed', id, r.productName, comment || `Advanced by ${actorRole}`, old, targetStatus);
       
-      // Trigger EmailJS Notification
       await sendEmailNotification(
         currentUser.email,
         `ValidApp Status Update: ${r.productName}`,
@@ -422,6 +449,7 @@
     }
 
     async function uploadFiles(parentId, input, module='study') {
+      if (isViewer()) return showMessage('Unauthorized', 'Viewers cannot upload files.', 'error');
       if (!input.files || !input.files.length) return;
       if (!supabaseClient) return showMessage('Supabase Not Initialized', 'Ensure URL and Key are set correctly.', 'error');
       
@@ -522,15 +550,21 @@
     }
 
     function renderFileList(parentId, module='study') {
+      // If viewer, hide the file upload area container or inputs completely
+      const uploadContainer = $('uploadFileContainer');
+      if (uploadContainer) {
+        uploadContainer.classList.toggle('hidden', isViewer());
+      }
+
       $('fileList').innerHTML = filesByParent.filter(f => !f.deletedAt).map(f => `<div class="border rounded-lg p-3 flex flex-wrap items-center justify-between gap-3 bg-gray-50">
         <div>
           <div class="font-semibold text-sm">${esc(f.name)}</div>
           <div class="text-xs text-gray-500">${esc(f.contentType)} · ${(f.size/1024/1024).toFixed(2)} MB · ${esc(nowLabel(f.uploadedAt))}</div>
         </div>
         <div class="flex gap-2">
-          <button data-view-file="${esc(f.id)}" class="text-blue-600 text-xs font-semibold hover:underline">View</button>
+          ${!isViewer() ? `<button data-view-file="${esc(f.id)}" class="text-blue-600 text-xs font-semibold hover:underline">View</button>` : ''}
           <button data-download-file="${esc(f.id)}" class="text-gray-700 text-xs font-semibold hover:underline">Download</button>
-          ${isAdmin() ? `<button data-delete-file="${esc(f.id)}" class="text-red-600 text-xs font-semibold hover:underline">Delete</button>` : ''}
+          ${isAdmin() && !isViewer() ? `<button data-delete-file="${esc(f.id)}" class="text-red-600 text-xs font-semibold hover:underline">Delete</button>` : ''}
         </div>
       </div>`).join('') || '<div class="text-sm text-gray-500">No documents found.</div>';
 
@@ -545,6 +579,7 @@
     }
 
     async function showHistory(studyId) {
+      if (isViewer()) return; // Viewers have no access to see the history
       const snap = await getDocs(query(colRef('reviews'), where('studyId', '==', studyId)));
       const items = snap.docs.map(d => d.data()).sort((a,b) => String(b.createdAt?.seconds || '').localeCompare(String(a.createdAt?.seconds || '')));
       $('historyBody').innerHTML = items.map(x => `<div class="border-l-4 border-blue-300 pl-4 py-2">
@@ -702,9 +737,29 @@
 
     function renderModuleTable() { 
       $('moduleTitle').textContent = currentModule; 
-      $('moduleTableBody').innerHTML = moduleRecords.map(r => {
+      
+      // If viewer, filter module records to only approved ones if applicable, or view approved final files
+      let displayRecords = moduleRecords;
+      if (isViewer()) {
+        displayRecords = displayRecords.filter(r => r.status === STATUS.APPROVED || r.status === STATUS.COMPLETED);
+      }
+
+      $('moduleTableBody').innerHTML = displayRecords.map(r => {
         const owner = r.createdByUid === currentUser.uid || isAdmin(); 
         const review = (can(ROLES.SECTION_HEAD) && r.status === STATUS.PENDING_SECTION_HEAD) || (can(ROLES.QA_MANAGER) && r.status === STATUS.PENDING_QA); 
+        
+        if (isViewer()) {
+          return `<tr>
+            <td class="px-4 py-3 font-medium">${esc(r.name)}<div class="text-xs text-gray-500">${esc(r.reference)}</div></td>
+            <td class="px-4 py-3 text-xs">${esc(r.category || '—')}</td>
+            <td class="px-4 py-3 text-xs">${esc(r.equipmentOrSystem || '—')}</td>
+            <td class="px-4 py-3">${statusBadge(r.status)}</td>
+            <td class="px-4 py-3 text-center">
+              <button data-module-files="${esc(r.id)}" class="text-gray-700 text-xs font-semibold hover:underline"><i class="fas fa-download mr-1"></i>Download Final</button>
+            </td>
+          </tr>`;
+        }
+
         return `<tr>
           <td class="px-4 py-3 font-medium">${esc(r.name)}<div class="text-xs text-gray-500">${esc(r.reference)}</div></td>
           <td class="px-4 py-3 text-xs">${esc(r.category || '—')}</td>
@@ -786,17 +841,43 @@
       } catch(e) { showMessage('Submission failed', friendlyError(e), 'error'); }
     }
 
+    function updateCategoryDropdownOptions(mod) {
+      const selectEl = $('moduleCategory');
+      if (!selectEl) return;
+      selectEl.innerHTML = '';
+      
+      let optionsMap = {};
+      if (mod === MODULES.CALIBRATION) {
+        optionsMap = CALIBRATION_TYPES;
+      } else if (mod === MODULES.QUALIFICATION) {
+        optionsMap = QUALIFICATION_TYPES;
+      }
+
+      for (const [key, val] of Object.entries(optionsMap)) {
+        const opt = document.createElement('option');
+        opt.value = val;
+        opt.textContent = val;
+        selectEl.appendChild(opt);
+      }
+    }
+
     function openModuleModal(record = null) { 
+      if (isViewer()) return;
       $('moduleForm').reset(); 
       $('moduleEditId').value = record?.id || ''; 
-      $('moduleType').value = record?.module || (currentModule === MODULES.STUDIES ? MODULES.CALIBRATION : currentModule); 
+      $('moduleType').value = currentModule; 
+      
+      updateCategoryDropdownOptions(currentModule);
+
       $('moduleName').value = record?.name || ''; 
       $('moduleReference').value = record?.reference || ''; 
-      $('moduleCategory').value = record?.category || ''; 
+      if (record?.category) {
+        $('moduleCategory').value = record.category;
+      }
       $('moduleEquipment').value = record?.equipmentOrSystem || ''; 
       $('moduleDate').value = record?.plannedDate || ''; 
       $('moduleDescription').value = record?.description || ''; 
-      $('moduleModalTitle').textContent = record ? 'Edit Record' : 'Create Record'; 
+      $('moduleModalTitle').textContent = record ? 'Edit Record' : `Create ${currentModule} Record`; 
       $('moduleModal').classList.add('active'); 
     }
 
@@ -804,6 +885,14 @@
       document.querySelectorAll('.study-tab').forEach(x => x.classList.remove('bg-white', 'text-primary', 'shadow-sm'));
       const id = currentCategory === CATEGORIES.PROCESS ? 'tabProcess' : currentCategory === CATEGORIES.HOLD_TIME ? 'tabHoldTime' : 'tabCleaning';
       if ($(id)) $(id).classList.add('bg-white', 'text-primary', 'shadow-sm');
+      
+      document.querySelectorAll('.main-nav-tab').forEach(x => x.classList.remove('bg-blue-700', 'font-bold'));
+      $('studiesNav').classList.add('bg-blue-700', 'font-bold');
+    }
+
+    function setActiveMainNavLink(navId) {
+      document.querySelectorAll('.main-nav-tab').forEach(x => x.classList.remove('bg-blue-700', 'font-bold'));
+      $(navId).classList.add('bg-blue-700', 'font-bold');
     }
 
     function showStudies() {
@@ -811,13 +900,16 @@
       $('studiesView').classList.remove('hidden');
       $('moduleView').classList.add('hidden');
       setCategoryTabs();
+      setActiveMainNavLink('studiesNav');
       configureNavigation();
       loadData();
     }
 
-    async function showModule() {
+    async function showModule(modName) {
+      currentModule = modName;
       $('studiesView').classList.add('hidden');
       $('moduleView').classList.remove('hidden');
+      setActiveMainNavLink(modName === MODULES.CALIBRATION ? 'calibrationNav' : 'qualificationNav');
       configureNavigation();
       await loadModule(currentModule);
     }
@@ -874,9 +966,9 @@
     $('addModuleBtn').addEventListener('click', () => openModuleModal());
     $('userManagementBtn').addEventListener('click', loadUsers);
     $('auditTrailBtn').addEventListener('click', loadAudit);
-    $('calibrationNav').addEventListener('click', () => { currentModule = MODULES.CALIBRATION; showModule(); });
-    $('qualificationNav').addEventListener('click', () => { currentModule = MODULES.QUALIFICATION; showModule(); });
-    $('studiesNav').addEventListener('click', () => { currentModule = MODULES.STUDIES; showStudies(); });
+    $('calibrationNav').addEventListener('click', () => showModule(MODULES.CALIBRATION));
+    $('qualificationNav').addEventListener('click', () => showModule(MODULES.QUALIFICATION));
+    $('studiesNav').addEventListener('click', () => showStudies());
     
     $('tabProcess').addEventListener('click', () => { currentCategory = CATEGORIES.PROCESS; setCategoryTabs(); renderStudies(); });
     $('tabHoldTime').addEventListener('click', () => { currentCategory = CATEGORIES.HOLD_TIME; setCategoryTabs(); renderStudies(); });
@@ -992,9 +1084,9 @@
           <i class="fas fa-user-circle mr-1"></i>
           <span id="currentUserDisplay"></span> · <span id="currentUserRole"></span> · <span id="currentUserDepartment"></span>
         </span>
-        <button id="studiesNav" class="hover:bg-blue-700 px-2 py-1 rounded">Studies</button>
-        <button id="calibrationNav" class="hover:bg-blue-700 px-2 py-1 rounded">Calibration</button>
-        <button id="qualificationNav" class="hover:bg-blue-700 px-2 py-1 rounded">Qualification</button>
+        <button id="studiesNav" class="main-nav-tab hover:bg-blue-700 px-2 py-1 rounded">Studies</button>
+        <button id="calibrationNav" class="main-nav-tab hover:bg-blue-700 px-2 py-1 rounded">Calibration</button>
+        <button id="qualificationNav" class="main-nav-tab hover:bg-blue-700 px-2 py-1 rounded">Qualification</button>
         <button id="userManagementBtn" class="hidden hover:bg-blue-700 px-2 py-1 rounded"><i class="fas fa-users-cog mr-1"></i>Users</button>
         <button id="auditTrailBtn" class="hidden hover:bg-blue-700 px-2 py-1 rounded"><i class="fas fa-history mr-1"></i>Audit</button>
         <button id="logoutBtn" class="bg-red-500 hover:bg-red-600 px-3 py-1 rounded font-semibold"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
@@ -1075,7 +1167,7 @@
       <div id="moduleView" class="hidden flex-col h-full overflow-hidden">
         <div class="flex justify-between items-center mb-4">
           <div>
-            <h2 id="moduleTitle" class="text-2xl font-bold">Calibration</h2>
+            <h2 id="moduleTitle" class="text-2xl font-bold">Module</h2>
             <p class="text-gray-500 text-sm">Controlled document and approval workflow</p>
           </div>
           <button id="addModuleBtn" class="hidden bg-accent text-white px-5 py-2 rounded-lg font-semibold"><i class="fas fa-plus mr-2"></i>Add Record</button>
@@ -1127,7 +1219,7 @@
     <div class="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
       <div class="bg-dark text-white p-4 flex justify-between"><h3 class="text-xl font-bold"><i class="fas fa-folder-open mr-2"></i>Controlled Documents</h3><button data-close><i class="fas fa-times"></i></button></div>
       <div class="p-5 overflow-auto">
-        <div class="flex flex-wrap items-center gap-3 mb-4">
+        <div id="uploadFileContainer" class="flex flex-wrap items-center gap-3 mb-4">
           <label class="bg-primary text-white px-4 py-2 rounded cursor-pointer"><i class="fas fa-upload mr-2"></i>Add Files<input id="fileInput" type="file" class="hidden" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png"></label>
           <span id="uploadProgress" class="text-xs font-semibold text-blue-700"></span>
         </div>
@@ -1179,13 +1271,31 @@
       <div class="bg-primary text-white p-4 flex justify-between"><h3 id="moduleModalTitle" class="text-xl font-bold">Create Record</h3><button data-close><i class="fas fa-times"></i></button></div>
       <form id="moduleForm" class="p-6 space-y-4">
         <input type="hidden" id="moduleEditId">
-        <select id="moduleType" class="w-full p-2 border rounded"><option>Calibration</option><option>Qualification</option></select>
-        <input id="moduleName" class="w-full p-2 border rounded" placeholder="Record / Equipment Name *" required>
-        <input id="moduleReference" class="w-full p-2 border rounded" placeholder="Reference / ID *" required>
-        <input id="moduleCategory" class="w-full p-2 border rounded" placeholder="Category (e.g. DQ, IQ, OQ, PQ)">
-        <input id="moduleEquipment" class="w-full p-2 border rounded" placeholder="Equipment / System">
-        <input id="moduleDate" type="date" class="w-full p-2 border rounded">
-        <textarea id="moduleDescription" class="w-full p-2 border rounded" rows="4" placeholder="Description / scope"></textarea>
+        <input type="hidden" id="moduleType">
+        <div>
+          <label class="block text-sm font-medium mb-1">Record / Equipment Name *</label>
+          <input id="moduleName" class="w-full p-2 border rounded" placeholder="Name *" required>
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">Reference / ID *</label>
+          <input id="moduleReference" class="w-full p-2 border rounded" placeholder="Reference / ID *" required>
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">Action Type *</label>
+          <select id="moduleCategory" class="w-full p-2 border rounded" required></select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">Equipment / System</label>
+          <input id="moduleEquipment" class="w-full p-2 border rounded" placeholder="Equipment / System">
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">Planned Date</label>
+          <input id="moduleDate" type="date" class="w-full p-2 border rounded">
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">Description / Scope</label>
+          <textarea id="moduleDescription" class="w-full p-2 border rounded" rows="4" placeholder="Description / scope"></textarea>
+        </div>
         <div class="flex justify-end gap-3"><button type="button" data-close class="px-4 py-2 bg-gray-200 rounded">Cancel</button><button class="px-4 py-2 bg-primary text-white rounded">Create Draft</button></div>
       </form>
     </div>
