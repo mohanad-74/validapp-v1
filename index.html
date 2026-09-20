@@ -797,10 +797,17 @@
         try {
           const data = new Uint8Array(e.target.result);
           const workbook = XLSX.read(data, { type: 'array' });
-          const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-          const rows = XLSX.utils.sheet_to_json(firstSheet);
+          
+          let rows = [];
+          workbook.SheetNames.forEach(sheetName => {
+            const worksheet = workbook.Sheets[sheetName];
+            const sheetRows = XLSX.utils.sheet_to_json(worksheet);
+            if (sheetRows && sheetRows.length > 0) {
+              rows = rows.concat(sheetRows);
+            }
+          });
 
-          if (!rows.length) return showMessage('Empty File', 'No records found in the uploaded spreadsheet.', 'error');
+          if (!rows.length) return showMessage('Empty File', 'No records found in any sheets of the uploaded spreadsheet.', 'error');
 
           let importedCount = 0;
           const isCalibration = currentModule === MODULES.CALIBRATION;
@@ -877,12 +884,12 @@
             }
           }
 
-          await logAudit(`${currentModule} Excel/Macro Imported`, '', '', `Imported ${importedCount} records via spreadsheet file.`);
-          showMessage('Success', `Successfully imported ${importedCount} ${currentModule.toLowerCase()} entries!`, 'success');
+          await logAudit(`${currentModule} Excel/Macro Imported`, '', '', `Imported ${importedCount} records via multi-sheet spreadsheet file.`);
+          showMessage('Success', `Successfully imported ${importedCount} ${currentModule.toLowerCase()} entries from all sheets!`, 'success');
           await loadModule(currentModule);
         } catch (err) {
           console.error(err);
-          showMessage('Import Error', 'Failed to parse Excel sheet. Ensure columns match header specifications.', 'error');
+          showMessage('Import Error', 'Failed to parse Excel sheets. Ensure columns match header specifications.', 'error');
         }
       };
       
@@ -931,7 +938,6 @@
       $('moduleTitle').textContent = currentModule; 
       $('moduleDescription').textContent = currentModule === MODULES.CALIBRATION ? 'Calibration records' : 'Qualification lifecycle - Qualification records';
       
-      // Update label / button contextual text for imports
       if ($('excelImportBtnText')) {
         $('excelImportBtnText').textContent = currentModule === MODULES.CALIBRATION ? 'Import Calibration Excel/Macro' : 'Import Qualification Excel/Macro';
       }
@@ -1754,13 +1760,13 @@
       <div class="p-6">
         <h3 id="confirmTitle" class="text-xl font-bold">Confirm Action</h3>
         <p id="confirmText" class="text-gray-600 py-4"></p>
-        <div id="reasonWrap" class="hidden mb-4">
-          <label id="reasonLabel" class="block text-sm font-medium mb-1">Reason *</label>
-          <textarea id="reasonInput" rows="3" class="w-full p-2 border rounded text-sm" placeholder="Enter reason or comments..."></textarea>
+        <div id="reasonWrap" class="mb-4 hidden">
+          <label id="reasonLabel" class="block text-sm font-medium mb-1">Reason / comment *</label>
+          <textarea id="reasonInput" rows="3" class="w-full p-2 border rounded text-sm" placeholder="Enter details..."></textarea>
         </div>
         <div class="flex justify-end gap-3">
-          <button type="button" data-close class="px-4 py-2 bg-gray-200 rounded text-sm font-semibold">Cancel</button>
-          <button type="button" id="acceptConfirmBtn" class="px-4 py-2 bg-primary text-white rounded text-sm font-semibold">Confirm</button>
+          <button type="button" data-close class="px-4 py-2 bg-gray-200 rounded text-sm">Cancel</button>
+          <button id="acceptConfirmBtn" class="px-4 py-2 bg-primary text-white rounded text-sm font-semibold">Confirm</button>
         </div>
       </div>
     </div>
@@ -1768,11 +1774,11 @@
 
   <!-- Message Modal -->
   <div id="messageModal" class="modal fixed inset-0 bg-gray-900/60 z-[70] items-center justify-center p-4">
-    <div class="bg-white rounded-lg shadow-xl w-full max-w-md text-center p-6">
-      <div id="messageIcon" class="mb-3 flex justify-center"></div>
-      <h3 id="messageTitle" class="text-xl font-bold mb-2">Notification</h3>
-      <p id="messageText" class="text-gray-600 mb-6 text-sm"></p>
-      <button type="button" data-close class="w-full py-2 bg-primary text-white rounded font-semibold text-sm">OK</button>
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-sm text-center p-6">
+      <div id="messageIcon" class="mb-3"></div>
+      <h3 id="messageTitle" class="text-lg font-bold mb-2">Notification</h3>
+      <p id="messageText" class="text-gray-600 text-sm mb-5"></p>
+      <button data-close class="w-full bg-primary text-white py-2 rounded font-semibold text-sm">OK</button>
     </div>
   </div>
 </body>
