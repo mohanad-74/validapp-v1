@@ -109,6 +109,7 @@
     let currentProfile = null;
     let currentModule = MODULES.STUDIES;
     let currentCategory = CATEGORIES.PROCESS;
+    let currentCalibrationTab = 'all'; // 'all', 'dept', 'monthly', 'addendum', 'out'
     let records = [];
     let moduleRecords = [];
     let selectedModuleIds = new Set();
@@ -737,6 +738,8 @@
           calDate: $('calDate').value,
           dueDate: $('calDueDate').value,
           monthYear: $('calMonthYear').value.trim(),
+          isAddendum: $('calIsAddendum').checked,
+          isOutOfCalibration: $('calIsOutOfCalibration').checked,
           name: $('calInstrument').value.trim(),
           reference: $('calCertificateNo').value.trim(),
           status: STATUS.DRAFT,
@@ -800,7 +803,6 @@
           const workbook = XLSX.read(data, { type: 'array' });
           
           let rows = [];
-          // Iterate through all sheets to extract and combine rows from multi-sheet workbooks
           workbook.SheetNames.forEach(sheetName => {
             const worksheet = workbook.Sheets[sheetName];
             const sheetRows = XLSX.utils.sheet_to_json(worksheet);
@@ -816,7 +818,6 @@
           const collectionName = isCalibration ? 'calibration' : 'qualification';
 
           for (const row of rows) {
-            // Flexible matching for key variants across standard & macro sheets (.xlsx / .xlsm)
             const cleanRow = {};
             Object.keys(row).forEach(k => {
               cleanRow[k.trim().toLowerCase().replace(/[^a-z0-9]/g, '')] = row[k];
@@ -826,6 +827,8 @@
               const certNo = String(cleanRow['certificateno'] || cleanRow['certno'] || cleanRow['reference'] || '');
               const instrument = String(cleanRow['instrument'] || cleanRow['name'] || '');
               const code = String(cleanRow['code'] || cleanRow['instrumentcode'] || '');
+              const isAdd = String(cleanRow['isaddendum'] || cleanRow['addendum'] || '').toLowerCase();
+              const isOut = String(cleanRow['isoutofcalibration'] || cleanRow['outofcal'] || cleanRow['out'] || '').toLowerCase();
 
               const payload = {
                 certificateNo: certNo,
@@ -842,6 +845,8 @@
                 calDate: String(cleanRow['caldate'] || cleanRow['date'] || ''),
                 dueDate: String(cleanRow['duedate'] || ''),
                 monthYear: String(cleanRow['monthyear'] || ''),
+                isAddendum: isAdd === 'true' || isAdd === 'yes' || isAdd === '1',
+                isOutOfCalibration: isOut === 'true' || isOut === 'yes' || isOut === '1',
                 name: instrument || 'Imported Instrument',
                 reference: certNo || 'IMP-' + Date.now(),
                 status: STATUS.DRAFT,
@@ -856,7 +861,6 @@
                 importedCount++;
               }
             } else {
-              // Qualification Module Parsing
               const name = String(cleanRow['name'] || cleanRow['equipmentname'] || cleanRow['systemname'] || '');
               const reference = String(cleanRow['reference'] || cleanRow['refid'] || cleanRow['protocol'] || '');
               const typeVal = String(cleanRow['qualificationtype'] || cleanRow['type'] || 'equipment').toLowerCase();
@@ -940,8 +944,11 @@
       $('moduleTitle').textContent = currentModule; 
       $('moduleDescription').textContent = currentModule === MODULES.CALIBRATION ? 'Calibration records' : 'Qualification lifecycle - Qualification records';
       
+      const isCalibration = currentModule === MODULES.CALIBRATION;
+      $('calibrationSubTabs').classList.toggle('hidden', !isCalibration);
+
       if ($('excelImportBtnText')) {
-        $('excelImportBtnText').textContent = currentModule === MODULES.CALIBRATION ? 'Import Calibration Excel/Macro' : 'Import Qualification Excel/Macro';
+        $('excelImportBtnText').textContent = isCalibration ? 'Import Calibration Excel/Macro' : 'Import Qualification Excel/Macro';
       }
 
       let displayRecords = moduleRecords;
@@ -955,15 +962,26 @@
       const st = $('modFilterStatus').value;
 
       displayRecords = displayRecords.filter(r => {
-        const matchQ = !q || (currentModule === MODULES.CALIBRATION ? 
+        const matchQ = !q || (isCalibration ? 
           `${r.certificateNo||''} ${r.instrument||''} ${r.code||''} ${r.serialNumber||''}`.toLowerCase().includes(q) : 
           `${r.name||''} ${r.reference||''} ${r.equipmentSystemInfo||''}`.toLowerCase().includes(q));
         
         let matchF1 = true;
         let matchF2 = true;
-        if (currentModule === MODULES.CALIBRATION) {
+        if (isCalibration) {
           if (f1 !== 'All' && r.department !== f1) matchF1 = false;
           if (f2 !== 'All' && r.location !== f2) matchF2 = false;
+
+          // Apply Calibration Sub-Tabs Filter
+          if (currentCalibrationTab === 'dept') {
+            if (!r.department || r.department === 'All') matchF1 = false;
+          } else if (currentCalibrationTab === 'monthly') {
+            if (!r.monthYear && !r.calDate) return false;
+          } else if (currentCalibrationTab === 'addendum') {
+            if (!r.isAddendum) return false;
+          } else if (currentCalibrationTab === 'out') {
+            if (!r.isOutOfCalibration) return false;
+          }
         } else {
           if (f1 !== 'All' && r.qualificationType !== f1) matchF1 = false;
           if (f2 !== 'All' && r.stage !== f2) matchF2 = false;
@@ -976,7 +994,7 @@
       const headerEl = $('moduleTableHead');
       const allSelected = displayRecords.length > 0 && displayRecords.every(r => selectedModuleIds.has(r.id));
 
-      if (currentModule === MODULES.CALIBRATION) {
+      if (isCalibration) {
         headerEl.innerHTML = `
           <tr>
             <th class="px-4 py-3 text-left text-xs w-10"><input type="checkbox" id="selectAllModule" ${allSelected && displayRecords.length > 0 ? 'checked' : ''}></th>
@@ -984,7 +1002,7 @@
             <th class="px-4 py-3 text-left text-xs">Code / S.N</th>
             <th class="px-4 py-3 text-left text-xs">Dept / Location</th>
             <th class="px-4 py-3 text-left text-xs">Cal / Due Date</th>
-            <th class="px-4 py-3 text-left text-xs">Status</th>
+            <th class="px-4 py-3 text-left text-xs">Flags / Status</th>
             <th class="px-4 py-3 text-center text-xs">Actions</th>
           </tr>
         `;
@@ -1006,14 +1024,18 @@
         const review = (can(ROLES.SECTION_HEAD) && r.status === STATUS.PENDING_SECTION_HEAD) || (can(ROLES.QA_MANAGER) && r.status === STATUS.PENDING_QA); 
         const isChecked = selectedModuleIds.has(r.id);
         
-        if (currentModule === MODULES.CALIBRATION) {
+        if (isCalibration) {
+          const flags = [];
+          if (r.isAddendum) flags.push(`<span class="bg-purple-100 text-purple-800 px-1.5 py-0.5 rounded text-[10px] font-semibold">Addendum</span>`);
+          if (r.isOutOfCalibration) flags.push(`<span class="bg-red-100 text-red-800 px-1.5 py-0.5 rounded text-[10px] font-semibold">Out of Cal</span>`);
+          
           return `<tr class="hover:bg-gray-50">
             <td class="px-4 py-3"><input type="checkbox" data-select-id="${esc(r.id)}" ${isChecked ? 'checked' : ''}></td>
             <td class="px-4 py-3 font-medium">${esc(r.certificateNo || r.reference)}<div class="text-xs text-gray-500">${esc(r.instrument || r.name)}</div></td>
             <td class="px-4 py-3 text-xs">${esc(r.code)}<div class="text-gray-400">S/N: ${esc(r.serialNumber || '—')}</div></td>
-            <td class="px-4 py-3 text-xs">${esc(r.department)}<div class="text-gray-400">${esc(r.location)}</div></td>
-            <td class="px-4 py-3 text-xs">Cal: ${esc(r.calDate)}<div class="text-red-500">Due: ${esc(r.dueDate)}</div></td>
-            <td class="px-4 py-3">${statusBadge(r.status)}</td>
+            <td class="px-4 py-3 text-xs"><span class="font-semibold text-primary">${esc(r.department || '—')}</span><div class="text-gray-400">${esc(r.location || '—')}</div></td>
+            <td class="px-4 py-3 text-xs">Cal: ${esc(r.calDate || r.monthYear || '—')}<div class="text-red-500">Due: ${esc(r.dueDate || '—')}</div></td>
+            <td class="px-4 py-3 space-y-1">${statusBadge(r.status)}<div class="flex flex-wrap gap-1 mt-1">${flags.join('')}</div></td>
             <td class="px-4 py-3 text-center">
               <button data-module-files="${esc(r.id)}" class="text-gray-600 text-xs font-semibold mr-2 hover:underline">Files</button>
               ${owner && [STATUS.DRAFT, STATUS.RETURNED].includes(r.status) ? `<button data-module-edit="${esc(r.id)}" class="text-purple-600 text-xs font-semibold mr-2 hover:underline">Edit</button>` : ''}
@@ -1152,6 +1174,8 @@
         $('calDate').value = record?.calDate || '';
         $('calDueDate').value = record?.dueDate || '';
         $('calMonthYear').value = record?.monthYear || '';
+        $('calIsAddendum').checked = !!record?.isAddendum;
+        $('calIsOutOfCalibration').checked = !!record?.isOutOfCalibration;
       } else {
         $('qualName').value = record?.name || '';
         $('qualReference').value = record?.reference || '';
@@ -1262,6 +1286,21 @@
     $('tabProcess').addEventListener('click', () => { currentCategory = CATEGORIES.PROCESS; setCategoryTabs(); renderStudies(); });
     $('tabHoldTime').addEventListener('click', () => { currentCategory = CATEGORIES.HOLD_TIME; setCategoryTabs(); renderStudies(); });
     $('tabCleaning').addEventListener('click', () => { currentCategory = CATEGORIES.CLEANING; setCategoryTabs(); renderStudies(); });
+
+    // Calibration Sub-Tabs Event Listeners
+    document.querySelectorAll('.cal-sub-tab').forEach(btn => {
+      btn.addEventListener('click', e => {
+        document.querySelectorAll('.cal-sub-tab').forEach(b => {
+          b.classList.remove('bg-white', 'text-primary', 'shadow-sm');
+          b.classList.add('text-gray-600');
+        });
+        const target = e.currentTarget;
+        target.classList.add('bg-white', 'text-primary', 'shadow-sm');
+        target.classList.remove('text-gray-600');
+        currentCalibrationTab = target.dataset.calTab;
+        renderModuleTable();
+      });
+    });
 
     $('qualType').addEventListener('change', e => {
       const val = e.target.value;
@@ -1553,6 +1592,15 @@
           </div>
         </div>
 
+        <!-- Calibration Sub-Tabs Bar -->
+        <div id="calibrationSubTabs" class="hidden flex bg-gray-200 p-1 rounded-lg mb-3 overflow-x-auto gap-1">
+          <button data-cal-tab="all" class="cal-sub-tab bg-white text-primary px-3 py-1.5 rounded-md text-xs font-semibold shadow-sm"><i class="fas fa-list mr-1"></i>All Items</button>
+          <button data-cal-tab="dept" class="cal-sub-tab text-gray-600 px-3 py-1.5 rounded-md text-xs font-semibold"><i class="fas fa-building mr-1"></i>By Department</button>
+          <button data-cal-tab="monthly" class="cal-sub-tab text-gray-600 px-3 py-1.5 rounded-md text-xs font-semibold"><i class="fas fa-calendar-alt mr-1"></i>Monthly Filter</button>
+          <button data-cal-tab="addendum" class="cal-sub-tab text-gray-600 px-3 py-1.5 rounded-md text-xs font-semibold"><i class="fas fa-file-medical mr-1"></i>Addendum of Calibration</button>
+          <button data-cal-tab="out" class="cal-sub-tab text-gray-600 px-3 py-1.5 rounded-md text-xs font-semibold"><i class="fas fa-exclamation-triangle mr-1"></i>Out of Calibration</button>
+        </div>
+
         <!-- Module Filter Bar -->
         <div class="bg-white p-4 rounded-t-xl shadow-sm border flex flex-wrap gap-4 items-end">
           <div class="flex-grow min-w-[200px]">
@@ -1709,6 +1757,10 @@
             <div><label class="block text-xs font-semibold mb-1">Due Date</label><input type="date" id="calDueDate" class="w-full p-2 border rounded text-sm"></div>
             <div><label class="block text-xs font-semibold mb-1">Month-Year</label><input id="calMonthYear" class="w-full p-2 border rounded text-sm" placeholder="e.g. Jun-2026"></div>
           </div>
+          <div class="flex gap-6 mt-2 pt-2 border-t">
+            <label class="flex items-center gap-2 text-sm font-medium"><input type="checkbox" id="calIsAddendum" class="rounded"> Is Addendum of Calibration</label>
+            <label class="flex items-center gap-2 text-sm font-medium text-red-600"><input type="checkbox" id="calIsOutOfCalibration" class="rounded"> Out of Calibration</label>
+          </div>
         </div>
 
         <!-- Qualification Fields Group -->
@@ -1758,31 +1810,37 @@
             <div><label class="block text-xs font-semibold mb-1">Qualification Date</label><input type="date" id="qualDate" class="w-full p-2 border rounded text-sm"></div>
             <div><label class="block text-xs font-semibold mb-1">Due Date</label><input type="date" id="qualDueDate" class="w-full p-2 border rounded text-sm"></div>
           </div>
-          <div><label class="block text-xs font-semibold mb-1">Description / Scope</label><textarea id="qualDescription" rows="3" class="w-full p-2 border rounded text-sm" placeholder="Scope of qualification..."></textarea></div>
+          <div><label class="block text-xs font-semibold mb-1">Description & Scope</label><textarea id="qualDescription" rows="3" class="w-full p-2 border rounded text-sm" placeholder="Protocol summary..."></textarea></div>
         </div>
 
-        <div class="flex justify-end gap-3 pt-3 border-t"><button type="button" data-close class="px-4 py-2 bg-gray-200 rounded text-sm">Cancel</button><button class="px-4 py-2 bg-primary text-white rounded text-sm">Save Record</button></div>
+        <div class="flex justify-end gap-3 pt-4 border-t"><button type="button" data-close class="px-4 py-2 bg-gray-200 rounded text-sm font-semibold">Cancel</button><button class="px-4 py-2 bg-primary text-white rounded text-sm font-semibold">Save Record</button></div>
       </form>
     </div>
   </div>
 
-  <!-- Confirm Modal -->
-  <div id="confirmModal" class="modal fixed inset-0 bg-gray-900/60 z-[60] items-center justify-center p-4">
-    <div class="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
-      <h3 id="confirmTitle" class="text-lg font-bold mb-2">Confirm Action</h3>
-      <p id="confirmText" class="text-sm text-gray-600 mb-4"></p>
-      <div id="reasonWrap" class="hidden mb-4"><label id="reasonLabel" class="block text-xs font-semibold mb-1">Reason</label><textarea id="reasonInput" rows="2" class="w-full p-2 border rounded text-sm"></textarea></div>
-      <div class="flex justify-end gap-2"><button type="button" data-close class="px-3 py-1.5 bg-gray-200 text-xs rounded">Cancel</button><button id="acceptConfirmBtn" class="px-3 py-1.5 bg-primary text-white text-xs rounded">Confirm</button></div>
+  <!-- Confirmation Modal -->
+  <div id="confirmModal" class="modal fixed inset-0 bg-gray-900/60 z-50 items-center justify-center p-4">
+    <div class="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 space-y-4">
+      <h3 id="confirmTitle" class="text-xl font-bold text-gray-900">Confirm Action</h3>
+      <p id="confirmText" class="text-sm text-gray-600"></p>
+      <div id="reasonWrap" class="space-y-1 hidden">
+        <label id="reasonLabel" class="block text-xs font-semibold text-gray-700"></label>
+        <textarea id="reasonInput" rows="3" class="w-full p-2 border rounded text-sm" placeholder="Provide details..."></textarea>
+      </div>
+      <div class="flex justify-end gap-3 pt-2">
+        <button type="button" data-close class="px-4 py-2 bg-gray-200 rounded text-sm font-semibold">Cancel</button>
+        <button id="acceptConfirmBtn" class="px-4 py-2 bg-primary text-white rounded text-sm font-semibold">Confirm</button>
+      </div>
     </div>
   </div>
 
   <!-- Message Modal -->
-  <div id="messageModal" class="modal fixed inset-0 bg-gray-900/60 z-[70] items-center justify-center p-4">
-    <div class="bg-white rounded-lg shadow-xl w-full max-w-sm p-6 text-center">
-      <div id="messageIcon" class="mb-3 flex justify-center"></div>
-      <h3 id="messageTitle" class="text-lg font-bold mb-1">Notification</h3>
-      <p id="messageText" class="text-sm text-gray-600 mb-5"></p>
-      <button data-close class="w-full py-2 bg-primary text-white rounded text-sm">OK</button>
+  <div id="messageModal" class="modal fixed inset-0 bg-gray-900/60 z-50 items-center justify-center p-4">
+    <div class="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 text-center space-y-4">
+      <div id="messageIcon" class="flex justify-center"></div>
+      <h3 id="messageTitle" class="text-xl font-bold text-gray-900">Notification</h3>
+      <p id="messageText" class="text-sm text-gray-600"></p>
+      <div><button data-close class="px-6 py-2 bg-primary text-white rounded font-semibold text-sm">OK</button></div>
     </div>
   </div>
 </body>
