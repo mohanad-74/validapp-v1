@@ -110,6 +110,8 @@
     let currentModule = MODULES.STUDIES;
     let currentCategory = CATEGORIES.PROCESS;
     let currentCalibrationTab = 'all'; // 'all', 'dept', 'monthly', 'addendum', 'out'
+    let currentCalibrationDept = 'QA'; // Default department sub-tab
+    let currentCalibrationMonth = 'January'; // Default month sub-tab
     let records = [];
     let moduleRecords = [];
     let selectedModuleIds = new Set();
@@ -791,7 +793,6 @@
       } catch(e) { showMessage('Save failed', friendlyError(e), 'error'); }
     }
 
-    // --- Enhanced Excel Import (Supports Multiple Sheets Across All Modules) ---
     async function handleModuleExcelImport(event) {
       const file = event.target.files[0];
       if (!file) return;
@@ -946,6 +947,8 @@
       
       const isCalibration = currentModule === MODULES.CALIBRATION;
       $('calibrationSubTabs').classList.toggle('hidden', !isCalibration);
+      $('deptSubTabs').classList.toggle('hidden', !isCalibration || currentCalibrationTab !== 'dept');
+      $('monthlySubTabs').classList.toggle('hidden', !isCalibration || currentCalibrationTab !== 'monthly');
 
       if ($('excelImportBtnText')) {
         $('excelImportBtnText').textContent = isCalibration ? 'Import Calibration Excel/Macro' : 'Import Qualification Excel/Macro';
@@ -974,9 +977,11 @@
 
           // Apply Calibration Sub-Tabs Filter
           if (currentCalibrationTab === 'dept') {
-            if (!r.department || r.department === 'All') matchF1 = false;
+            if (!r.department || r.department.toLowerCase() !== currentCalibrationTabDept.toLowerCase()) return false;
           } else if (currentCalibrationTab === 'monthly') {
-            if (!r.monthYear && !r.calDate) return false;
+            const dateStr = (r.monthYear || r.calDate || '').toLowerCase();
+            const monthMatch = dateStr.includes(currentCalibrationMonth.toLowerCase()) || dateStr.includes(currentCalibrationMonth.slice(0, 3).toLowerCase());
+            if (!monthMatch) return false;
           } else if (currentCalibrationTab === 'addendum') {
             if (!r.isAddendum) return false;
           } else if (currentCalibrationTab === 'out') {
@@ -1249,217 +1254,251 @@
     }
 
     // Event Listeners
-    $('loginForm').addEventListener('submit', async e => {
-      e.preventDefault();
-      try {
-        await signInWithEmailAndPassword(auth, $('username').value.trim(), $('password').value);
-        $('loginError').classList.add('hidden');
-      } catch (err) {
-        $('loginError').textContent = 'Invalid email or password.';
-        $('loginError').classList.remove('hidden');
-      }
-    });
-
-    $('azureSsoBtn').addEventListener('click', handleAzureSSO);
-    $('logoutBtn').addEventListener('click', () => signOut(auth));
-    $('recordForm').addEventListener('submit', saveStudy);
-    $('moduleForm').addEventListener('submit', addModuleRecord);
-    $('userForm').addEventListener('submit', createOrUpdateUser);
-
-    $('sendResetBtn').addEventListener('click', async () => {
-      const email = $('newEmail').value.trim();
-      if (!email) return showMessage('Email required', 'Enter email first.', 'error');
-      try {
-        await sendPasswordResetEmail(auth, email);
-        showMessage('Reset Sent', 'Password reset email sent.', 'success');
-      } catch (e) { showMessage('Reset failed', friendlyError(e), 'error'); }
-    });
-
-    $('addRecordBtn').addEventListener('click', () => openRecordModal());
-    $('addModuleBtn').addEventListener('click', () => openModuleModal());
-    $('userManagementBtn').addEventListener('click', loadUsers);
-    $('auditTrailBtn').addEventListener('click', loadAudit);
-    $('calibrationNav').addEventListener('click', () => showModule(MODULES.CALIBRATION));
-    $('qualificationNav').addEventListener('click', () => showModule(MODULES.QUALIFICATION));
-    $('studiesNav').addEventListener('click', () => showStudies());
-    
-    $('tabProcess').addEventListener('click', () => { currentCategory = CATEGORIES.PROCESS; setCategoryTabs(); renderStudies(); });
-    $('tabHoldTime').addEventListener('click', () => { currentCategory = CATEGORIES.HOLD_TIME; setCategoryTabs(); renderStudies(); });
-    $('tabCleaning').addEventListener('click', () => { currentCategory = CATEGORIES.CLEANING; setCategoryTabs(); renderStudies(); });
-
-    // Calibration Sub-Tabs Event Listeners
-    document.querySelectorAll('.cal-sub-tab').forEach(btn => {
-      btn.addEventListener('click', e => {
-        document.querySelectorAll('.cal-sub-tab').forEach(b => {
-          b.classList.remove('bg-white', 'text-primary', 'shadow-sm');
-          b.classList.add('text-gray-600');
-        });
-        const target = e.currentTarget;
-        target.classList.add('bg-white', 'text-primary', 'shadow-sm');
-        target.classList.remove('text-gray-600');
-        currentCalibrationTab = target.dataset.calTab;
-        renderModuleTable();
-      });
-    });
-
-    $('qualType').addEventListener('change', e => {
-      const val = e.target.value;
-      $('utilitySubtypeGroup').classList.toggle('hidden', val !== 'utilities');
-      $('equipmentGroup').classList.toggle('hidden', val !== 'equipment');
-      $('systemGroup').classList.toggle('hidden', val !== 'system');
-    });
-
-    $('excelImportInput').addEventListener('change', handleModuleExcelImport);
-
-    ['searchInput', 'filterStage', 'filterStatus', 'filterScale'].forEach(id => $(id).addEventListener('input', renderStudies));
-    $('clearFiltersBtn').addEventListener('click', () => {
-      $('searchInput').value = '';
-      ['filterStage', 'filterStatus', 'filterScale'].forEach(id => $(id).value = 'All');
-      renderStudies();
-    });
-
-    // Module Filters & Multi-select Listeners
-    ['modSearchInput', 'modFilter1', 'modFilter2', 'modFilterStatus'].forEach(id => {
-      if ($(id)) $(id).addEventListener('input', renderModuleTable);
-      if ($(id)) $(id).addEventListener('change', renderModuleTable);
-    });
-
-    if ($('modClearFiltersBtn')) {
-      $('modClearFiltersBtn').addEventListener('click', () => {
-        $('modSearchInput').value = '';
-        $('modFilter1').value = 'All';
-        $('modFilter2').value = 'All';
-        $('modFilterStatus').value = 'All';
-        renderModuleTable();
-      });
-    }
-
-    document.addEventListener('change', e => {
-      if (e.target && e.target.id === 'selectAllModule') {
-        const checked = e.target.checked;
-        const q = $('modSearchInput').value.trim().toLowerCase();
-        const f1 = $('modFilter1').value;
-        const f2 = $('modFilter2').value;
-        const st = $('modFilterStatus').value;
-
-        let displayRecords = moduleRecords;
-        if (isViewer()) {
-          displayRecords = displayRecords.filter(r => r.status === STATUS.APPROVED || r.status === STATUS.COMPLETED);
+    document.addEventListener('DOMContentLoaded', () => {
+      $('loginForm').addEventListener('submit', async e => {
+        e.preventDefault();
+        try {
+          await signInWithEmailAndPassword(auth, $('username').value.trim(), $('password').value);
+          $('loginError').classList.add('hidden');
+        } catch (err) {
+          $('loginError').textContent = 'Invalid email or password.';
+          $('loginError').classList.remove('hidden');
         }
+      });
 
-        displayRecords = displayRecords.filter(r => {
-          const matchQ = !q || (currentModule === MODULES.CALIBRATION ? 
-            `${r.certificateNo||''} ${r.instrument||''} ${r.code||''} ${r.serialNumber||''}`.toLowerCase().includes(q) : 
-            `${r.name||''} ${r.reference||''} ${r.equipmentSystemInfo||''}`.toLowerCase().includes(q));
-          let matchF1 = true; let matchF2 = true;
-          if (currentModule === MODULES.CALIBRATION) {
-            if (f1 !== 'All' && r.department !== f1) matchF1 = false;
-            if (f2 !== 'All' && r.location !== f2) matchF2 = false;
-          } else {
-            if (f1 !== 'All' && r.qualificationType !== f1) matchF1 = false;
-            if (f2 !== 'All' && r.stage !== f2) matchF2 = false;
+      $('azureSsoBtn').addEventListener('click', handleAzureSSO);
+      $('logoutBtn').addEventListener('click', () => signOut(auth));
+      $('recordForm').addEventListener('submit', saveStudy);
+      $('moduleForm').addEventListener('submit', addModuleRecord);
+      $('userForm').addEventListener('submit', createOrUpdateUser);
+
+      $('sendResetBtn').addEventListener('click', async () => {
+        const email = $('newEmail').value.trim();
+        if (!email) return showMessage('Email required', 'Enter email first.', 'error');
+        try {
+          await sendPasswordResetEmail(auth, email);
+          showMessage('Reset Sent', 'Password reset email sent.', 'success');
+        } catch (e) { showMessage('Reset failed', friendlyError(e), 'error'); }
+      });
+
+      $('addRecordBtn').addEventListener('click', () => openRecordModal());
+      $('addModuleBtn').addEventListener('click', () => openModuleModal());
+      $('userManagementBtn').addEventListener('click', loadUsers);
+      $('auditTrailBtn').addEventListener('click', loadAudit);
+      $('calibrationNav').addEventListener('click', () => showModule(MODULES.CALIBRATION));
+      $('qualificationNav').addEventListener('click', () => showModule(MODULES.QUALIFICATION));
+      $('studiesNav').addEventListener('click', () => showStudies());
+      
+      $('tabProcess').addEventListener('click', () => { currentCategory = CATEGORIES.PROCESS; setCategoryTabs(); renderStudies(); });
+      $('tabHoldTime').addEventListener('click', () => { currentCategory = CATEGORIES.HOLD_TIME; setCategoryTabs(); renderStudies(); });
+      $('tabCleaning').addEventListener('click', () => { currentCategory = CATEGORIES.CLEANING; setCategoryTabs(); renderStudies(); });
+
+      // Calibration Primary Sub-Tabs Event Listeners
+      document.querySelectorAll('.cal-sub-tab').forEach(btn => {
+        btn.addEventListener('click', e => {
+          document.querySelectorAll('.cal-sub-tab').forEach(b => {
+            b.classList.remove('bg-white', 'text-primary', 'shadow-sm');
+            b.classList.add('text-gray-600');
+          });
+          const target = e.currentTarget;
+          target.classList.add('bg-white', 'text-primary', 'shadow-sm');
+          target.classList.remove('text-gray-600');
+          currentCalibrationTab = target.dataset.calTab;
+          renderModuleTable();
+        });
+      });
+
+      // Calibration Department Sub-Tabs Event Listeners
+      document.querySelectorAll('.dept-sub-tab').forEach(btn => {
+        btn.addEventListener('click', e => {
+          document.querySelectorAll('.dept-sub-tab').forEach(b => {
+            b.classList.remove('bg-white', 'text-blue-800', 'shadow-sm');
+            b.classList.add('text-blue-100');
+          });
+          const target = e.currentTarget;
+          target.classList.add('bg-white', 'text-blue-800', 'shadow-sm');
+          target.classList.remove('text-blue-100');
+          currentCalibrationTabDept = target.dataset.deptTab;
+          renderModuleTable();
+        });
+      });
+
+      // Calibration Monthly Sub-Tabs Event Listeners
+      document.querySelectorAll('.monthly-sub-tab').forEach(btn => {
+        btn.addEventListener('click', e => {
+          document.querySelectorAll('.monthly-sub-tab').forEach(b => {
+            b.classList.remove('bg-white', 'text-indigo-800', 'shadow-sm');
+            b.classList.add('text-indigo-100');
+          });
+          const target = e.currentTarget;
+          target.classList.add('bg-white', 'text-indigo-800', 'shadow-sm');
+          target.classList.remove('text-indigo-100');
+          currentCalibrationMonth = target.dataset.monthTab;
+          renderModuleTable();
+        });
+      });
+
+      $('qualType').addEventListener('change', e => {
+        const val = e.target.value;
+        $('utilitySubtypeGroup').classList.toggle('hidden', val !== 'utilities');
+        $('equipmentGroup').classList.toggle('hidden', val !== 'equipment');
+        $('systemGroup').classList.toggle('hidden', val !== 'system');
+      });
+
+      $('excelImportInput').addEventListener('change', handleModuleExcelImport);
+
+      ['searchInput', 'filterStage', 'filterStatus', 'filterScale'].forEach(id => {
+        if ($(id)) $(id).addEventListener('input', renderStudies);
+      });
+      $('clearFiltersBtn').addEventListener('click', () => {
+        $('searchInput').value = '';
+        ['filterStage', 'filterStatus', 'filterScale'].forEach(id => $(id).value = 'All');
+        renderStudies();
+      });
+
+      // Module Filters & Multi-select Listeners
+      ['modSearchInput', 'modFilter1', 'modFilter2', 'modFilterStatus'].forEach(id => {
+        if ($(id)) $(id).addEventListener('input', renderModuleTable);
+        if ($(id)) $(id).addEventListener('change', renderModuleTable);
+      });
+
+      if ($('modClearFiltersBtn')) {
+        $('modClearFiltersBtn').addEventListener('click', () => {
+          $('modSearchInput').value = '';
+          $('modFilter1').value = 'All';
+          $('modFilter2').value = 'All';
+          $('modFilterStatus').value = 'All';
+          renderModuleTable();
+        });
+      }
+
+      document.addEventListener('change', e => {
+        if (e.target && e.target.id === 'selectAllModule') {
+          const checked = e.target.checked;
+          const q = $('modSearchInput').value.trim().toLowerCase();
+          const f1 = $('modFilter1').value;
+          const f2 = $('modFilter2').value;
+          const st = $('modFilterStatus').value;
+
+          let displayRecords = moduleRecords;
+          if (isViewer()) {
+            displayRecords = displayRecords.filter(r => r.status === STATUS.APPROVED || r.status === STATUS.COMPLETED);
           }
-          const matchStatus = st === 'All' || r.status === st;
-          return matchQ && matchF1 && matchF2 && matchStatus;
-        });
 
-        if (checked) {
-          displayRecords.forEach(r => selectedModuleIds.add(r.id));
-        } else {
-          displayRecords.forEach(r => selectedModuleIds.delete(r.id));
+          displayRecords = displayRecords.filter(r => {
+            const matchQ = !q || (currentModule === MODULES.CALIBRATION ? 
+              `${r.certificateNo||''} ${r.instrument||''} ${r.code||''} ${r.serialNumber||''}`.toLowerCase().includes(q) : 
+              `${r.name||''} ${r.reference||''} ${r.equipmentSystemInfo||''}`.toLowerCase().includes(q));
+            let matchF1 = true; let matchF2 = true;
+            if (currentModule === MODULES.CALIBRATION) {
+              if (f1 !== 'All' && r.department !== f1) matchF1 = false;
+              if (f2 !== 'All' && r.location !== f2) matchF2 = false;
+            } else {
+              if (f1 !== 'All' && r.qualificationType !== f1) matchF1 = false;
+              if (f2 !== 'All' && r.stage !== f2) matchF2 = false;
+            }
+            const matchStatus = st === 'All' || r.status === st;
+            return matchQ && matchF1 && matchF2 && matchStatus;
+          });
+
+          if (checked) {
+            displayRecords.forEach(r => selectedModuleIds.add(r.id));
+          } else {
+            displayRecords.forEach(r => selectedModuleIds.delete(r.id));
+          }
+          renderModuleTable();
         }
-        renderModuleTable();
-      }
 
-      if (e.target && e.target.dataset.selectId) {
-        const id = e.target.dataset.selectId;
-        if (e.target.checked) {
-          selectedModuleIds.add(id);
-        } else {
-          selectedModuleIds.delete(id);
+        if (e.target && e.target.dataset.selectId) {
+          const id = e.target.dataset.selectId;
+          if (e.target.checked) {
+            selectedModuleIds.add(id);
+          } else {
+            selectedModuleIds.delete(id);
+          }
+          updateModuleBulkBar();
         }
-        updateModuleBulkBar();
-      }
-    });
+      });
 
-    if ($('bulkModuleSubmitBtn')) $('bulkModuleSubmitBtn').addEventListener('click', bulkSubmitModuleRecords);
-    if ($('bulkModuleDeleteBtn')) $('bulkModuleDeleteBtn').addEventListener('click', bulkDeleteModuleRecords);
+      if ($('bulkModuleSubmitBtn')) $('bulkModuleSubmitBtn').addEventListener('click', bulkSubmitModuleRecords);
+      if ($('bulkModuleDeleteBtn')) $('bulkModuleDeleteBtn').addEventListener('click', bulkDeleteModuleRecords);
 
-    $('acceptConfirmBtn').addEventListener('click', async () => {
-      const cb = pendingAction;
-      const reason = $('reasonInput').value.trim();
-      if (!$('reasonWrap').classList.contains('hidden') && !reason) return showMessage('Comment required', 'A reason is mandatory.', 'error');
-      $('confirmModal').classList.remove('active');
-      pendingAction = null;
-      if (cb) await cb(reason);
-    });
+      $('acceptConfirmBtn').addEventListener('click', async () => {
+        const cb = pendingAction;
+        const reason = $('reasonInput').value.trim();
+        if (!$('reasonWrap').classList.contains('hidden') && !reason) return showMessage('Comment required', 'A reason is mandatory.', 'error');
+        $('confirmModal').classList.remove('active');
+        pendingAction = null;
+        if (cb) await cb(reason);
+      });
 
-    document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', closeModals));
+      document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', closeModals));
 
-    document.addEventListener('click', async e => {
-      const t = e.target.closest('button'); if (!t) return;
-      if (t.dataset.edit) { const r = records.find(x => x.id === t.dataset.edit); if (r) openRecordModal(r); }
-      if (t.dataset.submit) await submitStudy(t.dataset.submit);
-      if (t.dataset.deleteStudy) await deleteStudy(t.dataset.deleteStudy);
-      if (t.dataset.review) {
-        const r = records.find(x => x.id === t.dataset.review);
-        if (r) confirmAction('Complete Review', `Complete review for ${r.productName}?`, async comment => {
-          try { await updateWorkflow(r.id, nextStatusForReview(r), comment); showMessage('Success', 'Advanced to next stage.', 'success'); }
-          catch (e) { showMessage('Failed', friendlyError(e), 'error'); }
-        });
-      }
-      if (t.dataset.approve) {
-        const r = records.find(x => x.id === t.dataset.approve);
-        if (r) confirmAction('Approve Study', `Approve ${r.productName}?`, async () => {
-          try { await updateWorkflow(r.id, STATUS.APPROVED, 'QA Approval'); showMessage('Approved', 'Study approved.', 'success'); }
-          catch (e) { showMessage('Failed', friendlyError(e), 'error'); }
-        });
-      }
-      if (t.dataset.reject) {
-        const r = records.find(x => x.id === t.dataset.reject);
-        if (r) confirmAction('Reject Study', `Reject ${r.productName}?`, async reason => {
-          try { await updateWorkflow(r.id, STATUS.REJECTED, reason); showMessage('Rejected', 'Study rejected.', 'success'); }
-          catch (e) { showMessage('Failed', friendlyError(e), 'error'); }
-        }, true, 'Rejection reason *');
-      }
-      if (t.dataset.return) await returnStudy(t.dataset.return);
-      if (t.dataset.files) await openFiles(t.dataset.files, 'study');
-      if (t.dataset.history) await showHistory(t.dataset.history);
-      if (t.dataset.viewFile) { const f = filesByParent.find(x => x.id === t.dataset.viewFile); if (f) await viewFile(f, false); }
-      if (t.dataset.downloadFile) { const f = filesByParent.find(x => x.id === t.dataset.downloadFile); if (f) await viewFile(f, true); }
-      if (t.dataset.deleteFile) { const f = filesByParent.find(x => x.id === t.dataset.deleteFile); if (f) await deleteFile(f); }
-      if (t.dataset.editUser) await editUser(t.dataset.editUser);
-      if (t.dataset.toggleUser) await toggleUser(t.dataset.toggleUser);
-      if (t.dataset.moduleFiles) await openFiles(t.dataset.moduleFiles, currentModule);
-      if (t.dataset.moduleReview) await moduleReview(t.dataset.moduleReview);
-      if (t.dataset.moduleEdit) { const r = moduleRecords.find(x => x.id === t.dataset.moduleEdit); if (r) openModuleModal(r); }
-      if (t.dataset.moduleSubmit) await moduleSubmit(t.dataset.moduleSubmit);
-      if (t.dataset.moduleDelete) await deleteModuleRecord(t.dataset.moduleDelete);
-    });
+      document.addEventListener('click', async e => {
+        const t = e.target.closest('button'); if (!t) return;
+        if (t.dataset.edit) { const r = records.find(x => x.id === t.dataset.edit); if (r) openRecordModal(r); }
+        if (t.dataset.submit) await submitStudy(t.dataset.submit);
+        if (t.dataset.deleteStudy) await deleteStudy(t.dataset.deleteStudy);
+        if (t.dataset.review) {
+          const r = records.find(x => x.id === t.dataset.review);
+          if (r) confirmAction('Complete Review', `Complete review for ${r.productName}?`, async comment => {
+            try { await updateWorkflow(r.id, nextStatusForReview(r), comment); showMessage('Success', 'Advanced to next stage.', 'success'); }
+            catch (e) { showMessage('Failed', friendlyError(e), 'error'); }
+          });
+        }
+        if (t.dataset.approve) {
+          const r = records.find(x => x.id === t.dataset.approve);
+          if (r) confirmAction('Approve Study', `Approve ${r.productName}?`, async () => {
+            try { await updateWorkflow(r.id, STATUS.APPROVED, 'QA Approval'); showMessage('Approved', 'Study approved.', 'success'); }
+            catch (e) { showMessage('Failed', friendlyError(e), 'error'); }
+          });
+        }
+        if (t.dataset.reject) {
+          const r = records.find(x => x.id === t.dataset.reject);
+          if (r) confirmAction('Reject Study', `Reject ${r.productName}?`, async reason => {
+            try { await updateWorkflow(r.id, STATUS.REJECTED, reason); showMessage('Rejected', 'Study rejected.', 'success'); }
+            catch (e) { showMessage('Failed', friendlyError(e), 'error'); }
+          }, true, 'Rejection reason *');
+        }
+        if (t.dataset.return) await returnStudy(t.dataset.return);
+        if (t.dataset.files) await openFiles(t.dataset.files, 'study');
+        if (t.dataset.history) await showHistory(t.dataset.history);
+        if (t.dataset.viewFile) { const f = filesByParent.find(x => x.id === t.dataset.viewFile); if (f) await viewFile(f, false); }
+        if (t.dataset.downloadFile) { const f = filesByParent.find(x => x.id === t.dataset.downloadFile); if (f) await viewFile(f, true); }
+        if (t.dataset.deleteFile) { const f = filesByParent.find(x => x.id === t.dataset.deleteFile); if (f) await deleteFile(f); }
+        if (t.dataset.editUser) await editUser(t.dataset.editUser);
+        if (t.dataset.toggleUser) await toggleUser(t.dataset.toggleUser);
+        if (t.dataset.moduleFiles) await openFiles(t.dataset.moduleFiles, currentModule);
+        if (t.dataset.moduleReview) await moduleReview(t.dataset.moduleReview);
+        if (t.dataset.moduleEdit) { const r = moduleRecords.find(x => x.id === t.dataset.moduleEdit); if (r) openModuleModal(r); }
+        if (t.dataset.moduleSubmit) await moduleSubmit(t.dataset.moduleSubmit);
+        if (t.dataset.moduleDelete) await deleteModuleRecord(t.dataset.moduleDelete);
+      });
 
-    $('fileInput').addEventListener('change', e => {
-      const id = $('fileParentId').value, mod = $('fileModule').value;
-      uploadFiles(id, e.target, mod);
-      e.target.value = '';
-    });
+      $('fileInput').addEventListener('change', e => {
+        const id = $('fileParentId').value, mod = $('fileModule').value;
+        uploadFiles(id, e.target, mod);
+        e.target.value = '';
+      });
 
-    onAuthStateChanged(auth, async user => {
-      if (!user) { currentUser = null; currentProfile = null; resetAppUI(); return; }
-      try {
-        currentUser = user;
-        currentProfile = await loadProfile(user);
-        $('loginSection').classList.add('hidden');
-        $('dashboardSection').classList.remove('hidden');$('dashboardSection').classList.add('flex');
-        $('userInfo').classList.remove('hidden');$('userInfo').classList.add('flex');
-        configureNavigation();
-        await logAudit('Login', '', '', 'Session established.');
-        showStudies();
-      } catch (e) {
-        console.error(e);
-        await signOut(auth);
-        $('loginError').textContent = e.message;
-        $('loginError').classList.remove('hidden');
-      }
+      onAuthStateChanged(auth, async user => {
+        if (!user) { currentUser = null; currentProfile = null; resetAppUI(); return; }
+        try {
+          currentUser = user;
+          currentProfile = await loadProfile(user);
+          $('loginSection').classList.add('hidden');
+          $('dashboardSection').classList.remove('hidden');$('dashboardSection').classList.add('flex');
+          $('userInfo').classList.remove('hidden');$('userInfo').classList.add('flex');
+          configureNavigation();
+          await logAudit('Login', '', '', 'Session established.');
+          showStudies();
+        } catch (e) {
+          console.error(e);
+          await signOut(auth);
+          $('loginError').textContent = e.message;
+          $('loginError').classList.remove('hidden');
+        }
+      });
     });
   </script>
   <script>
@@ -1471,7 +1510,6 @@
     .modal.active { display: flex; }
     .study-tab { transition: .2s; }
     
-    /* Smooth custom scrollbars */
     .scrollbar::-webkit-scrollbar { width: 8px; height: 8px; }
     .scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
     .scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
@@ -1592,13 +1630,42 @@
           </div>
         </div>
 
-        <!-- Calibration Sub-Tabs Bar -->
-        <div id="calibrationSubTabs" class="hidden flex bg-gray-200 p-1 rounded-lg mb-3 overflow-x-auto gap-1">
-          <button data-cal-tab="all" class="cal-sub-tab bg-white text-primary px-3 py-1.5 rounded-md text-xs font-semibold shadow-sm"><i class="fas fa-list mr-1"></i>All Items</button>
-          <button data-cal-tab="dept" class="cal-sub-tab text-gray-600 px-3 py-1.5 rounded-md text-xs font-semibold"><i class="fas fa-building mr-1"></i>By Department</button>
-          <button data-cal-tab="monthly" class="cal-sub-tab text-gray-600 px-3 py-1.5 rounded-md text-xs font-semibold"><i class="fas fa-calendar-alt mr-1"></i>Monthly Filter</button>
-          <button data-cal-tab="addendum" class="cal-sub-tab text-gray-600 px-3 py-1.5 rounded-md text-xs font-semibold"><i class="fas fa-file-medical mr-1"></i>Addendum of Calibration</button>
-          <button data-cal-tab="out" class="cal-sub-tab text-gray-600 px-3 py-1.5 rounded-md text-xs font-semibold"><i class="fas fa-exclamation-triangle mr-1"></i>Out of Calibration</button>
+        <!-- Calibration Primary Sub-Tabs Bar -->
+        <div id="calibrationSubTabs" class="hidden flex flex-col gap-2 mb-3">
+          <div class="flex bg-gray-200 p-1 rounded-lg overflow-x-auto gap-1">
+            <button data-cal-tab="all" class="cal-sub-tab bg-white text-primary px-3 py-1.5 rounded-md text-xs font-semibold shadow-sm"><i class="fas fa-list mr-1"></i>All Items</button>
+            <button data-cal-tab="dept" class="cal-sub-tab text-gray-600 px-3 py-1.5 rounded-md text-xs font-semibold"><i class="fas fa-building mr-1"></i>By Department</button>
+            <button data-cal-tab="monthly" class="cal-sub-tab text-gray-600 px-3 py-1.5 rounded-md text-xs font-semibold"><i class="fas fa-calendar-alt mr-1"></i>Monthly Filter</button>
+            <button data-cal-tab="addendum" class="cal-sub-tab text-gray-600 px-3 py-1.5 rounded-md text-xs font-semibold"><i class="fas fa-file-medical mr-1"></i>Addendum of Calibration</button>
+            <button data-cal-tab="out" class="cal-sub-tab text-gray-600 px-3 py-1.5 rounded-md text-xs font-semibold"><i class="fas fa-exclamation-triangle mr-1"></i>Out of Calibration</button>
+          </div>
+
+          <!-- Department Sub-Tabs (QA, QC, Production, Warehouse, Safety) -->
+          <div id="deptSubTabs" class="hidden flex bg-blue-900 p-1.5 rounded-lg overflow-x-auto gap-1">
+            <span class="text-white text-xs font-bold px-2 py-1 flex items-center"><i class="fas fa-filter mr-1"></i>Dept:</span>
+            <button data-dept-tab="QA" class="dept-sub-tab bg-white text-blue-800 px-3 py-1 rounded text-xs font-semibold shadow-sm">QA</button>
+            <button data-dept-tab="QC" class="dept-sub-tab text-blue-100 hover:text-white px-3 py-1 rounded text-xs font-semibold">QC</button>
+            <button data-dept-tab="Production" class="dept-sub-tab text-blue-100 hover:text-white px-3 py-1 rounded text-xs font-semibold">Production</button>
+            <button data-dept-tab="Warehouse" class="dept-sub-tab text-blue-100 hover:text-white px-3 py-1 rounded text-xs font-semibold">Warehouse</button>
+            <button data-dept-tab="Safety" class="dept-sub-tab text-blue-100 hover:text-white px-3 py-1 rounded text-xs font-semibold">Safety</button>
+          </div>
+
+          <!-- Monthly Sub-Tabs (Each Month) -->
+          <div id="monthlySubTabs" class="hidden flex bg-indigo-900 p-1.5 rounded-lg overflow-x-auto gap-1">
+            <span class="text-white text-xs font-bold px-2 py-1 flex items-center"><i class="fas fa-calendar mr-1"></i>Month:</span>
+            <button data-month-tab="January" class="monthly-sub-tab bg-white text-indigo-800 px-2.5 py-1 rounded text-xs font-semibold shadow-sm">Jan</button>
+            <button data-month-tab="February" class="monthly-sub-tab text-indigo-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Feb</button>
+            <button data-month-tab="March" class="monthly-sub-tab text-indigo-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Mar</button>
+            <button data-month-tab="April" class="monthly-sub-tab text-indigo-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Apr</button>
+            <button data-month-tab="May" class="monthly-sub-tab text-indigo-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">May</button>
+            <button data-month-tab="June" class="monthly-sub-tab text-indigo-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Jun</button>
+            <button data-month-tab="July" class="monthly-sub-tab text-indigo-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Jul</button>
+            <button data-month-tab="August" class="monthly-sub-tab text-indigo-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Aug</button>
+            <button data-month-tab="September" class="monthly-sub-tab text-indigo-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Sep</button>
+            <button data-month-tab="October" class="monthly-sub-tab text-indigo-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Oct</button>
+            <button data-month-tab="November" class="monthly-sub-tab text-indigo-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Nov</button>
+            <button data-month-tab="December" class="monthly-sub-tab text-indigo-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Dec</button>
+          </div>
         </div>
 
         <!-- Module Filter Bar -->
@@ -1743,7 +1810,7 @@
         <div id="calibrationFields" class="space-y-4">
           <div class="grid md:grid-cols-2 gap-3">
             <div><label class="block text-xs font-semibold mb-1">Certificate No. *</label><input id="calCertificateNo" class="w-full p-2 border rounded text-sm" placeholder="e.g. CERT-2026-001"></div>
-            <div><label class="block text-xs font-semibold mb-1">Dept. *</label><input id="calDept" class="w-full p-2 border rounded text-sm" placeholder="e.g. QC / Production"></div>
+            <div><label class="block text-xs font-semibold mb-1">Dept. *</label><input id="calDept" class="w-full p-2 border rounded text-sm" placeholder="e.g. QA / QC"></div>
             <div><label class="block text-xs font-semibold mb-1">Instrument *</label><input id="calInstrument" class="w-full p-2 border rounded text-sm" placeholder="Instrument Name"></div>
             <div><label class="block text-xs font-semibold mb-1">Manuf. (Manufacturer)</label><input id="calManuf" class="w-full p-2 border rounded text-sm" placeholder="Manufacturer"></div>
             <div><label class="block text-xs font-semibold mb-1">Model</label><input id="calModel" class="w-full p-2 border rounded text-sm" placeholder="Model"></div>
@@ -1751,69 +1818,67 @@
             <div><label class="block text-xs font-semibold mb-1">Code *</label><input id="calCode" class="w-full p-2 border rounded text-sm" placeholder="Instrument Code"></div>
             <div><label class="block text-xs font-semibold mb-1">Location</label><input id="calLocation" class="w-full p-2 border rounded text-sm" placeholder="Location"></div>
             <div><label class="block text-xs font-semibold mb-1">Cal. range</label><input id="calRange" class="w-full p-2 border rounded text-sm" placeholder="e.g. 0-100 bar"></div>
-            <div><label class="block text-xs font-semibold mb-1">Acceptance Limits</label><input id="calAcceptanceLimits" class="w-full p-2 border rounded text-sm" placeholder="e.g. ±1% F.S."></div>
+            <div><label class="block text-xs font-semibold mb-1">Acceptance Limits</label><input id="calAcceptanceLimits" class="w-full p-2 border rounded text-sm" placeholder="Acceptance Limits"></div>
             <div><label class="block text-xs font-semibold mb-1">Interval</label><input id="calInterval" class="w-full p-2 border rounded text-sm" placeholder="e.g. 1 Year"></div>
-            <div><label class="block text-xs font-semibold mb-1">Cal. Date</label><input type="date" id="calDate" class="w-full p-2 border rounded text-sm"></div>
+            <div><label class="block text-xs font-semibold mb-1">Calibration Date</label><input type="date" id="calDate" class="w-full p-2 border rounded text-sm"></div>
             <div><label class="block text-xs font-semibold mb-1">Due Date</label><input type="date" id="calDueDate" class="w-full p-2 border rounded text-sm"></div>
-            <div><label class="block text-xs font-semibold mb-1">Month-Year</label><input id="calMonthYear" class="w-full p-2 border rounded text-sm" placeholder="e.g. Jun-2026"></div>
-          </div>
-          <div class="flex gap-6 mt-2 pt-2 border-t">
-            <label class="flex items-center gap-2 text-sm font-medium"><input type="checkbox" id="calIsAddendum" class="rounded"> Is Addendum of Calibration</label>
-            <label class="flex items-center gap-2 text-sm font-medium text-red-600"><input type="checkbox" id="calIsOutOfCalibration" class="rounded"> Out of Calibration</label>
+            <div><label class="block text-xs font-semibold mb-1">Month / Year</label><input id="calMonthYear" class="w-full p-2 border rounded text-sm" placeholder="e.g. September 2026"></div>
+            <div class="flex items-center gap-2 mt-2"><input type="checkbox" id="calIsAddendum"><label for="calIsAddendum" class="text-xs font-medium">Addendum of Calibration</label></div>
+            <div class="flex items-center gap-2 mt-1"><input type="checkbox" id="calIsOutOfCalibration"><label for="calIsOutOfCalibration" class="text-xs font-medium text-red-600">Out of Calibration</label></div>
           </div>
         </div>
 
         <!-- Qualification Fields Group -->
         <div id="qualificationFields" class="space-y-4 hidden">
           <div class="grid md:grid-cols-2 gap-3">
-            <div><label class="block text-xs font-semibold mb-1">Record Name *</label><input id="qualName" class="w-full p-2 border rounded text-sm" placeholder="Name"></div>
+            <div><label class="block text-xs font-semibold mb-1">Name *</label><input id="qualName" class="w-full p-2 border rounded text-sm" placeholder="Equipment/System Name"></div>
             <div><label class="block text-xs font-semibold mb-1">Reference ID *</label><input id="qualReference" class="w-full p-2 border rounded text-sm" placeholder="Protocol / Ref ID"></div>
-            
             <div>
-              <label class="block text-xs font-semibold mb-1">Type of Qualification *</label>
+              <label class="block text-xs font-semibold mb-1">Qualification Type *</label>
               <select id="qualType" class="w-full p-2 border rounded text-sm">
                 <option value="equipment">Equipment</option>
                 <option value="utilities">Utilities</option>
                 <option value="system">System</option>
               </select>
             </div>
-
             <div>
-              <label class="block text-xs font-semibold mb-1">Stage of Qualification *</label>
+              <label class="block text-xs font-semibold mb-1">Stage *</label>
               <select id="qualStage" class="w-full p-2 border rounded text-sm">
-                <option value="DQ">DQ (Design Qualification)</option>
-                <option value="IQ">IQ (Installation Qualification)</option>
-                <option value="OQ">OQ (Operational Qualification)</option>
-                <option value="PQ">PQ (Performance Qualification)</option>
-                <option value="periodic PQ">Periodic PQ</option>
+                <option value="IQ">IQ</option>
+                <option value="OQ">OQ</option>
+                <option value="PQ">PQ</option>
+                <option value="DQ">DQ</option>
+                <option value="PERIODIC PQ">Periodic PQ</option>
               </select>
             </div>
-
-            <div id="utilitySubtypeGroup" class="hidden md:col-span-2">
-              <label class="block text-xs font-semibold mb-1">Utility Classification *</label>
+            <div id="utilitySubtypeGroup" class="hidden">
+              <label class="block text-xs font-semibold mb-1">Utility Subtype</label>
               <select id="qualUtilityType" class="w-full p-2 border rounded text-sm">
                 <option value="HVAC">HVAC</option>
+                <option value="WFI">WFI</option>
+                <option value="Pure Steam">Pure Steam</option>
                 <option value="Compressed Air">Compressed Air</option>
-                <option value="Water station">Water station</option>
-                <option value="premises">Premises</option>
+                <option value="Medical Gases">Medical Gases</option>
               </select>
             </div>
-
             <div id="equipmentGroup" class="md:col-span-2">
-              <label class="block text-xs font-semibold mb-1">Equipment Information & Code *</label><input id="qualEquipmentInfo" class="w-full p-2 border rounded text-sm" placeholder="Equipment Code, Make, Model">
+              <label class="block text-xs font-semibold mb-1">Equipment Info</label>
+              <input id="qualEquipmentInfo" class="w-full p-2 border rounded text-sm" placeholder="Equipment manufacturer or details">
             </div>
-
-            <div id="systemGroup" class="hidden md:col-span-2">
-              <label class="block text-xs font-semibold mb-1">System Information *</label><input id="qualSystemInfo" class="w-full p-2 border rounded text-sm" placeholder="Computerized / Process System details">
+            <div id="systemGroup" class="md:col-span-2 hidden">
+              <label class="block text-xs font-semibold mb-1">Computerized System / Software Info</label>
+              <input id="qualSystemInfo" class="w-full p-2 border rounded text-sm" placeholder="Software version / GAMP category">
             </div>
-
-            <div><label class="block text-xs font-semibold mb-1">Qualification Date</label><input type="date" id="qualDate" class="w-full p-2 border rounded text-sm"></div>
+            <div><label class="block text-xs font-semibold mb-1">Planned Date</label><input type="date" id="qualDate" class="w-full p-2 border rounded text-sm"></div>
             <div><label class="block text-xs font-semibold mb-1">Due Date</label><input type="date" id="qualDueDate" class="w-full p-2 border rounded text-sm"></div>
+            <div class="md:col-span-2"><label class="block text-xs font-semibold mb-1">Description / Scope</label><textarea id="qualDescription" rows="3" class="w-full p-2 border rounded text-sm" placeholder="Qualification scope..."></textarea></div>
           </div>
-          <div><label class="block text-xs font-semibold mb-1">Description & Scope</label><textarea id="qualDescription" rows="3" class="w-full p-2 border rounded text-sm" placeholder="Protocol summary..."></textarea></div>
         </div>
 
-        <div class="flex justify-end gap-3 pt-4 border-t"><button type="button" data-close class="px-4 py-2 bg-gray-200 rounded text-sm font-semibold">Cancel</button><button class="px-4 py-2 bg-primary text-white rounded text-sm font-semibold">Save Record</button></div>
+        <div class="flex justify-end gap-3 pt-4 border-t">
+          <button type="button" data-close class="px-4 py-2 bg-gray-200 rounded text-sm font-semibold">Cancel</button>
+          <button class="px-4 py-2 bg-primary text-white rounded text-sm font-semibold">Save Record</button>
+        </div>
       </form>
     </div>
   </div>
@@ -1821,11 +1886,11 @@
   <!-- Confirmation Modal -->
   <div id="confirmModal" class="modal fixed inset-0 bg-gray-900/60 z-50 items-center justify-center p-4">
     <div class="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 space-y-4">
-      <h3 id="confirmTitle" class="text-xl font-bold text-gray-900">Confirm Action</h3>
-      <p id="confirmText" class="text-sm text-gray-600"></p>
+      <h3 id="confirmTitle" class="text-lg font-bold">Confirm Action</h3>
+      <p id="confirmText" class="text-sm text-gray-600">Are you sure?</p>
       <div id="reasonWrap" class="space-y-1 hidden">
-        <label id="reasonLabel" class="block text-xs font-semibold text-gray-700"></label>
-        <textarea id="reasonInput" rows="3" class="w-full p-2 border rounded text-sm" placeholder="Provide details..."></textarea>
+        <label id="reasonLabel" class="block text-xs font-semibold text-gray-700">Reason / Comment *</label>
+        <textarea id="reasonInput" rows="3" class="w-full p-2 border rounded text-sm" placeholder="Provide reason..."></textarea>
       </div>
       <div class="flex justify-end gap-3 pt-2">
         <button type="button" data-close class="px-4 py-2 bg-gray-200 rounded text-sm font-semibold">Cancel</button>
@@ -1836,11 +1901,11 @@
 
   <!-- Message Modal -->
   <div id="messageModal" class="modal fixed inset-0 bg-gray-900/60 z-50 items-center justify-center p-4">
-    <div class="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 text-center space-y-4">
+    <div class="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 text-center space-y-4">
       <div id="messageIcon" class="flex justify-center"></div>
-      <h3 id="messageTitle" class="text-xl font-bold text-gray-900">Notification</h3>
+      <h3 id="messageTitle" class="text-lg font-bold">Notification</h3>
       <p id="messageText" class="text-sm text-gray-600"></p>
-      <div><button data-close class="px-6 py-2 bg-primary text-white rounded font-semibold text-sm">OK</button></div>
+      <button data-close class="w-full py-2 bg-primary text-white rounded text-sm font-semibold">OK</button>
     </div>
   </div>
 </body>
