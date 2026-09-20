@@ -99,6 +99,7 @@
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
       'application/vnd.ms-excel': '.xls',
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+      'application/vnd.ms-excel.sheet.macroEnabled.12': '.xlsm',
       'image/jpeg': '.jpg/.jpeg',
       'image/png': '.png'
     });
@@ -464,7 +465,7 @@
     }
 
     function fileTypeAllowed(file) {
-      return !!ALLOWED_FILE_TYPES[file.type] && file.size <= MAX_FILE_SIZE;
+      return !!ALLOWED_FILE_TYPES[file.type] || file.name.endsWith('.xlsx') || file.name.endsWith('.xls') || file.name.endsWith('.xlsm') && file.size <= MAX_FILE_SIZE;
     }
 
     async function uploadFiles(parentId, input, module='study') {
@@ -499,7 +500,7 @@
             studyId: isStudyModule ? parentId : null,
             module: module,
             name: file.name,
-            contentType: file.type,
+            contentType: file.type || 'application/octet-stream',
             size: file.size,
             storagePath: storagePath,
             uploadedByUid: currentUser.uid,
@@ -787,10 +788,11 @@
       } catch(e) { showMessage('Save failed', friendlyError(e), 'error'); }
     }
 
-    async function handleCalibrationExcelImport(event) {
+    async function handleModuleExcelImport(event) {
       const file = event.target.files[0];
       if (!file) return;
       const reader = new FileReader();
+      
       reader.onload = async function(e) {
         try {
           const data = new Uint8Array(e.target.result);
@@ -798,48 +800,92 @@
           const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
           const rows = XLSX.utils.sheet_to_json(firstSheet);
 
-          if (!rows.length) return showMessage('Empty File', 'No records found in the uploaded excel sheet.', 'error');
+          if (!rows.length) return showMessage('Empty File', 'No records found in the uploaded spreadsheet.', 'error');
 
           let importedCount = 0;
-          for (const row of rows) {
-            const payload = {
-              certificateNo: String(row['Certificate No.'] || row['CertificateNo'] || row['Cert No'] || ''),
-              department: String(row['Dept.'] || row['Dept'] || row['Department'] || ''),
-              instrument: String(row['Instrument'] || row['Name'] || ''),
-              manufacturer: String(row['Manuf.'] || row['Manufacturer'] || ''),
-              model: String(row['Model'] || ''),
-              serialNumber: String(row['S.N'] || row['Serial No'] || ''),
-              code: String(row['Code'] || ''),
-              location: String(row['Location'] || ''),
-              calRange: String(row['Cal.range'] || row['Cal Range'] || ''),
-              acceptanceLimits: String(row['AcceptanceLimits'] || row['Acceptance Limits'] || ''),
-              interval: String(row['interval'] || row['Interval'] || ''),
-              calDate: String(row['Cal.Date'] || row['Cal Date'] || ''),
-              dueDate: String(row['Due Date'] || ''),
-              monthYear: String(row['Month-Year'] || row['Month Year'] || ''),
-              name: String(row['Instrument'] || row['Name'] || 'Imported Instrument'),
-              reference: String(row['Certificate No.'] || row['Code'] || 'IMP-' + Date.now()),
-              status: STATUS.DRAFT,
-              createdByUid: currentUser.uid,
-              createdByName: currentProfile.displayName || currentUser.email,
-              createdAt: serverTimestamp(),
-              updatedAt: serverTimestamp()
-            };
+          const isCalibration = currentModule === MODULES.CALIBRATION;
+          const collectionName = isCalibration ? 'calibration' : 'qualification';
 
-            if (payload.instrument && payload.code) {
-              await addDoc(colRef('calibration'), payload);
-              importedCount++;
+          for (const row of rows) {
+            // Flexible matching for key variants across standard & macro sheets (.xlsx / .xlsm)
+            const cleanRow = {};
+            Object.keys(row).forEach(k => {
+              cleanRow[k.trim().toLowerCase().replace(/[^a-z0-9]/g, '')] = row[k];
+            });
+
+            if (isCalibration) {
+              const certNo = String(cleanRow['certificateno'] || cleanRow['certno'] || cleanRow['reference'] || '');
+              const instrument = String(cleanRow['instrument'] || cleanRow['name'] || '');
+              const code = String(cleanRow['code'] || cleanRow['instrumentcode'] || '');
+
+              const payload = {
+                certificateNo: certNo,
+                department: String(cleanRow['dept'] || cleanRow['department'] || ''),
+                instrument: instrument,
+                manufacturer: String(cleanRow['manuf'] || cleanRow['manufacturer'] || ''),
+                model: String(cleanRow['model'] || ''),
+                serialNumber: String(cleanRow['sn'] || cleanRow['serialno'] || ''),
+                code: code,
+                location: String(cleanRow['location'] || ''),
+                calRange: String(cleanRow['calrange'] || cleanRow['range'] || ''),
+                acceptanceLimits: String(cleanRow['acceptancelimits'] || cleanRow['limits'] || ''),
+                interval: String(cleanRow['interval'] || ''),
+                calDate: String(cleanRow['caldate'] || cleanRow['date'] || ''),
+                dueDate: String(cleanRow['duedate'] || ''),
+                monthYear: String(cleanRow['monthyear'] || ''),
+                name: instrument || 'Imported Instrument',
+                reference: certNo || 'IMP-' + Date.now(),
+                status: STATUS.DRAFT,
+                createdByUid: currentUser.uid,
+                createdByName: currentProfile.displayName || currentUser.email,
+                createdAt: serverTimestamp(),
+                updatedAt: serverTimestamp()
+              };
+
+              if (payload.instrument || payload.code) {
+                await addDoc(colRef(collectionName), payload);
+                importedCount++;
+              }
+            } else {
+              // Qualification Module Parsing
+              const name = String(cleanRow['name'] || cleanRow['equipmentname'] || cleanRow['systemname'] || '');
+              const reference = String(cleanRow['reference'] || cleanRow['refid'] || cleanRow['protocol'] || '');
+              const typeVal = String(cleanRow['qualificationtype'] || cleanRow['type'] || 'equipment').toLowerCase();
+              const stageVal = String(cleanRow['stage'] || cleanRow['qualificationstage'] || 'IQ').toUpperCase();
+
+              const payload = {
+                name: name,
+                reference: reference,
+                qualificationType: ['equipment', 'utilities', 'system'].includes(typeVal) ? typeVal : 'equipment',
+                utilitySubtype: String(cleanRow['utilitysubtype'] || cleanRow['utility'] || 'HVAC'),
+                equipmentSystemInfo: String(cleanRow['equipmentsysteminfo'] || cleanRow['info'] || cleanRow['details'] || ''),
+                stage: ['DQ', 'IQ', 'OQ', 'PQ', 'PERIODIC PQ'].includes(stageVal) ? stageVal : 'IQ',
+                plannedDate: String(cleanRow['planneddate'] || cleanRow['date'] || ''),
+                dueDate: String(cleanRow['duedate'] || ''),
+                description: String(cleanRow['description'] || cleanRow['scope'] || ''),
+                status: STATUS.DRAFT,
+                createdByUid: currentUser.uid,
+                createdByName: currentProfile.displayName || currentUser.email,
+                createdAt: serverTimestamp(),
+                updatedAt: serverTimestamp()
+              };
+
+              if (payload.name && payload.reference) {
+                await addDoc(colRef(collectionName), payload);
+                importedCount++;
+              }
             }
           }
 
-          await logAudit('Calibration Excel Imported', '', '', `Imported ${importedCount} records via Excel.`);
-          showMessage('Success', `Successfully imported ${importedCount} calibration entries!`, 'success');
-          await loadModule(MODULES.CALIBRATION);
+          await logAudit(`${currentModule} Excel/Macro Imported`, '', '', `Imported ${importedCount} records via spreadsheet file.`);
+          showMessage('Success', `Successfully imported ${importedCount} ${currentModule.toLowerCase()} entries!`, 'success');
+          await loadModule(currentModule);
         } catch (err) {
           console.error(err);
-          showMessage('Import Error', 'Failed to parse Excel sheet. Ensure headers match columns.', 'error');
+          showMessage('Import Error', 'Failed to parse Excel sheet. Ensure columns match header specifications.', 'error');
         }
       };
+      
       reader.readAsArrayBuffer(file);
       event.target.value = '';
     }
@@ -884,7 +930,11 @@
     function renderModuleTable() { 
       $('moduleTitle').textContent = currentModule; 
       $('moduleDescription').textContent = currentModule === MODULES.CALIBRATION ? 'Calibration records' : 'Qualification lifecycle - Qualification records';
-      $('excelImportContainer').classList.toggle('hidden', currentModule !== MODULES.CALIBRATION);
+      
+      // Update label / button contextual text for imports
+      if ($('excelImportBtnText')) {
+        $('excelImportBtnText').textContent = currentModule === MODULES.CALIBRATION ? 'Import Calibration Excel/Macro' : 'Import Qualification Excel/Macro';
+      }
 
       let displayRecords = moduleRecords;
       if (isViewer()) {
@@ -1212,7 +1262,7 @@
       $('systemGroup').classList.toggle('hidden', val !== 'system');
     });
 
-    $('excelImportInput').addEventListener('change', handleCalibrationExcelImport);
+    $('excelImportInput').addEventListener('change', handleModuleExcelImport);
 
     ['searchInput', 'filterStage', 'filterStatus', 'filterScale'].forEach(id => $(id).addEventListener('input', renderStudies));
     $('clearFiltersBtn').addEventListener('click', () => {
@@ -1477,10 +1527,10 @@
             <p id="moduleDescription" class="text-gray-500 text-sm">Calibration records</p>
           </div>
           <div class="flex items-center gap-3">
-            <div id="excelImportContainer" class="hidden">
+            <div id="excelImportContainer">
               <label class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg cursor-pointer text-sm font-semibold inline-flex items-center gap-2">
-                <i class="fas fa-file-excel"></i> Import Excel Data
-                <input id="excelImportInput" type="file" class="hidden" accept=".xlsx, .xls">
+                <i class="fas fa-file-excel"></i> <span id="excelImportBtnText">Import Excel / Macro Data</span>
+                <input id="excelImportInput" type="file" class="hidden" accept=".xlsx, .xls, .xlsm">
               </label>
             </div>
             <button id="addModuleBtn" class="bg-accent hover:bg-green-600 text-white px-5 py-2 rounded-lg font-semibold text-sm"><i class="fas fa-plus mr-2"></i>Add Record</button>
@@ -1570,7 +1620,7 @@
       <div class="bg-dark text-white p-4 flex justify-between"><h3 class="text-xl font-bold"><i class="fas fa-folder-open mr-2"></i>Controlled Documents & PDF Attachments</h3><button data-close><i class="fas fa-times"></i></button></div>
       <div class="p-5 overflow-auto">
         <div id="uploadFileContainer" class="flex flex-wrap items-center gap-3 mb-4">
-          <label class="bg-primary text-white px-4 py-2 rounded cursor-pointer"><i class="fas fa-upload mr-2"></i>Add Files / Import PDF<input id="fileInput" type="file" class="hidden" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png"></label>
+          <label class="bg-primary text-white px-4 py-2 rounded cursor-pointer"><i class="fas fa-upload mr-2"></i>Add Files / Import PDF<input id="fileInput" type="file" class="hidden" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.xlsm,.jpg,.jpeg,.png"></label>
           <span id="uploadProgress" class="text-xs font-semibold text-blue-700"></span>
         </div>
         <input type="hidden" id="fileParentId"><input type="hidden" id="fileModule">
@@ -1680,13 +1730,11 @@
             </div>
 
             <div id="equipmentGroup" class="md:col-span-2">
-              <label class="block text-xs font-semibold mb-1">Equipment Information & Code *</label>
-              <input id="qualEquipmentInfo" class="w-full p-2 border rounded text-sm" placeholder="Equipment Code, Make, Model">
+              <label class="block text-xs font-semibold mb-1">Equipment Information & Code *</label><input id="qualEquipmentInfo" class="w-full p-2 border rounded text-sm" placeholder="Equipment Code, Make, Model">
             </div>
 
             <div id="systemGroup" class="hidden md:col-span-2">
-              <label class="block text-xs font-semibold mb-1">System Information *</label>
-              <input id="qualSystemInfo" class="w-full p-2 border rounded text-sm" placeholder="Computerized / Process System details">
+              <label class="block text-xs font-semibold mb-1">System Information *</label><input id="qualSystemInfo" class="w-full p-2 border rounded text-sm" placeholder="Computerized / Process System details">
             </div>
 
             <div><label class="block text-xs font-semibold mb-1">Qualification Date</label><input type="date" id="qualDate" class="w-full p-2 border rounded text-sm"></div>
