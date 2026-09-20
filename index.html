@@ -788,6 +788,7 @@
       } catch(e) { showMessage('Save failed', friendlyError(e), 'error'); }
     }
 
+    // --- Enhanced Excel Import (Supports Multiple Sheets Across All Modules) ---
     async function handleModuleExcelImport(event) {
       const file = event.target.files[0];
       if (!file) return;
@@ -799,6 +800,7 @@
           const workbook = XLSX.read(data, { type: 'array' });
           
           let rows = [];
+          // Iterate through all sheets to extract and combine rows from multi-sheet workbooks
           workbook.SheetNames.forEach(sheetName => {
             const worksheet = workbook.Sheets[sheetName];
             const sheetRows = XLSX.utils.sheet_to_json(worksheet);
@@ -807,7 +809,7 @@
             }
           });
 
-          if (!rows.length) return showMessage('Empty File', 'No records found in any sheets of the uploaded spreadsheet.', 'error');
+          if (!rows.length) return showMessage('Empty File', 'No records found in the uploaded spreadsheet across all sheets.', 'error');
 
           let importedCount = 0;
           const isCalibration = currentModule === MODULES.CALIBRATION;
@@ -889,7 +891,7 @@
           await loadModule(currentModule);
         } catch (err) {
           console.error(err);
-          showMessage('Import Error', 'Failed to parse Excel sheets. Ensure columns match header specifications.', 'error');
+          showMessage('Import Error', 'Failed to parse Excel sheet. Ensure columns match header specifications.', 'error');
         }
       };
       
@@ -1758,13 +1760,13 @@
   <div id="confirmModal" class="modal fixed inset-0 bg-gray-900/60 z-[60] items-center justify-center p-4">
     <div class="bg-white rounded-lg shadow-xl w-full max-w-md">
       <div class="p-6">
-        <h3 id="confirmTitle" class="text-xl font-bold">Confirm Action</h3>
-        <p id="confirmText" class="text-gray-600 py-4"></p>
+        <h3 id="confirmTitle" class="text-xl font-bold mb-2">Confirm Action</h3>
+        <p id="confirmText" class="text-gray-600 text-sm mb-4">Are you sure?</p>
         <div id="reasonWrap" class="mb-4 hidden">
-          <label id="reasonLabel" class="block text-sm font-medium mb-1">Reason / comment *</label>
-          <textarea id="reasonInput" rows="3" class="w-full p-2 border rounded text-sm" placeholder="Enter details..."></textarea>
+          <label id="reasonLabel" class="block text-xs font-semibold mb-1">Reason / comment *</label>
+          <textarea id="reasonInput" rows="3" class="w-full p-2 border rounded text-sm" placeholder="Enter reason or comments..."></textarea>
         </div>
-        <div class="flex justify-end gap-3">
+        <div class="flex justify-end gap-2">
           <button type="button" data-close class="px-4 py-2 bg-gray-200 rounded text-sm">Cancel</button>
           <button id="acceptConfirmBtn" class="px-4 py-2 bg-primary text-white rounded text-sm font-semibold">Confirm</button>
         </div>
@@ -1774,11 +1776,11 @@
 
   <!-- Message Modal -->
   <div id="messageModal" class="modal fixed inset-0 bg-gray-900/60 z-[70] items-center justify-center p-4">
-    <div class="bg-white rounded-lg shadow-xl w-full max-w-sm text-center p-6">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-sm p-6 text-center">
       <div id="messageIcon" class="mb-3"></div>
       <h3 id="messageTitle" class="text-lg font-bold mb-2">Notification</h3>
       <p id="messageText" class="text-gray-600 text-sm mb-5"></p>
-      <button data-close class="w-full bg-primary text-white py-2 rounded font-semibold text-sm">OK</button>
+      <button data-close class="w-full bg-primary text-white py-2 rounded text-sm font-semibold">OK</button>
     </div>
   </div>
 </body>
