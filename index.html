@@ -3,61 +3,27 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ValidApp - Validation & Qualification Nerhadou</title>
+  <title>ValidApp - Validation Study Tracker - Nerhadou</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
   
   <!-- SheetJS for Excel Processing -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
-  <!-- MSAL.js for Azure AD SSO -->
-  <script src="https://alcdn.msauth.net/browser/2.38.0/js/msal-browser.min.js"></script>
-
-  <!-- Supabase JS Client v2 -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-
-  <!-- EmailJS SDK -->
-  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
-
+  <!-- Firebase SDKs -->
   <script type="module">
-    import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-    import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-    import { getFirestore, collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, query, where, orderBy, limit, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, collection, doc, getDoc, getDocs, addDoc, query, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-    // --- Firebase Configurations ---
     const MY_FIREBASE_CONFIG = {
-      apiKey: "AIzaSyDEV8rEluViDZiA5nnv7BiIU78rgq5en8A",
-      authDomain: "validapp-db.firebaseapp.com",
-      projectId: "validapp-db",
-      storageBucket: "validapp-db.firebasestorage.app",
-      messagingSenderId: "702664233017",
-      appId: "1:702664233017:web:25fbede2f3c7244cdbfde8",
-      measurementId: "G-7FTDYP0XWS"
+      apiKey: "YOUR_API_KEY_FROM_FIREBASE",
+      authDomain: "YOUR_AUTH_DOMAIN_FROM_FIREBASE",
+      projectId: "YOUR_PROJECT_ID_FROM_FIREBASE",
+      storageBucket: "YOUR_STORAGE_BUCKET_FROM_FIREBASE",
+      messagingSenderId: "YOUR_MESSAGING_SENDER_ID_FROM_FIREBASE",
+      appId: "YOUR_APP_ID_FROM_FIREBASE"
     };
-
-    // --- Supabase Configuration ---
-    const SUPABASE_URL = "https://lnyignnyhihrkjauhzsk.supabase.co";
-    const SUPABASE_ANON_KEY = "sb_publishable__0Xw5joGtNrlh38qYOhrpw_vMALXzrV";
-
-    // --- EmailJS Configuration ---
-    const EMAILJS_PUBLIC_KEY = "tx8P6mYyi6C6APSXn";
-    const EMAILJS_SERVICE_ID = "service_nyq8c6p";
-    const EMAILJS_TEMPLATE_ID = "template_008bbdj";
-
-    if (window.emailjs) {
-      emailjs.init(EMAILJS_PUBLIC_KEY);
-    }
-
-    const msalConfig = {
-      auth: {
-        clientId: "22315588-6d90-4c55-87be-3e293fc5a7a9",
-        authority: "https://login.microsoftonline.com/a0463def-3037-44e8-8e17-e94af8f05069",
-        redirectUri: window.location.origin + window.location.pathname
-      },
-      cache: { cacheLocation: "localStorage", storeAuthStateInCookie: false }
-    };
-
-    const msalInstance = new msal.PublicClientApplication(msalConfig);
 
     const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : MY_FIREBASE_CONFIG;
     const appId = typeof __app_id !== 'undefined' ? __app_id : 'validapp-default';
@@ -65,1705 +31,202 @@
     const auth = getAuth(app);
     const db = getFirestore(app);
 
-    const supabaseClient = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
-
-    const ROLES = Object.freeze({
-      ADMIN: 'Administrator',
-      CREATOR: 'Creator',
-      SECTION_HEAD: 'Section Head',
-      DEPUTY: 'Deputy QA Manager',
-      QA_MANAGER: 'QA Manager',
-      REVIEWER: 'Reviewer — Other Department',
-      VIEWER: 'Viewer'
-    });
-
-    const ROLE_LIST = Object.values(ROLES);
-    const STATUS = Object.freeze({
-      DRAFT: 'Draft',
-      PENDING_SECTION_HEAD: 'Pending Section Head',
-      PENDING_REVIEWER: 'Pending Reviewer',
-      PENDING_DEPUTY: 'Pending Deputy QA',
-      PENDING_QA: 'Pending QA Manager',
-      RETURNED: 'Returned for Revision',
-      APPROVED: 'Approved',
-      REJECTED: 'Rejected',
-      COMPLETED: 'Completed'
-    });
-
-    const CATEGORIES = Object.freeze({ PROCESS: 'Process Validation', HOLD_TIME: 'Hold Time Study', CLEANING: 'Cleaning Validation' });
     const MODULES = Object.freeze({ STUDIES: 'Studies', CALIBRATION: 'Calibration', QUALIFICATION: 'Qualification' });
-
-    const ALLOWED_FILE_TYPES = Object.freeze({
-      'application/pdf': '.pdf',
-      'application/msword': '.doc',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
-      'application/vnd.ms-excel': '.xls',
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
-      'application/vnd.ms-excel.sheet.macroEnabled.12': '.xlsm',
-      'image/jpeg': '.jpg/.jpeg',
-      'image/png': '.png'
-    });
-    const MAX_FILE_SIZE = 25 * 1024 * 1024;
-
-    let currentUser = null;
-    let currentProfile = null;
-    let currentModule = MODULES.STUDIES;
-    let currentCategory = CATEGORIES.PROCESS;
-    let records = [];
-    let moduleRecords = [];
-    let selectedModuleIds = new Set();
-    let filesByParent = [];
-    let users = [];
-    let auditLogs = [];
-    let pendingAction = null;
+    let currentModule = MODULES.CALIBRATION;
+    let calibrationRecords = [];
 
     const $ = id => document.getElementById(id);
-    const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-    const safeFileName = name => String(name).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 180);
-    const nowLabel = value => {
-      if (!value) return '—';
-      const d = value?.toDate ? value.toDate() : new Date(value);
-      return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString();
-    };
+    const esc = val => String(val ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const colRef = name => collection(db, 'artifacts', appId, 'public', 'data', name);
     const docRef = (name, id) => doc(db, 'artifacts', appId, 'public', 'data', name, id);
 
-    const can = (...roles) => !!currentProfile && roles.includes(currentProfile.role);
-    const isAdmin = () => can(ROLES.ADMIN);
-    const isCreator = () => can(ROLES.CREATOR);
-    const isReviewer = () => can(ROLES.SECTION_HEAD, ROLES.REVIEWER, ROLES.DEPUTY, ROLES.QA_MANAGER);
-    const isViewer = () => can(ROLES.VIEWER);
-
-    async function sendEmailNotification(recipientEmail, actionTaken, username, productDetails, currentStatus, auditDetails) {
-      if (!window.emailjs || !recipientEmail) return;
-      try {
-        await emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, {
-          to_email: recipientEmail,
-          action_taken: actionTaken || 'System Action',
-          timestamp: new Date().toLocaleString(),
-          username: username || currentProfile?.displayName || currentUser?.email || 'Unknown User',
-          product_details: productDetails || 'N/A',
-          current_status: currentStatus || 'N/A',
-          audit_details: auditDetails || 'No additional details provided.'
-        });
-      } catch (err) {
-        console.error('EmailJS dispatch failed:', err);
-      }
-    }
-     
-    function showMessage(title = 'Information', text = '', type = 'info') {
-      if (!title && !text) return;
-      $('messageTitle').textContent = title || 'Notification';
-      $('messageText').textContent = text || title;
-      $('messageIcon').innerHTML = type === 'error' ? '<i class="fas fa-times-circle text-4xl text-red-500"></i>' : type === 'success' ? '<i class="fas fa-check-circle text-4xl text-green-500"></i>' : '<i class="fas fa-info-circle text-4xl text-blue-500"></i>';
+    function showMessage(title, text) {
+      $('messageTitle').textContent = title;
+      $('messageText').textContent = text;
       $('messageModal').classList.add('active');
-    }
-
-    function confirmAction(title, text, callback, requireReason=false, reasonLabel='Reason / comment *') {
-      pendingAction = callback;
-      $('confirmTitle').textContent = title;
-      $('confirmText').textContent = text;
-      $('reasonLabel').textContent = reasonLabel;
-      $('reasonInput').value = '';
-      $('reasonWrap').classList.toggle('hidden', !requireReason);
-      $('confirmModal').classList.add('active');
-    }
-
-    function closeModals() {
-      document.querySelectorAll('.modal').forEach(x => x.classList.remove('active'));
-      pendingAction = null;
-    }
-
-    async function logAudit(action, parentId='', parentName='', details='', previousStatus='', newStatus='') {
-      try { 
-        await addDoc(colRef('audit'), {
-          userId: currentUser.uid,
-          userName: currentProfile?.displayName || currentProfile?.username || currentUser.email || currentUser.uid,
-          userRole: currentProfile?.role || 'Unknown',
-          action, studyId: parentId || null, studyName: parentName || null,
-          previousStatus: previousStatus || null, newStatus: newStatus || null,
-          details: details || '', createdAt: serverTimestamp(), clientTimestamp: new Date().toISOString()
-        }); 
-      } catch (e) { console.error('Audit write failed', e); }
-    }
-
-    function statusBadge(status) {
-      const cls = status === STATUS.APPROVED || status === STATUS.COMPLETED ? 'bg-green-100 text-green-800 border-green-200' : status === STATUS.REJECTED ? 'bg-red-100 text-red-800 border-red-200' : status === STATUS.RETURNED ? 'bg-amber-100 text-amber-800 border-amber-200' : 'bg-blue-50 text-blue-800 border-blue-200';
-      return `<span class="px-2 py-1 inline-flex text-xs font-semibold rounded-full border ${cls}">${esc(status || '—')}</span>`;
-    }
-
-    function resetAppUI() {
-      $('loginSection').classList.remove('hidden');
-      $('dashboardSection').classList.add('hidden');
-      $('userInfo').classList.add('hidden');
-      $('userInfo').classList.remove('flex');
-      $('loginForm').reset();
-      $('loginError').classList.add('hidden');
-    }
-
-    function configureNavigation() {
-      $('userManagementBtn').classList.toggle('hidden', !isAdmin());
-      $('auditTrailBtn').classList.toggle('hidden', !can(ROLES.ADMIN, ROLES.QA_MANAGER, ROLES.DEPUTY));
-      $('calibrationNav').classList.toggle('hidden', !(isAdmin() || isCreator() || isReviewer() || isViewer()));
-      $('qualificationNav').classList.toggle('hidden', !(isAdmin() || isCreator() || isReviewer() || isViewer()));
-      $('addRecordBtn').classList.toggle('hidden', !(isAdmin() || isCreator()));
-      $('currentUserDisplay').textContent = currentProfile?.displayName || currentProfile?.username || currentUser.email;
-      $('currentUserRole').textContent = currentProfile?.role || 'Unassigned';
-      $('currentUserDepartment').textContent = currentProfile?.department || '—';
     }
 
     async function loadProfile(user) {
       const snap = await getDoc(docRef('users', user.uid));
-      if (!snap.exists()) throw new Error('Your account exists, but no ValidApp profile was found. Contact an Administrator.');
-      const profile = snap.data();
-      if (!profile.role || !ROLE_LIST.includes(profile.role)) throw new Error('Your ValidApp profile has an invalid role.');
-      if (profile.disabled === true) throw new Error('Your ValidApp account is disabled.');
-      return { id: snap.id, ...profile };
+      if (!snap.exists()) throw new Error('Profile not found. Contact Admin.');
+      return { id: snap.id, ...snap.data() };
     }
 
-    async function loadData() {
-      if (!currentProfile) return;
-      try {
-        let q;
-        if (isAdmin()) q = query(colRef('records'), orderBy('createdAt', 'desc'));
-        else if (isCreator()) q = query(colRef('records'), where('createdByUid', '==', currentUser.uid));
-        else if (can(ROLES.SECTION_HEAD)) q = query(colRef('records'), where('status', '==', STATUS.PENDING_SECTION_HEAD));
-        else if (can(ROLES.REVIEWER)) q = query(colRef('records'), where('status', '==', STATUS.PENDING_REVIEWER));
-        else if (can(ROLES.DEPUTY)) q = query(colRef('records'), where('status', '==', STATUS.PENDING_DEPUTY));
-        else if (can(ROLES.QA_MANAGER)) q = query(colRef('records'), where('status', '==', STATUS.PENDING_QA));
-        else q = query(colRef('records'), where('status', '==', STATUS.APPROVED));
-        const snap = await getDocs(q);
-        records = snap.docs.map(d => ({id:d.id, ...d.data()}));
-        records.sort((a,b) => String(b.createdAt?.seconds || '').localeCompare(String(a.createdAt?.seconds || '')));
-        renderStudies();
-      } catch (e) {
-        console.error(e);
-        showMessage('Data access error', 'The records could not be loaded.', 'error');
-      }
-    }
+    // --- Robust Excel Parser for Calibration ---
+    window.triggerExcelImport = () => {
+      $('excelFileInput').click();
+    };
 
-    function recordActionButtons(r) {
-      const buttons = [];
-      const owner = isAdmin() || r.createdByUid === currentUser?.uid || r.createdBy === currentProfile?.username;
-      
-      if (isViewer()) {
-        if (r.status === STATUS.APPROVED) {
-          buttons.push(`<button class="text-gray-700 text-xs font-semibold" data-files="${esc(r.id)}"><i class="fas fa-download mr-1"></i>Files / Download</button>`);
-        }
-        return buttons.join(' ');
-      }
-
-      if (owner && [STATUS.DRAFT, STATUS.RETURNED].includes(r.status)) buttons.push(`<button class="text-purple-600 hover:text-purple-800 text-xs font-semibold" data-edit="${esc(r.id)}"><i class="fas fa-edit mr-1"></i>Edit</button>`);
-      if (owner && r.status === STATUS.DRAFT) {
-        buttons.push(`<button class="text-blue-600 hover:text-blue-800 text-xs font-semibold" data-submit="${esc(r.id)}"><i class="fas fa-paper-plane mr-1"></i>Submit</button>`);
-        buttons.push(`<button class="text-red-600 hover:text-red-800 text-xs font-semibold" data-delete-study="${esc(r.id)}"><i class="fas fa-trash-alt mr-1"></i>Delete / Cancel</button>`);
-      }
-      if (can(ROLES.SECTION_HEAD) && r.status === STATUS.PENDING_SECTION_HEAD) buttons.push(`<button class="text-blue-600 text-xs font-semibold" data-review="${esc(r.id)}"><i class="fas fa-check-circle mr-1"></i>Complete Review</button>`);
-      if (can(ROLES.REVIEWER) && r.status === STATUS.PENDING_REVIEWER) buttons.push(`<button class="text-blue-600 text-xs font-semibold" data-review="${esc(r.id)}"><i class="fas fa-check-circle mr-1"></i>Complete Review</button>`);
-      if (can(ROLES.DEPUTY) && r.status === STATUS.PENDING_DEPUTY) buttons.push(`<button class="text-blue-600 text-xs font-semibold" data-review="${esc(r.id)}"><i class="fas fa-check-circle mr-1"></i>Complete Review</button>`);
-      if (can(ROLES.QA_MANAGER) && r.status === STATUS.PENDING_QA) buttons.push(`<button class="text-green-600 text-xs font-semibold" data-approve="${esc(r.id)}"><i class="fas fa-thumbs-up mr-1"></i>Approve</button>`);
-      if (isReviewer() && ![STATUS.APPROVED, STATUS.REJECTED].includes(r.status)) buttons.push(`<button class="text-amber-600 text-xs font-semibold" data-return="${esc(r.id)}"><i class="fas fa-undo mr-1"></i>Return</button>`);
-      if (can(ROLES.QA_MANAGER) && r.status === STATUS.PENDING_QA) buttons.push(`<button class="text-red-600 text-xs font-semibold" data-reject="${esc(r.id)}"><i class="fas fa-ban mr-1"></i>Reject</button>`);
-      buttons.push(`<button class="text-gray-600 text-xs font-semibold" data-files="${esc(r.id)}"><i class="fas fa-paperclip mr-1"></i>Files</button>`);
-      buttons.push(`<button class="text-gray-600 text-xs font-semibold" data-history="${esc(r.id)}"><i class="fas fa-history mr-1"></i>History</button>`);
-      return buttons.join(' ');
-    }
-
-    async function deleteStudy(id) {
-      const r = records.find(x => x.id === id); if (!r) return;
-      if (r.status !== STATUS.DRAFT) return showMessage('Cannot Delete', 'Only unsubmitted (Draft) studies can be deleted or cancelled.', 'error');
-      
-      confirmAction('Delete / Cancel Study', `Are you sure you want to delete the unsubmitted study "${r.productName}"?`, async () => {
-        try {
-          await deleteDoc(docRef('records', id));
-          await logAudit('Study Deleted / Cancelled', id, r.productName, 'Draft study deleted by creator before review submission.', STATUS.DRAFT, 'Deleted');
-          
-          await sendEmailNotification(
-            currentUser.email,
-            `Study Deleted / Cancelled: ${r.productName}`,
-            currentProfile?.displayName || currentUser.email,
-            r.productName,
-            'Deleted',
-            'Unsubmitted draft study was deleted/cancelled.'
-          );
-
-          showMessage('Deleted', 'Study successfully deleted.', 'success');
-          await loadData();
-        } catch (e) {
-          showMessage('Deletion failed', friendlyError(e), 'error');
-        }
-      });
-    }
-
-    async function deleteModuleRecord(id) {
-      const r = moduleRecords.find(x => x.id === id); if (!r) return;
-      if (r.status !== STATUS.DRAFT) return showMessage('Cannot Delete', 'Only unsubmitted (Draft) records can be deleted.', 'error');
-      
-      confirmAction('Delete Record', `Are you sure you want to delete the draft record "${r.name || r.instrument || r.certificateNo}"?`, async () => {
-        try {
-          const collectionName = currentModule === MODULES.CALIBRATION ? 'calibration' : 'qualification';
-          await deleteDoc(docRef(collectionName, id));
-          await logAudit(`${currentModule} Record Deleted`, id, r.name || r.instrument, 'Draft record deleted.', STATUS.DRAFT, 'Deleted');
-
-          showMessage('Deleted', 'Record successfully deleted.', 'success');
-          await loadModule(currentModule);
-        } catch (e) {
-          showMessage('Deletion failed', friendlyError(e), 'error');
-        }
-      });
-    }
-
-    function renderStudies() {
-      const q = $('searchInput').value.trim().toLowerCase();
-      const stage = $('filterStage').value;
-      const status = $('filterStatus').value;
-      const scale = $('filterScale').value;
-      const category = currentCategory;
-      
-      let filtered = records.filter(r => r.studyCategory === category && (!q || `${r.productName||''} ${r.productType||''}`.toLowerCase().includes(q)) && (stage === 'All' || r.stage === stage) && (status === 'All' || r.status === status) && (scale === 'All' || r.scale === scale));
-      
-      if (isViewer()) {
-        filtered = filtered.filter(r => r.status === STATUS.APPROVED);
-      }
-
-      $('dataTableBody').innerHTML = filtered.map(r => `<tr class="hover:bg-gray-50">
-        <td class="px-4 py-3 font-medium text-gray-900">${esc(r.productName)}<div class="text-xs text-gray-500">${esc(r.productType)}</div></td>
-        <td class="px-4 py-3 text-xs">${esc(r.studyCategory)}</td>
-        <td class="px-4 py-3 text-xs">${esc(r.date || r.studyDate)}<div class="font-semibold mt-1">${esc(r.stage)}</div></td>
-        <td class="px-4 py-3 text-xs">${esc(r.scale)}<div class="mt-1"><span class="bg-blue-100 text-blue-800 px-1 rounded">${esc(r.version)}</span></div></td>
-        <td class="px-4 py-3 text-xs max-w-[220px] truncate" title="${esc(r.reason)}">${esc(r.reason)}<div class="text-gray-400 truncate">${esc(r.notes || '')}</div></td>
-        <td class="px-4 py-3 whitespace-nowrap">${statusBadge(r.status)}<div class="text-[10px] text-gray-500 mt-1">Created: ${esc(r.createdByName || r.createdBy || '—')}</div></td>
-        <td class="px-4 py-3 text-center"><div class="flex flex-wrap justify-center gap-2">${recordActionButtons(r)}</div></td>
-      </tr>`).join('');
-      $('emptyState').classList.toggle('hidden', filtered.length !== 0);
-    }
-
-    function openRecordModal(record=null) {
-      if (isViewer()) return;
-      $('recordForm').reset();
-      $('recordId').value = record?.id || '';
-      $('modalTitle').textContent = record ? 'Edit Validation Study' : 'Add New Validation Study';
-      $('studyCategory').value = record?.studyCategory || currentCategory;
-      $('studyStatus').value = record?.status || STATUS.DRAFT;
-      $('productName').value = record?.productName || '';
-      $('productType').value = record?.productType || 'Finished Product';
-      $('studyDate').value = record?.date || '';
-      $('stage').value = record?.stage || 'Raw';
-      $('version').value = record?.version || 'v1.0';
-      $('scale').value = record?.scale || 'Lab Scale';
-      $('reason').value = record?.reason || '';
-      $('notes').value = record?.notes || '';
-      $('reviewerDepartment').value = record?.reviewerDepartment || '';
-      $('requireOtherDeptReview').checked = !!record?.requireOtherDeptReview;
-      $('recordModal').classList.add('active');
-    }
-
-    async function saveStudy(e) {
-      e.preventDefault();
-      if (!(isAdmin() || isCreator())) return showMessage('Unauthorized', 'You are not permitted to edit studies.', 'error');
-      const id = $('recordId').value;
-      const data = {
-        productName: $('productName').value.trim(), studyCategory: $('studyCategory').value, productType: $('productType').value,
-        date: $('studyDate').value, stage: $('stage').value, version: $('version').value.trim(), scale: $('scale').value,
-        reason: $('reason').value.trim(), notes: $('notes').value.trim(), reviewerDepartment: $('reviewerDepartment').value.trim(),
-        requireOtherDeptReview: $('requireOtherDeptReview').checked, updatedAt: serverTimestamp()
-      };
-      if (!data.productName || !data.date || !data.reason || !data.version) return showMessage('Missing fields', 'Complete all required fields.', 'error');
-      try {
-        if (id) {
-          await updateDoc(docRef('records', id), data);
-          await logAudit('Study Modified', id, data.productName, 'Study updated.');
-          showMessage('Success', 'Study updated successfully.', 'success');
-        } else {
-          const payload = {...data, status: STATUS.DRAFT, createdByUid: currentUser.uid, createdByName: currentProfile.displayName || currentUser.email, createdAt: serverTimestamp()};
-          const refDoc = await addDoc(colRef('records'), payload);
-          await logAudit('Study Created', refDoc.id, data.productName, 'Created as Draft.', '', STATUS.DRAFT);
-          showMessage('Success', 'New study created as Draft.', 'success');
-        }
-        closeModals(); await loadData();
-      } catch (err) { console.error(err); showMessage('Save failed', friendlyError(err), 'error'); }
-    }
-
-    async function updateWorkflow(id, targetStatus, comment='') {
-      const r = records.find(x => x.id === id); if (!r) return;
-      const old = r.status;
-      const actorRole = currentProfile.role;
-      const updates = {status: targetStatus, updatedAt: serverTimestamp(), lastActionByUid: currentUser.uid, lastActionByName: currentProfile.displayName || currentUser.email, lastActionRole: actorRole};
-      if (targetStatus === STATUS.APPROVED) { updates.approvedByUid = currentUser.uid; updates.approvedAt = serverTimestamp(); }
-      if (targetStatus === STATUS.REJECTED) { updates.rejectedByUid = currentUser.uid; updates.rejectedAt = serverTimestamp(); updates.rejectionReason = comment; }
-      await updateDoc(docRef('records', id), updates);
-      await addDoc(colRef('reviews'), {studyId:id, studyName:r.productName, reviewerUid:currentUser.uid, reviewerName:currentProfile.displayName || currentUser.email, reviewerRole:actorRole, comment, createdAt:serverTimestamp()});
-      await logAudit('Workflow Progressed', id, r.productName, comment || `Advanced by ${actorRole}`, old, targetStatus);
-      
-      await sendEmailNotification(
-        currentUser.email,
-        `ValidApp Status Update: ${r.productName}`,
-        currentProfile?.displayName || currentUser.email,
-        r.productName,
-        targetStatus,
-        comment || `Study transitioned from ${old} to ${targetStatus}.`
-      );
-      
-      await loadData();
-    }
-
-    async function returnStudy(id) {
-      const r = records.find(x=>x.id===id); if (!r) return;
-      confirmAction('Return for Revision', `Return "${r.productName}" to Creator?`, async reason => {
-        if (!reason.trim()) return showMessage('Comment required','Return reason is mandatory.','error');
-        try {
-          await updateDoc(docRef('records', id), {status:STATUS.RETURNED, updatedAt:serverTimestamp()});
-          await addDoc(colRef('reviews'), {studyId:id, studyName:r.productName, reviewerUid:currentUser.uid, reviewerName:currentProfile.displayName || currentUser.email, reviewerRole:currentProfile.role, action:'Returned', comment:reason.trim(), createdAt:serverTimestamp()});
-          await logAudit('Study Returned', id, r.productName, reason.trim(), r.status, STATUS.RETURNED);
-          
-          await sendEmailNotification(
-            currentUser.email,
-            `Study Returned for Revision: ${r.productName}`,
-            currentProfile?.displayName || currentUser.email,
-            r.productName,
-            STATUS.RETURNED,
-            reason.trim()
-          );
-
-          closeModals(); showMessage('Returned','Study returned to Creator.','success'); await loadData();
-        } catch(e){ showMessage('Return failed', friendlyError(e),'error'); }
-      }, true, 'Return reason *');
-    }
-
-    async function submitStudy(id) {
-      const r = records.find(x=>x.id===id); if (!r) return;
-      try { 
-        await updateDoc(docRef('records',id),{status:STATUS.PENDING_SECTION_HEAD,submittedAt:serverTimestamp(),updatedAt:serverTimestamp()}); 
-        await logAudit('Study Submitted',id,r.productName,'Submitted for review.',r.status,STATUS.PENDING_SECTION_HEAD); 
-        
-        await sendEmailNotification(
-          currentUser.email,
-          `Study Submitted: ${r.productName}`,
-          currentProfile?.displayName || currentUser.email,
-          r.productName,
-          STATUS.PENDING_SECTION_HEAD,
-          'Submitted for Section Head review.'
-        );
-
-        showMessage('Submitted','Submitted to Section Head.','success'); 
-        await loadData(); 
-      }
-      catch(e){showMessage('Submission failed',friendlyError(e),'error');}
-    }
-
-    function friendlyError(e) {
-      const code = e?.code || '';
-      if (code.includes('permission-denied')) return 'Permission denied.';
-      if (code.includes('network')) return 'Network connection failed.';
-      return e?.message || 'An unexpected error occurred.';
-    }
-
-    async function loadFiles(parentId, module='study') {
-      const field = (module === 'study' || module === MODULES.STUDIES) ? 'studyId' : 'parentId';
-      const snap = await getDocs(query(colRef('studyFiles'), where(field, '==', parentId)));
-      filesByParent = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => String(b.createdAt?.seconds || '').localeCompare(String(a.createdAt?.seconds || '')));
-    }
-
-    function fileTypeAllowed(file) {
-      return !!ALLOWED_FILE_TYPES[file.type] || file.name.endsWith('.xlsx') || file.name.endsWith('.xls') || file.name.endsWith('.xlsm') && file.size <= MAX_FILE_SIZE;
-    }
-
-    async function uploadFiles(parentId, input, module='study') {
-      if (isViewer()) return showMessage('Unauthorized', 'Viewers cannot upload files.', 'error');
-      if (!input.files || !input.files.length) return;
-      if (!supabaseClient) return showMessage('Supabase Not Initialized', 'Ensure URL and Key are set correctly.', 'error');
-      
-      const files = Array.from(input.files);
-      const isStudyModule = (module === 'study' || module === MODULES.STUDIES);
-
-      for (const file of files) {
-        if (!fileTypeAllowed(file)) {
-          showMessage('Invalid file', `${file.name}: invalid type or size exceeds 25MB.`, 'error');
-          continue;
-        }
-
-        const fileId = crypto.randomUUID();
-        const safeName = safeFileName(file.name);
-        const storagePath = `${appId}/${module}/${parentId}/${fileId}_${safeName}`;
-
-        try {
-          $('uploadProgress').textContent = `Uploading ${esc(file.name)} to Supabase...`;
-          
-          const { data, error } = await supabaseClient.storage
-            .from("documents")
-            .upload(storagePath, file, { cacheControl: '3600', upsert: false });
-
-          if (error) throw new Error(error.message);
-
-          await addDoc(colRef('studyFiles'), {
-            parentId: parentId,
-            studyId: isStudyModule ? parentId : null,
-            module: module,
-            name: file.name,
-            contentType: file.type || 'application/octet-stream',
-            size: file.size,
-            storagePath: storagePath,
-            uploadedByUid: currentUser.uid,
-            uploadedByName: currentProfile.displayName || currentUser.email,
-            uploadedAt: serverTimestamp(),
-            createdAt: serverTimestamp()
-          });
-
-          await logAudit('File Uploaded', parentId, '', `${file.name}`);
-        } catch(e) {
-          console.error('Supabase Upload Error:', e);
-          showMessage('Upload failed', friendlyError(e), 'error');
-        }
-      }
-
-      $('uploadProgress').textContent = '';
-      await loadFiles(parentId, module);
-      renderFileList(parentId, module);
-    }
-
-    async function viewFile(file, download=false) {
-      try {
-        const { data, error } = await supabaseClient.storage
-          .from("documents")
-          .createSignedUrl(file.storagePath, 60, {
-            download: download ? file.name : false
-          });
-
-        if (error) throw new Error(error.message);
-
-        if (download) {
-          const a = document.createElement('a');
-          a.href = data.signedUrl;
-          a.download = file.name;
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
-        } else {
-          window.open(data.signedUrl, '_blank', 'noopener');
-        }
-      } catch(e) {
-        showMessage('Access denied', friendlyError(e), 'error');
-      }
-    }
-
-    async function deleteFile(file) {
-      if (isViewer()) return showMessage('Unauthorized', 'Viewers cannot delete files.', 'error');
-      
-      confirmAction('Delete file', `Are you sure you want to delete "${file.name}"?`, async () => {
-        try {
-          const { error } = await supabaseClient.storage
-            .from("documents")
-            .remove([file.storagePath]);
-            
-          if (error) throw new Error(error.message);
-
-          await updateDoc(docRef('studyFiles', file.id), { deletedAt: serverTimestamp() });
-          
-          const targetParent = file.parentId || file.studyId;
-          await logAudit('File Deleted', targetParent, '', `Deleted file: ${file.name}`);
-          
-          await loadFiles(targetParent, file.module);
-          renderFileList(targetParent, file.module);
-          showMessage('Deleted', 'File successfully removed.', 'success');
-        } catch(e) {
-          showMessage('Delete failed', friendlyError(e), 'error');
-        }
-      });
-    }
-
-    function renderFileList(parentId, module='study') {
-      const uploadContainer = $('uploadFileContainer');
-      if (uploadContainer) {
-        uploadContainer.classList.toggle('hidden', isViewer());
-      }
-
-      const activeFiles = filesByParent.filter(f => !f.deletedAt);
-
-      $('fileList').innerHTML = activeFiles.map(f => `<div class="border rounded-lg p-3 flex flex-wrap items-center justify-between gap-3 bg-gray-50">
-        <div>
-          <div class="font-semibold text-sm">${esc(f.name)}</div>
-          <div class="text-xs text-gray-500">${esc(f.contentType)} · ${(f.size/1024/1024).toFixed(2)} MB · ${esc(nowLabel(f.uploadedAt))}</div>
-        </div>
-        <div class="flex gap-3 items-center">
-          ${!isViewer() ? `<button data-view-file="${esc(f.id)}" class="text-blue-600 text-xs font-semibold hover:underline">View</button>` : ''}
-          <button data-download-file="${esc(f.id)}" class="text-gray-700 text-xs font-semibold hover:underline">Download</button>
-          ${!isViewer() ? `<button data-delete-file="${esc(f.id)}" class="text-red-600 text-xs font-semibold hover:underline flex items-center gap-1"><i class="fas fa-trash-alt text-[10px]"></i>Delete</button>` : ''}
-        </div>
-      </div>`).join('') || '<div class="text-sm text-gray-500">No documents found.</div>';
-
-      $('fileParentId').value = parentId;
-      $('fileModule').value = module;
-      $('fileModal').classList.add('active');
-    }
-
-    async function openFiles(parentId, module='study') {
-      await loadFiles(parentId, module);
-      renderFileList(parentId, module);
-    }
-
-    async function showHistory(studyId) {
-      if (isViewer()) return;
-      const snap = await getDocs(query(colRef('reviews'), where('studyId', '==', studyId)));
-      const items = snap.docs.map(d => d.data()).sort((a,b) => String(b.createdAt?.seconds || '').localeCompare(String(a.createdAt?.seconds || '')));
-      $('historyBody').innerHTML = items.map(x => `<div class="border-l-4 border-blue-300 pl-4 py-2">
-        <div class="font-semibold text-sm">${esc(x.action || 'Review')} — ${esc(x.reviewerRole || '')}</div>
-        <div class="text-xs text-gray-500">${esc(x.reviewerName)} · ${esc(nowLabel(x.createdAt))}</div>
-        <div class="text-sm mt-1 whitespace-pre-wrap">${esc(x.comment || 'No comment recorded.')}</div>
-      </div>`).join('') || '<div class="text-sm text-gray-500">No review history.</div>';
-      $('historyModal').classList.add('active');
-    }
-
-    function renderAudit() {
-      $('auditTableBody').innerHTML = auditLogs.map(x => `<tr>
-        <td class="px-3 py-2 text-xs">${esc(nowLabel(x.createdAt))}</td>
-        <td class="px-3 py-2 text-xs">${esc(x.userName)}<div class="text-gray-500">${esc(x.userRole)}</div></td>
-        <td class="px-3 py-2 text-xs font-semibold">${esc(x.action)}</td>
-        <td class="px-3 py-2 text-xs">${esc(x.studyName || x.studyId || '—')}</td>
-        <td class="px-3 py-2 text-xs">${esc(x.previousStatus || '—')} → ${esc(x.newStatus || '—')}<div>${esc(x.details || '')}</div></td>
-      </tr>`).join('');
-    }
-
-    async function loadAudit() {
-      const snap = await getDocs(query(colRef('audit'), orderBy('createdAt', 'desc'), limit(500)));
-      auditLogs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      renderAudit();
-      $('auditModal').classList.add('active');
-    }
-
-    function renderUserRoleOptions(selectedRole = '') {
-      const el = document.getElementById('newRole');
-      if (el) el.innerHTML = ROLE_LIST.map(r => `<option value="${r}" ${r === selectedRole ? 'selected' : ''}>${r}</option>`).join('');
-    }
-
-    async function loadUsers() {
-      if (!isAdmin()) return;
-      const snap = await getDocs(colRef('users'));
-      users = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      renderUserRoleOptions();
-      $('userTableBody').innerHTML = users.map(u => `<tr>
-        <td class="px-3 py-2 text-xs font-medium">${esc(u.displayName || u.username)}<div class="text-gray-500">${esc(u.email)}</div></td>
-        <td class="px-3 py-2 text-xs">${esc(u.role)}</td>
-        <td class="px-3 py-2 text-xs">${esc(u.department || '—')}</td>
-        <td class="px-3 py-2 text-xs">${u.disabled ? '<span class="text-red-600 font-bold">Disabled</span>' : '<span class="text-green-600 font-bold">Active</span>'}</td>
-        <td class="px-3 py-2 text-center text-xs">
-          <button data-edit-user="${esc(u.id)}" class="text-blue-600 font-semibold mr-2">Edit</button>
-          <button data-toggle-user="${esc(u.id)}" class="text-amber-600 font-semibold">${u.disabled ? 'Enable' : 'Disable'}</button>
-        </td>
-      </tr>`).join('');
-      $('userModal').classList.add('active');
-    }
-
-    async function createOrUpdateUser(e) {
-      e.preventDefault();
-      if (!isAdmin()) return;
-      const email = $('newEmail').value.trim().toLowerCase();
-      const displayName = $('newDisplayName').value.trim();
-      const role = $('newRole').value;
-      const department = $('newDepartment').value.trim();
-      const editing = $('editUserId').value;
-      try {
-        if (editing) {
-          await updateDoc(docRef('users', editing), { displayName, role, department, updatedAt: serverTimestamp(), disabled: $('newDisabled').checked });
-          await logAudit('User Updated', editing, displayName, `Role=${role}`);
-        } else {
-          const secondary = initializeApp(firebaseConfig, `ValidAppUserCreation_${Date.now()}`);
-          const secAuth = getAuth(secondary);
-          const password = $('newPassword').value;
-          if (password.length < 8) throw new Error('Password must contain at least 8 characters.');
-          const cred = await createUserWithEmailAndPassword(secAuth, email, password);
-          await setDoc(docRef('users', cred.user.uid), { email, displayName, username: email.split('@')[0], role, department, disabled: false, createdAt: serverTimestamp() });
-          await signOut(secAuth);
-          await deleteApp(secondary);
-          await logAudit('User Created', cred.user.uid, displayName, `Role=${role}`);
-          
-          await sendEmailNotification(email, 'ValidApp Account Created', displayName, 'New User Account', 'Active', `Your account has been created with role: ${role}.`);
-          showMessage('Created', `User profile created for ${email}`, 'success');
-        }
-        $('userForm').reset();
-        $('editUserId').value = '';
-        await loadUsers();
-      } catch (err) {
-        console.error(err);
-        showMessage('User operation failed', friendlyError(err), 'error');
-      }
-    }
-
-    async function editUser(id) { 
-      const u = users.find(x => x.id === id); 
-      if(!u) return; 
-      $('editUserId').value = id; 
-      $('newEmail').value = u.email || ''; 
-      $('newDisplayName').value = u.displayName || ''; 
-      renderUserRoleOptions(u.role || ROLES.VIEWER); 
-      $('newDepartment').value = u.department || ''; 
-      $('newDisabled').checked = !!u.disabled; 
-      $('newPassword').value = ''; 
-    }
-
-    async function toggleUser(id){ 
-      const u = users.find(x => x.id === id); 
-      if(!u || id === currentUser.uid) return; 
-      confirmAction(u.disabled ? 'Enable User' : 'Disable User', `${u.disabled ? 'Enable' : 'Disable'} ${u.email}?`, async () => {
-        try {
-          await updateDoc(docRef('users', id), { disabled: !u.disabled, updatedAt: serverTimestamp() }); 
-          await logAudit(u.disabled ? 'User Enabled' : 'User Disabled', id, u.displayName || u.email); 
-          await loadUsers();
-        } catch(e) { showMessage('Operation failed', friendlyError(e), 'error'); }
-      }); 
-    }
-
-    async function addModuleRecord(e) {
-      e.preventDefault(); 
-      if (!(isAdmin() || isCreator())) return showMessage('Unauthorized', 'Cannot create record.', 'error');
-      
-      const module = currentModule;
-      const editId = $('moduleEditId').value;
-      const collectionName = module === MODULES.CALIBRATION ? 'calibration' : 'qualification'; 
-
-      let data = {};
-      if (module === MODULES.CALIBRATION) {
-        data = {
-          certificateNo: $('calCertificateNo').value.trim(),
-          department: $('calDept').value.trim(),
-          instrument: $('calInstrument').value.trim(),
-          manufacturer: $('calManuf').value.trim(),
-          model: $('calModel').value.trim(),
-          serialNumber: $('calSN').value.trim(),
-          code: $('calCode').value.trim(),
-          location: $('calLocation').value.trim(),
-          calRange: $('calRange').value.trim(),
-          acceptanceLimits: $('calAcceptanceLimits').value.trim(),
-          interval: $('calInterval').value.trim(),
-          calDate: $('calDate').value,
-          dueDate: $('calDueDate').value,
-          monthYear: $('calMonthYear').value.trim(),
-          name: $('calInstrument').value.trim(),
-          reference: $('calCertificateNo').value.trim(),
-          status: STATUS.DRAFT,
-          createdByUid: currentUser.uid,
-          createdByName: currentProfile.displayName || currentUser.email,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp()
-        };
-        if (!data.certificateNo || !data.instrument || !data.code) {
-          return showMessage('Missing fields', 'Certificate No., Instrument, and Code are required.', 'error');
-        }
-      } else {
-        const qualType = $('qualType').value;
-        const subUtility = qualType === 'utilities' ? $('qualUtilityType').value : '';
-        const eqInfo = qualType === 'equipment' ? $('qualEquipmentInfo').value.trim() : (qualType === 'system' ? $('qualSystemInfo').value.trim() : '');
-
-        data = {
-          name: $('qualName').value.trim(),
-          reference: $('qualReference').value.trim(),
-          qualificationType: qualType,
-          utilitySubtype: subUtility,
-          equipmentSystemInfo: eqInfo,
-          stage: $('qualStage').value,
-          plannedDate: $('qualDate').value,
-          dueDate: $('qualDueDate').value,
-          description: $('qualDescription').value.trim(),
-          status: STATUS.DRAFT,
-          createdByUid: currentUser.uid,
-          createdByName: currentProfile.displayName || currentUser.email,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp()
-        };
-        if (!data.name || !data.reference) {
-          return showMessage('Missing fields', 'Name and Reference ID are required.', 'error');
-        }
-      }
-
-      try { 
-        if (editId) { 
-          await updateDoc(docRef(collectionName, editId), {...data, updatedAt: serverTimestamp()}); 
-          await logAudit(`${module} Record Modified`, editId, data.name, 'Updated.'); 
-          showMessage('Updated', `${module} record updated.`, 'success'); 
-        } else { 
-          const refDoc = await addDoc(colRef(collectionName), data); 
-          await logAudit(`${module} Record Created`, refDoc.id, data.name, 'Created as Draft.', '', STATUS.DRAFT); 
-          showMessage('Created', `${module} record created successfully.`, 'success'); 
-        } 
-        $('moduleForm').reset(); closeModals(); await loadModule(module);
-      } catch(e) { showMessage('Save failed', friendlyError(e), 'error'); }
-    }
-
-    async function handleModuleExcelImport(event) {
+    window.handleCalibrationExcelImport = async (event) => {
       const file = event.target.files[0];
       if (!file) return;
+
       const reader = new FileReader();
-      
-      reader.onload = async function(e) {
+      reader.onload = async function (e) {
         try {
           const data = new Uint8Array(e.target.result);
           const workbook = XLSX.read(data, { type: 'array' });
           const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-          const rows = XLSX.utils.sheet_to_json(firstSheet);
+          const rawRows = XLSX.utils.sheet_to_json(firstSheet, { defval: "" });
+          
+          console.log("--- RAW EXCEL PARSED ROWS ---", rawRows);
 
-          if (!rows.length) return showMessage('Empty File', 'No records found in the uploaded spreadsheet.', 'error');
+          if (rawRows.length === 0) {
+            showMessage("Import Error", "The selected Excel sheet appears to be empty.");
+            return;
+          }
 
           let importedCount = 0;
-          const isCalibration = currentModule === MODULES.CALIBRATION;
-          const collectionName = isCalibration ? 'calibration' : 'qualification';
+          for (const row of rawRows) {
+            const certNo = row['Cert. No & Instrument'] || row['Certificate No'] || row['Cert No'] || row['Certificate'] || row['CertNo'] || '';
+            const instrument = row['Instrument'] || row['Instrument Name'] || row['Equipment'] || '';
+            const department = row['Department'] || row['Dept'] || '';
+            const location = row['Location'] || row['Area'] || '';
+            const calDate = row['Calibration Date'] || row['Cal Date'] || row['Date'] || '';
+            const status = row['Status'] || 'Active';
 
-          for (const row of rows) {
-            // Flexible matching for key variants across standard & macro sheets (.xlsx / .xlsm)
-            const cleanRow = {};
-            Object.keys(row).forEach(k => {
-              cleanRow[k.trim().toLowerCase().replace(/[^a-z0-9]/g, '')] = row[k];
+            if (!certNo && !instrument) continue;
+
+            await addDoc(colRef('calibration'), {
+              certNo: String(certNo),
+              instrument: String(instrument),
+              department: String(department),
+              location: String(location),
+              calibrationDate: String(calDate),
+              status: String(status),
+              createdAt: serverTimestamp()
             });
-
-            if (isCalibration) {
-              const certNo = String(cleanRow['certificateno'] || cleanRow['certno'] || cleanRow['reference'] || '');
-              const instrument = String(cleanRow['instrument'] || cleanRow['name'] || '');
-              const code = String(cleanRow['code'] || cleanRow['instrumentcode'] || '');
-
-              const payload = {
-                certificateNo: certNo,
-                department: String(cleanRow['dept'] || cleanRow['department'] || ''),
-                instrument: instrument,
-                manufacturer: String(cleanRow['manuf'] || cleanRow['manufacturer'] || ''),
-                model: String(cleanRow['model'] || ''),
-                serialNumber: String(cleanRow['sn'] || cleanRow['serialno'] || ''),
-                code: code,
-                location: String(cleanRow['location'] || ''),
-                calRange: String(cleanRow['calrange'] || cleanRow['range'] || ''),
-                acceptanceLimits: String(cleanRow['acceptancelimits'] || cleanRow['limits'] || ''),
-                interval: String(cleanRow['interval'] || ''),
-                calDate: String(cleanRow['caldate'] || cleanRow['date'] || ''),
-                dueDate: String(cleanRow['duedate'] || ''),
-                monthYear: String(cleanRow['monthyear'] || ''),
-                name: instrument || 'Imported Instrument',
-                reference: certNo || 'IMP-' + Date.now(),
-                status: STATUS.DRAFT,
-                createdByUid: currentUser.uid,
-                createdByName: currentProfile.displayName || currentUser.email,
-                createdAt: serverTimestamp(),
-                updatedAt: serverTimestamp()
-              };
-
-              if (payload.instrument || payload.code) {
-                await addDoc(colRef(collectionName), payload);
-                importedCount++;
-              }
-            } else {
-              // Qualification Module Parsing
-              const name = String(cleanRow['name'] || cleanRow['equipmentname'] || cleanRow['systemname'] || '');
-              const reference = String(cleanRow['reference'] || cleanRow['refid'] || cleanRow['protocol'] || '');
-              const typeVal = String(cleanRow['qualificationtype'] || cleanRow['type'] || 'equipment').toLowerCase();
-              const stageVal = String(cleanRow['stage'] || cleanRow['qualificationstage'] || 'IQ').toUpperCase();
-
-              const payload = {
-                name: name,
-                reference: reference,
-                qualificationType: ['equipment', 'utilities', 'system'].includes(typeVal) ? typeVal : 'equipment',
-                utilitySubtype: String(cleanRow['utilitysubtype'] || cleanRow['utility'] || 'HVAC'),
-                equipmentSystemInfo: String(cleanRow['equipmentsysteminfo'] || cleanRow['info'] || cleanRow['details'] || ''),
-                stage: ['DQ', 'IQ', 'OQ', 'PQ', 'PERIODIC PQ'].includes(stageVal) ? stageVal : 'IQ',
-                plannedDate: String(cleanRow['planneddate'] || cleanRow['date'] || ''),
-                dueDate: String(cleanRow['duedate'] || ''),
-                description: String(cleanRow['description'] || cleanRow['scope'] || ''),
-                status: STATUS.DRAFT,
-                createdByUid: currentUser.uid,
-                createdByName: currentProfile.displayName || currentUser.email,
-                createdAt: serverTimestamp(),
-                updatedAt: serverTimestamp()
-              };
-
-              if (payload.name && payload.reference) {
-                await addDoc(colRef(collectionName), payload);
-                importedCount++;
-              }
-            }
+            importedCount++;
           }
 
-          await logAudit(`${currentModule} Excel/Macro Imported`, '', '', `Imported ${importedCount} records via spreadsheet file.`);
-          showMessage('Success', `Successfully imported ${importedCount} ${currentModule.toLowerCase()} entries!`, 'success');
-          await loadModule(currentModule);
+          showMessage("Success", `Successfully imported ${importedCount} calibration entries!`);
+          event.target.value = '';
+          loadCalibration();
         } catch (err) {
-          console.error(err);
-          showMessage('Import Error', 'Failed to parse Excel sheet. Ensure columns match header specifications.', 'error');
+          console.error("Excel processing error:", err);
+          showMessage("Error", "Failed to parse Excel file. Check console for details.");
         }
       };
-      
       reader.readAsArrayBuffer(file);
-      event.target.value = '';
-    }
+    };
 
-    async function loadModule(module) { 
-      currentModule = module; 
-      selectedModuleIds.clear();
-      const collectionName = module === MODULES.CALIBRATION ? 'calibration' : 'qualification'; 
+    async function loadCalibration() {
       try {
-        let q = query(colRef(collectionName), orderBy('createdAt', 'desc')); 
-        const snap = await getDocs(q); 
-        moduleRecords = snap.docs.map(d => ({id:d.id, ...d.data()})); 
-        populateModuleFilters();
-        renderModuleTable();
-      } catch(e) { showMessage('Module access error', friendlyError(e), 'error'); }
-    }
-
-    function populateModuleFilters() {
-      const isCal = currentModule === MODULES.CALIBRATION;
-      $('modSearchLabel').textContent = isCal ? 'Search Cert / Instrument / Code' : 'Search Name / Reference';
-      $('modFilterLabel1').textContent = isCal ? 'Department' : 'Type';
-      $('modFilterLabel2').textContent = isCal ? 'Location' : 'Stage';
-
-      const filter1El = $('modFilter1');
-      const filter2El = $('modFilter2');
-
-      if (isCal) {
-        const depts = [...new Set(moduleRecords.map(r => r.department).filter(Boolean))].sort();
-        const locations = [...new Set(moduleRecords.map(r => r.location).filter(Boolean))].sort();
-        
-        filter1El.innerHTML = `<option value="All">All Departments</option>` + depts.map(d => `<option value="${esc(d)}">${esc(d)}</option>`).join('');
-        filter2El.innerHTML = `<option value="All">All Locations</option>` + locations.map(l => `<option value="${esc(l)}">${esc(l)}</option>`).join('');
-      } else {
-        const types = [...new Set(moduleRecords.map(r => r.qualificationType).filter(Boolean))].sort();
-        const stages = [...new Set(moduleRecords.map(r => r.stage).filter(Boolean))].sort();
-
-        filter1El.innerHTML = `<option value="All">All Types</option>` + types.map(t => `<option value="${esc(t)}">${esc(t.toUpperCase())}</option>`).join('');
-        filter2El.innerHTML = `<option value="All">All Stages</option>` + stages.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
-      }
-    }
-
-    function renderModuleTable() { 
-      $('moduleTitle').textContent = currentModule; 
-      $('moduleDescription').textContent = currentModule === MODULES.CALIBRATION ? 'Calibration records' : 'Qualification lifecycle - Qualification records';
-      
-      // Update label / button contextual text for imports
-      if ($('excelImportBtnText')) {
-        $('excelImportBtnText').textContent = currentModule === MODULES.CALIBRATION ? 'Import Calibration Excel/Macro' : 'Import Qualification Excel/Macro';
-      }
-
-      let displayRecords = moduleRecords;
-      if (isViewer()) {
-        displayRecords = displayRecords.filter(r => r.status === STATUS.APPROVED || r.status === STATUS.COMPLETED);
-      }
-
-      const q = $('modSearchInput').value.trim().toLowerCase();
-      const f1 = $('modFilter1').value;
-      const f2 = $('modFilter2').value;
-      const st = $('modFilterStatus').value;
-
-      displayRecords = displayRecords.filter(r => {
-        const matchQ = !q || (currentModule === MODULES.CALIBRATION ? 
-          `${r.certificateNo||''} ${r.instrument||''} ${r.code||''} ${r.serialNumber||''}`.toLowerCase().includes(q) : 
-          `${r.name||''} ${r.reference||''} ${r.equipmentSystemInfo||''}`.toLowerCase().includes(q));
-        
-        let matchF1 = true;
-        let matchF2 = true;
-        if (currentModule === MODULES.CALIBRATION) {
-          if (f1 !== 'All' && r.department !== f1) matchF1 = false;
-          if (f2 !== 'All' && r.location !== f2) matchF2 = false;
-        } else {
-          if (f1 !== 'All' && r.qualificationType !== f1) matchF1 = false;
-          if (f2 !== 'All' && r.stage !== f2) matchF2 = false;
-        }
-
-        const matchStatus = st === 'All' || r.status === st;
-        return matchQ && matchF1 && matchF2 && matchStatus;
-      });
-
-      const headerEl = $('moduleTableHead');
-      const allSelected = displayRecords.length > 0 && displayRecords.every(r => selectedModuleIds.has(r.id));
-
-      if (currentModule === MODULES.CALIBRATION) {
-        headerEl.innerHTML = `
-          <tr>
-            <th class="px-4 py-3 text-left text-xs w-10"><input type="checkbox" id="selectAllModule" ${allSelected && displayRecords.length > 0 ? 'checked' : ''}></th>
-            <th class="px-4 py-3 text-left text-xs">Cert. No & Instrument</th>
-            <th class="px-4 py-3 text-left text-xs">Code / S.N</th>
-            <th class="px-4 py-3 text-left text-xs">Dept / Location</th>
-            <th class="px-4 py-3 text-left text-xs">Cal / Due Date</th>
-            <th class="px-4 py-3 text-left text-xs">Status</th>
-            <th class="px-4 py-3 text-center text-xs">Actions</th>
-          </tr>
-        `;
-      } else {
-        headerEl.innerHTML = `
-          <tr>
-            <th class="px-4 py-3 text-left text-xs w-10"><input type="checkbox" id="selectAllModule" ${allSelected && displayRecords.length > 0 ? 'checked' : ''}></th>
-            <th class="px-4 py-3 text-left text-xs">Name / Reference</th>
-            <th class="px-4 py-3 text-left text-xs">Type & Subtype</th>
-            <th class="px-4 py-3 text-left text-xs">Stage / Info</th>
-            <th class="px-4 py-3 text-left text-xs">Status</th>
-            <th class="px-4 py-3 text-center text-xs">Actions</th>
-          </tr>
-        `;
-      }
-
-      $('moduleTableBody').innerHTML = displayRecords.map(r => {
-        const owner = isAdmin() || r.createdByUid === currentUser?.uid || r.createdByName === currentProfile?.displayName; 
-        const review = (can(ROLES.SECTION_HEAD) && r.status === STATUS.PENDING_SECTION_HEAD) || (can(ROLES.QA_MANAGER) && r.status === STATUS.PENDING_QA); 
-        const isChecked = selectedModuleIds.has(r.id);
-        
-        if (currentModule === MODULES.CALIBRATION) {
-          return `<tr class="hover:bg-gray-50">
-            <td class="px-4 py-3"><input type="checkbox" data-select-id="${esc(r.id)}" ${isChecked ? 'checked' : ''}></td>
-            <td class="px-4 py-3 font-medium">${esc(r.certificateNo || r.reference)}<div class="text-xs text-gray-500">${esc(r.instrument || r.name)}</div></td>
-            <td class="px-4 py-3 text-xs">${esc(r.code)}<div class="text-gray-400">S/N: ${esc(r.serialNumber || '—')}</div></td>
-            <td class="px-4 py-3 text-xs">${esc(r.department)}<div class="text-gray-400">${esc(r.location)}</div></td>
-            <td class="px-4 py-3 text-xs">Cal: ${esc(r.calDate)}<div class="text-red-500">Due: ${esc(r.dueDate)}</div></td>
-            <td class="px-4 py-3">${statusBadge(r.status)}</td>
-            <td class="px-4 py-3 text-center">
-              <button data-module-files="${esc(r.id)}" class="text-gray-600 text-xs font-semibold mr-2 hover:underline">Files</button>
-              ${owner && [STATUS.DRAFT, STATUS.RETURNED].includes(r.status) ? `<button data-module-edit="${esc(r.id)}" class="text-purple-600 text-xs font-semibold mr-2 hover:underline">Edit</button>` : ''}
-              ${owner && r.status === STATUS.DRAFT ? `<button data-module-submit="${esc(r.id)}" class="text-purple-600 text-xs font-semibold mr-2 hover:underline">Submit</button>` : ''}
-              ${owner && r.status === STATUS.DRAFT ? `<button data-module-delete="${esc(r.id)}" class="text-red-600 text-xs font-semibold mr-2 hover:underline">Delete</button>` : ''}
-              ${review ? `<button data-module-review="${esc(r.id)}" class="text-blue-600 text-xs font-semibold mr-2 hover:underline">Review</button>` : ''}
-            </td>
-          </tr>`;
-        } else {
-          return `<tr class="hover:bg-gray-50">
-            <td class="px-4 py-3"><input type="checkbox" data-select-id="${esc(r.id)}" ${isChecked ? 'checked' : ''}></td>
-            <td class="px-4 py-3 font-medium">${esc(r.name)}<div class="text-xs text-gray-500">${esc(r.reference)}</div></td>
-            <td class="px-4 py-3 text-xs uppercase font-semibold text-blue-600">${esc(r.qualificationType)}<div class="text-gray-500 normal-case font-normal">${esc(r.utilitySubtype || '—')}</div></td>
-            <td class="px-4 py-3 text-xs"><span class="bg-gray-100 font-semibold px-1 py-0.5 rounded">${esc(r.stage)}</span><div class="text-gray-500 truncate max-w-[150px]">${esc(r.equipmentSystemInfo || '')}</div></td>
-            <td class="px-4 py-3">${statusBadge(r.status)}</td>
-            <td class="px-4 py-3 text-center">
-              <button data-module-files="${esc(r.id)}" class="text-gray-600 text-xs font-semibold mr-2 hover:underline">Files</button>
-              ${owner && [STATUS.DRAFT, STATUS.RETURNED].includes(r.status) ? `<button data-module-edit="${esc(r.id)}" class="text-purple-600 text-xs font-semibold mr-2 hover:underline">Edit</button>` : ''}
-              ${owner && r.status === STATUS.DRAFT ? `<button data-module-submit="${esc(r.id)}" class="text-purple-600 text-xs font-semibold mr-2 hover:underline">Submit</button>` : ''}
-              ${owner && r.status === STATUS.DRAFT ? `<button data-module-delete="${esc(r.id)}" class="text-red-600 text-xs font-semibold mr-2 hover:underline">Delete</button>` : ''}
-              ${review ? `<button data-module-review="${esc(r.id)}" class="text-blue-600 text-xs font-semibold mr-2 hover:underline">Review</button>` : ''}
-            </td>
-          </tr>`;
-        }
-      }).join(''); 
-
-      $('moduleEmptyState').classList.toggle('hidden', displayRecords.length !== 0);
-      updateModuleBulkBar();
-    }
-
-    function updateModuleBulkBar() {
-      const count = selectedModuleIds.size;
-      $('moduleSelectedCount').textContent = count;
-      $('moduleBulkBar').classList.toggle('hidden', count === 0);
-    }
-
-    async function bulkSubmitModuleRecords() {
-      if (selectedModuleIds.size === 0) return;
-      confirmAction('Bulk Submit', `Are you sure you want to submit ${selectedModuleIds.size} selected record(s) for review?`, async () => {
-        try {
-          const collectionName = currentModule === MODULES.CALIBRATION ? 'calibration' : 'qualification';
-          let count = 0;
-          for (const id of selectedModuleIds) {
-            const r = moduleRecords.find(x => x.id === id);
-            if (r && r.status === STATUS.DRAFT && (isAdmin() || r.createdByUid === currentUser?.uid)) {
-              await updateDoc(docRef(collectionName, id), {
-                status: STATUS.PENDING_SECTION_HEAD,
-                submittedAt: serverTimestamp(),
-                updatedAt: serverTimestamp()
-              });
-              await logAudit(`${currentModule} Bulk Submitted`, id, r.name || r.certificateNo, 'Submitted via bulk action.');
-              count++;
-            }
-          }
-          selectedModuleIds.clear();
-          await loadModule(currentModule);
-          showMessage('Success', `Successfully submitted ${count} record(s).`, 'success');
-        } catch (e) {
-          showMessage('Bulk action failed', friendlyError(e), 'error');
-        }
-      });
-    }
-
-    async function bulkDeleteModuleRecords() {
-      if (selectedModuleIds.size === 0) return;
-      confirmAction('Bulk Delete', `Are you sure you want to delete ${selectedModuleIds.size} selected draft record(s)?`, async () => {
-        try {
-          const collectionName = currentModule === MODULES.CALIBRATION ? 'calibration' : 'qualification';
-          let count = 0;
-          for (const id of selectedModuleIds) {
-            const r = moduleRecords.find(x => x.id === id);
-            if (r && r.status === STATUS.DRAFT && (isAdmin() || r.createdByUid === currentUser?.uid)) {
-              await deleteDoc(docRef(collectionName, id));
-              await logAudit(`${currentModule} Bulk Deleted`, id, r.name || r.certificateNo, 'Deleted via bulk action.');
-              count++;
-            }
-          }
-          selectedModuleIds.clear();
-          await loadModule(currentModule);
-          showMessage('Success', `Successfully deleted ${count} draft record(s).`, 'success');
-        } catch (e) {
-          showMessage('Bulk action failed', friendlyError(e), 'error');
-        }
-      });
-    }
-
-    async function moduleReview(id) {
-      const r = moduleRecords.find(x => x.id === id); if (!r) return; 
-      const target = r.status === STATUS.PENDING_SECTION_HEAD ? STATUS.PENDING_QA : STATUS.COMPLETED; 
-      confirmAction('Complete Review', `Complete review of ${r.name || r.certificateNo}?`, async comment => {
-        try {
-          const c = currentModule === MODULES.CALIBRATION ? 'calibration' : 'qualification';
-          await updateDoc(docRef(c, id), {status: target, updatedAt: serverTimestamp()});
-          await logAudit(`${currentModule} Review Completed`, id, r.name || r.certificateNo, comment || '', r.status, target);
-          
-          await sendEmailNotification(currentUser.email, `${currentModule} Review Completed: ${r.name || r.certificateNo}`, currentProfile?.displayName || currentUser.email, r.name || r.certificateNo, target, comment || `Advanced to ${target}.`);
-          closeModals(); await loadModule(currentModule); showMessage('Review completed', `Advanced to ${target}.`, 'success');
-        } catch(e) { showMessage('Review failed', friendlyError(e), 'error'); }
-      }, false, 'Review comment');
-    }
-
-    async function moduleSubmit(id) {
-      const r = moduleRecords.find(x => x.id === id); if (!r) return;
-      const c = currentModule === MODULES.CALIBRATION ? 'calibration' : 'qualification';
-      try {
-        await updateDoc(docRef(c, id), {status: STATUS.PENDING_SECTION_HEAD, submittedAt: serverTimestamp(), updatedAt: serverTimestamp()});
-        await logAudit(`${currentModule} Submitted`, id, r.name || r.certificateNo, 'Submitted for review.', r.status, STATUS.PENDING_SECTION_HEAD);
-        
-        await sendEmailNotification(currentUser.email, `${currentModule} Submitted: ${r.name || r.certificateNo}`, currentProfile?.displayName || currentUser.email, r.name || r.certificateNo, STATUS.PENDING_SECTION_HEAD, 'Record submitted for review.');
-        await loadModule(currentModule); showMessage('Submitted', 'Record submitted to Section Head.', 'success');
-      } catch(e) { showMessage('Submission failed', friendlyError(e), 'error'); }
-    }
-
-    function openModuleModal(record = null) { 
-      if (isViewer()) return;
-      $('moduleForm').reset(); 
-      $('moduleEditId').value = record?.id || ''; 
-      $('moduleType').value = currentModule; 
-
-      const isCal = currentModule === MODULES.CALIBRATION;
-      $('calibrationFields').classList.toggle('hidden', !isCal);
-      $('qualificationFields').classList.toggle('hidden', isCal);
-
-      if (isCal) {
-        $('calCertificateNo').value = record?.certificateNo || '';
-        $('calDept').value = record?.department || '';
-        $('calInstrument').value = record?.instrument || '';
-        $('calManuf').value = record?.manufacturer || '';
-        $('calModel').value = record?.model || '';
-        $('calSN').value = record?.serialNumber || '';
-        $('calCode').value = record?.code || '';
-        $('calLocation').value = record?.location || '';
-        $('calRange').value = record?.calRange || '';
-        $('calAcceptanceLimits').value = record?.acceptanceLimits || '';
-        $('calInterval').value = record?.interval || '';
-        $('calDate').value = record?.calDate || '';
-        $('calDueDate').value = record?.dueDate || '';
-        $('calMonthYear').value = record?.monthYear || '';
-      } else {
-        $('qualName').value = record?.name || '';
-        $('qualReference').value = record?.reference || '';
-        $('qualType').value = record?.qualificationType || 'equipment';
-        $('qualStage').value = record?.stage || 'IQ';
-        $('qualDate').value = record?.plannedDate || '';
-        $('qualDueDate').value = record?.dueDate || '';
-        $('qualDescription').value = record?.description || '';
-        
-        const qType = $('qualType').value;
-        $('utilitySubtypeGroup').classList.toggle('hidden', qType !== 'utilities');
-        $('equipmentGroup').classList.toggle('hidden', qType !== 'equipment');
-        $('systemGroup').classList.toggle('hidden', qType !== 'system');
-
-        if (qType === 'utilities') $('qualUtilityType').value = record?.utilitySubtype || 'HVAC';
-        if (qType === 'equipment') $('qualEquipmentInfo').value = record?.equipmentSystemInfo || '';
-        if (qType === 'system') $('qualSystemInfo').value = record?.equipmentSystemInfo || '';
-      }
-
-      $('moduleModalTitle').textContent = record ? `Edit ${currentModule} Record` : `Add ${currentModule} Record`; 
-      $('moduleModal').classList.add('active'); 
-    }
-
-    function setCategoryTabs() {
-      document.querySelectorAll('.study-tab').forEach(x => x.classList.remove('bg-white', 'text-primary', 'shadow-sm'));
-      const id = currentCategory === CATEGORIES.PROCESS ? 'tabProcess' : currentCategory === CATEGORIES.HOLD_TIME ? 'tabHoldTime' : 'tabCleaning';
-      if ($(id)) $(id).classList.add('bg-white', 'text-primary', 'shadow-sm');
-      
-      document.querySelectorAll('.main-nav-tab').forEach(x => x.classList.remove('bg-blue-700', 'font-bold'));
-      $('studiesNav').classList.add('bg-blue-700', 'font-bold');
-    }
-
-    function setActiveMainNavLink(navId) {
-      document.querySelectorAll('.main-nav-tab').forEach(x => x.classList.remove('bg-blue-700', 'font-bold'));
-      $(navId).classList.add('bg-blue-700', 'font-bold');
-    }
-
-    function showStudies() {
-      currentModule = MODULES.STUDIES;
-      $('studiesView').classList.remove('hidden');
-      $('moduleView').classList.add('hidden');
-      setCategoryTabs();
-      setActiveMainNavLink('studiesNav');
-      configureNavigation();
-      loadData();
-    }
-
-    async function showModule(modName) {
-      currentModule = modName;
-      $('studiesView').classList.add('hidden');
-      $('moduleView').classList.remove('hidden');
-      setActiveMainNavLink(modName === MODULES.CALIBRATION ? 'calibrationNav' : 'qualificationNav');
-      configureNavigation();
-      await loadModule(currentModule);
-    }
-
-    async function handleAzureSSO() {
-      try {
-        const loginResponse = await msalInstance.loginPopup({
-          scopes: ["User.Read", "openid", "profile", "email"]
-        });
-        const email = loginResponse.account.username.toLowerCase();
-        $('username').value = email;
-        $('loginError').classList.add('hidden');
-        showMessage('Azure AD Success', `Authenticated as ${loginResponse.account.name}. Signing you in...`, 'info');
-      } catch (error) {
-        console.error("SSO Error:", error);
-        $('loginError').textContent = 'Azure AD authentication failed.';
-        $('loginError').classList.remove('hidden');
-      }
-    }
-
-    // Event Listeners
-    $('loginForm').addEventListener('submit', async e => {
-      e.preventDefault();
-      try {
-        await signInWithEmailAndPassword(auth, $('username').value.trim(), $('password').value);
-        $('loginError').classList.add('hidden');
-      } catch (err) {
-        $('loginError').textContent = 'Invalid email or password.';
-        $('loginError').classList.remove('hidden');
-      }
-    });
-
-    $('azureSsoBtn').addEventListener('click', handleAzureSSO);
-    $('logoutBtn').addEventListener('click', () => signOut(auth));
-    $('recordForm').addEventListener('submit', saveStudy);
-    $('moduleForm').addEventListener('submit', addModuleRecord);
-    $('userForm').addEventListener('submit', createOrUpdateUser);
-
-    $('sendResetBtn').addEventListener('click', async () => {
-      const email = $('newEmail').value.trim();
-      if (!email) return showMessage('Email required', 'Enter email first.', 'error');
-      try {
-        await sendPasswordResetEmail(auth, email);
-        showMessage('Reset Sent', 'Password reset email sent.', 'success');
-      } catch (e) { showMessage('Reset failed', friendlyError(e), 'error'); }
-    });
-
-    $('addRecordBtn').addEventListener('click', () => openRecordModal());
-    $('addModuleBtn').addEventListener('click', () => openModuleModal());
-    $('userManagementBtn').addEventListener('click', loadUsers);
-    $('auditTrailBtn').addEventListener('click', loadAudit);
-    $('calibrationNav').addEventListener('click', () => showModule(MODULES.CALIBRATION));
-    $('qualificationNav').addEventListener('click', () => showModule(MODULES.QUALIFICATION));
-    $('studiesNav').addEventListener('click', () => showStudies());
-    
-    $('tabProcess').addEventListener('click', () => { currentCategory = CATEGORIES.PROCESS; setCategoryTabs(); renderStudies(); });
-    $('tabHoldTime').addEventListener('click', () => { currentCategory = CATEGORIES.HOLD_TIME; setCategoryTabs(); renderStudies(); });
-    $('tabCleaning').addEventListener('click', () => { currentCategory = CATEGORIES.CLEANING; setCategoryTabs(); renderStudies(); });
-
-    $('qualType').addEventListener('change', e => {
-      const val = e.target.value;
-      $('utilitySubtypeGroup').classList.toggle('hidden', val !== 'utilities');
-      $('equipmentGroup').classList.toggle('hidden', val !== 'equipment');
-      $('systemGroup').classList.toggle('hidden', val !== 'system');
-    });
-
-    $('excelImportInput').addEventListener('change', handleModuleExcelImport);
-
-    ['searchInput', 'filterStage', 'filterStatus', 'filterScale'].forEach(id => $(id).addEventListener('input', renderStudies));
-    $('clearFiltersBtn').addEventListener('click', () => {
-      $('searchInput').value = '';
-      ['filterStage', 'filterStatus', 'filterScale'].forEach(id => $(id).value = 'All');
-      renderStudies();
-    });
-
-    // Module Filters & Multi-select Listeners
-    ['modSearchInput', 'modFilter1', 'modFilter2', 'modFilterStatus'].forEach(id => {
-      if ($(id)) $(id).addEventListener('input', renderModuleTable);
-      if ($(id)) $(id).addEventListener('change', renderModuleTable);
-    });
-
-    if ($('modClearFiltersBtn')) {
-      $('modClearFiltersBtn').addEventListener('click', () => {
-        $('modSearchInput').value = '';
-        $('modFilter1').value = 'All';
-        $('modFilter2').value = 'All';
-        $('modFilterStatus').value = 'All';
-        renderModuleTable();
-      });
-    }
-
-    document.addEventListener('change', e => {
-      if (e.target && e.target.id === 'selectAllModule') {
-        const checked = e.target.checked;
-        const q = $('modSearchInput').value.trim().toLowerCase();
-        const f1 = $('modFilter1').value;
-        const f2 = $('modFilter2').value;
-        const st = $('modFilterStatus').value;
-
-        let displayRecords = moduleRecords;
-        if (isViewer()) {
-          displayRecords = displayRecords.filter(r => r.status === STATUS.APPROVED || r.status === STATUS.COMPLETED);
-        }
-
-        displayRecords = displayRecords.filter(r => {
-          const matchQ = !q || (currentModule === MODULES.CALIBRATION ? 
-            `${r.certificateNo||''} ${r.instrument||''} ${r.code||''} ${r.serialNumber||''}`.toLowerCase().includes(q) : 
-            `${r.name||''} ${r.reference||''} ${r.equipmentSystemInfo||''}`.toLowerCase().includes(q));
-          let matchF1 = true; let matchF2 = true;
-          if (currentModule === MODULES.CALIBRATION) {
-            if (f1 !== 'All' && r.department !== f1) matchF1 = false;
-            if (f2 !== 'All' && r.location !== f2) matchF2 = false;
-          } else {
-            if (f1 !== 'All' && r.qualificationType !== f1) matchF1 = false;
-            if (f2 !== 'All' && r.stage !== f2) matchF2 = false;
-          }
-          const matchStatus = st === 'All' || r.status === st;
-          return matchQ && matchF1 && matchF2 && matchStatus;
-        });
-
-        if (checked) {
-          displayRecords.forEach(r => selectedModuleIds.add(r.id));
-        } else {
-          displayRecords.forEach(r => selectedModuleIds.delete(r.id));
-        }
-        renderModuleTable();
-      }
-
-      if (e.target && e.target.dataset.selectId) {
-        const id = e.target.dataset.selectId;
-        if (e.target.checked) {
-          selectedModuleIds.add(id);
-        } else {
-          selectedModuleIds.delete(id);
-        }
-        updateModuleBulkBar();
-      }
-    });
-
-    if ($('bulkModuleSubmitBtn')) $('bulkModuleSubmitBtn').addEventListener('click', bulkSubmitModuleRecords);
-    if ($('bulkModuleDeleteBtn')) $('bulkModuleDeleteBtn').addEventListener('click', bulkDeleteModuleRecords);
-
-    $('acceptConfirmBtn').addEventListener('click', async () => {
-      const cb = pendingAction;
-      const reason = $('reasonInput').value.trim();
-      if (!$('reasonWrap').classList.contains('hidden') && !reason) return showMessage('Comment required', 'A reason is mandatory.', 'error');
-      $('confirmModal').classList.remove('active');
-      pendingAction = null;
-      if (cb) await cb(reason);
-    });
-
-    document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', closeModals));
-
-    document.addEventListener('click', async e => {
-      const t = e.target.closest('button'); if (!t) return;
-      if (t.dataset.edit) { const r = records.find(x => x.id === t.dataset.edit); if (r) openRecordModal(r); }
-      if (t.dataset.submit) await submitStudy(t.dataset.submit);
-      if (t.dataset.deleteStudy) await deleteStudy(t.dataset.deleteStudy);
-      if (t.dataset.review) {
-        const r = records.find(x => x.id === t.dataset.review);
-        if (r) confirmAction('Complete Review', `Complete review for ${r.productName}?`, async comment => {
-          try { await updateWorkflow(r.id, nextStatusForReview(r), comment); showMessage('Success', 'Advanced to next stage.', 'success'); }
-          catch (e) { showMessage('Failed', friendlyError(e), 'error'); }
-        });
-      }
-      if (t.dataset.approve) {
-        const r = records.find(x => x.id === t.dataset.approve);
-        if (r) confirmAction('Approve Study', `Approve ${r.productName}?`, async () => {
-          try { await updateWorkflow(r.id, STATUS.APPROVED, 'QA Approval'); showMessage('Approved', 'Study approved.', 'success'); }
-          catch (e) { showMessage('Failed', friendlyError(e), 'error'); }
-        });
-      }
-      if (t.dataset.reject) {
-        const r = records.find(x => x.id === t.dataset.reject);
-        if (r) confirmAction('Reject Study', `Reject ${r.productName}?`, async reason => {
-          try { await updateWorkflow(r.id, STATUS.REJECTED, reason); showMessage('Rejected', 'Study rejected.', 'success'); }
-          catch (e) { showMessage('Failed', friendlyError(e), 'error'); }
-        }, true, 'Rejection reason *');
-      }
-      if (t.dataset.return) await returnStudy(t.dataset.return);
-      if (t.dataset.files) await openFiles(t.dataset.files, 'study');
-      if (t.dataset.history) await showHistory(t.dataset.history);
-      if (t.dataset.viewFile) { const f = filesByParent.find(x => x.id === t.dataset.viewFile); if (f) await viewFile(f, false); }
-      if (t.dataset.downloadFile) { const f = filesByParent.find(x => x.id === t.dataset.downloadFile); if (f) await viewFile(f, true); }
-      if (t.dataset.deleteFile) { const f = filesByParent.find(x => x.id === t.dataset.deleteFile); if (f) await deleteFile(f); }
-      if (t.dataset.editUser) await editUser(t.dataset.editUser);
-      if (t.dataset.toggleUser) await toggleUser(t.dataset.toggleUser);
-      if (t.dataset.moduleFiles) await openFiles(t.dataset.moduleFiles, currentModule);
-      if (t.dataset.moduleReview) await moduleReview(t.dataset.moduleReview);
-      if (t.dataset.moduleEdit) { const r = moduleRecords.find(x => x.id === t.dataset.moduleEdit); if (r) openModuleModal(r); }
-      if (t.dataset.moduleSubmit) await moduleSubmit(t.dataset.moduleSubmit);
-      if (t.dataset.moduleDelete) await deleteModuleRecord(t.dataset.moduleDelete);
-    });
-
-    $('fileInput').addEventListener('change', e => {
-      const id = $('fileParentId').value, mod = $('fileModule').value;
-      uploadFiles(id, e.target, mod);
-      e.target.value = '';
-    });
-
-    onAuthStateChanged(auth, async user => {
-      if (!user) { currentUser = null; currentProfile = null; resetAppUI(); return; }
-      try {
-        currentUser = user;
-        currentProfile = await loadProfile(user);
-        $('loginSection').classList.add('hidden');
-        $('dashboardSection').classList.remove('hidden');$('dashboardSection').classList.add('flex');
-        $('userInfo').classList.remove('hidden');$('userInfo').classList.add('flex');
-        configureNavigation();
-        await logAudit('Login', '', '', 'Session established.');
-        showStudies();
+        const q = query(colRef('calibration'), orderBy('createdAt', 'desc'));
+        const snap = await getDocs(q);
+        calibrationRecords = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        renderCalibrationTable();
       } catch (e) {
         console.error(e);
-        await signOut(auth);
-        $('loginError').textContent = e.message;
-        $('loginError').classList.remove('hidden');
+      }
+    }
+
+    function renderCalibrationTable() {
+      const tbody = $('calibrationTableBody');
+      if (!tbody) return;
+
+      if (calibrationRecords.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-gray-500">No calibration records found. Click 'Import Calibration Excel/Macro' to upload data.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = calibrationRecords.map(r => `
+        <tr class="hover:bg-gray-50 border-b">
+          <td class="px-4 py-3"><input type="checkbox" data-id="${r.id}"></td>
+          <td class="px-4 py-3 font-medium text-gray-900">${esc(r.certNo)} / ${esc(r.instrument)}</td>
+          <td class="px-4 py-3">${esc(r.department || '—')}</td>
+          <td class="px-4 py-3">${esc(r.location || '—')}</td>
+          <td class="px-4 py-3">${esc(r.calibrationDate || '—')}</td>
+          <td class="px-4 py-3">${esc(r.status || 'Active')}</td>
+          <td class="px-4 py-3 text-right">
+            <button class="text-blue-600 hover:text-blue-800"><i class="fas fa-eye"></i></button>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        $('loginSection').classList.add('hidden');$('dashboardSection').classList.remove('hidden');
+        await loadCalibration();
+      } else {
+        $('loginSection').classList.remove('hidden');$('dashboardSection').classList.add('hidden');
       }
     });
+
+    $('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      await signInWithEmailAndPassword(auth, $('loginEmail').value, $('loginPassword').value);
+    });
   </script>
-  <script>
-    tailwind.config = { theme: { extend: { colors: { primary: '#1e40af', secondary: '#3b82f6', accent: '#10b981', dark: '#1f2937', light: '#f3f4f6' } } } };
-  </script>
-  <style>
-    body { font-family: Inter, Arial, sans-serif; background: #f3f4f6; }
-    .modal { display: none; }
-    .modal.active { display: flex; }
-    .study-tab { transition: .2s; }
-    .scrollbar::-webkit-scrollbar { width: 8px; height: 8px; }
-    .scrollbar::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 4px; }
-  </style>
 </head>
-<body class="text-gray-800 h-screen flex flex-col overflow-hidden">
-  <nav class="bg-primary text-white shadow-lg p-4 flex-shrink-0">
-    <div class="container mx-auto flex justify-between items-center gap-4">
-      <div class="flex items-center gap-3">
-        <i class="fas fa-flask text-2xl"></i>
-        <h1 class="text-2xl font-bold tracking-wider">ValidApp</h1>
-        <span class="hidden md:inline text-blue-100 text-sm">Validation & Qualification Nerhadou</span>
-      </div>
-      <div id="userInfo" class="hidden items-center gap-3">
-        <span class="bg-blue-800 px-3 py-1 rounded-full text-sm font-semibold">
-          <i class="fas fa-user-circle mr-1"></i>
-          <span id="currentUserDisplay"></span> · <span id="currentUserRole"></span> · <span id="currentUserDepartment"></span>
-        </span>
-        <button id="studiesNav" class="main-nav-tab hover:bg-blue-700 px-2 py-1 rounded">Studies</button>
-        <button id="calibrationNav" class="main-nav-tab hover:bg-blue-700 px-2 py-1 rounded">Calibration</button>
-        <button id="qualificationNav" class="main-nav-tab hover:bg-blue-700 px-2 py-1 rounded">Qualification</button>
-        <button id="userManagementBtn" class="hidden hover:bg-blue-700 px-2 py-1 rounded"><i class="fas fa-users-cog mr-1"></i>Users</button>
-        <button id="auditTrailBtn" class="hidden hover:bg-blue-700 px-2 py-1 rounded"><i class="fas fa-history mr-1"></i>Audit</button>
-        <button id="logoutBtn" class="bg-red-500 hover:bg-red-600 px-3 py-1 rounded font-semibold"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
-      </div>
-    </div>
-  </nav>
+<body class="bg-gray-100 h-screen flex flex-col overflow-hidden">
+  
+  <!-- Hidden File Input for Excel Upload -->
+  <input type="file" id="excelFileInput" class="hidden" accept=".xlsx, .xls" onchange="window.handleCalibrationExcelImport(event)">
 
-  <main class="flex-grow container mx-auto p-4 overflow-hidden flex flex-col">
-    <section id="loginSection" class="max-w-md mx-auto mt-16 bg-white p-8 rounded-xl shadow-2xl w-full">
-      <div class="text-center mb-6">
-        <div class="inline-block bg-blue-100 p-4 rounded-full mb-4"><i class="fas fa-shield-alt text-4xl text-primary"></i></div>
-        <h2 class="text-2xl font-bold">System Login</h2>
-        <p class="text-gray-500 text-sm mt-1">Single Sign-On & Controlled Access</p>
-      </div>
-
-      <button id="azureSsoBtn" type="button" class="w-full mb-6 bg-slate-800 hover:bg-slate-900 text-white font-semibold py-3 px-4 rounded-lg flex items-center justify-center gap-3 shadow-md transition-all">
-        <svg class="w-5 h-5" viewBox="0 0 23 23">
-          <path fill="#f35325" d="M1 1h10v10H1z"/>
-          <path fill="#81bc06" d="M12 1h10v10H12z"/>
-          <path fill="#05a6f0" d="M1 12h10v10H1z"/>
-          <path fill="#ffba08" d="M12 12h10v10H12z"/>
-        </svg>
-        Sign in with Microsoft 365
-      </button>
-
-      <div class="relative flex py-2 items-center mb-6">
-        <div class="flex-grow border-t border-gray-300"></div>
-        <span class="flex-shrink mx-4 text-xs text-gray-400 font-semibold uppercase">Or local account</span>
-        <div class="flex-grow border-t border-gray-300"></div>
-      </div>
-
-      <form id="loginForm" class="space-y-5">
-        <div><label class="block text-sm font-medium mb-1">Email</label><input type="email" id="username" class="w-full p-3 border rounded-lg" required autocomplete="username"></div>
-        <div><label class="block text-sm font-medium mb-1">Password</label><input type="password" id="password" class="w-full p-3 border rounded-lg" required autocomplete="current-password"></div>
-        <div id="loginError" class="text-red-600 text-sm hidden font-medium text-center bg-red-50 p-3 rounded"></div>
-        <button class="w-full bg-primary hover:bg-blue-800 text-white font-bold py-3 rounded-lg">Sign In</button>
+  <!-- Login Section -->
+  <div id="loginSection" class="flex items-center justify-center h-full bg-slate-900">
+    <div class="bg-white p-8 rounded-lg shadow-xl w-96">
+      <h2 class="text-2xl font-bold mb-6 text-center text-slate-800">ValidApp Login</h2>
+      <form id="loginForm" class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-gray-700">Email</label>
+          <input type="email" id="loginEmail" required class="w-full mt-1 px-3 py-2 border rounded-md">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700">Password</label>
+          <input type="password" id="loginPassword" required class="w-full mt-1 px-3 py-2 border rounded-md">
+        </div>
+        <button type="submit" class="w-full py-2 bg-blue-600 text-white rounded-md font-semibold">Sign In</button>
       </form>
-    </section>
+    </div>
+  </div>
 
-    <section id="dashboardSection" class="hidden flex-col h-full overflow-hidden flex-grow">
-      <div id="studiesView" class="flex flex-col h-full overflow-hidden">
-        <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4">
-          <div class="flex bg-gray-200 p-1 rounded-lg overflow-x-auto">
-            <button id="tabProcess" class="study-tab bg-white text-primary shadow-sm px-4 py-2 rounded-md font-semibold">Process Validation</button>
-            <button id="tabHoldTime" class="study-tab text-gray-600 px-4 py-2 rounded-md font-semibold">Hold Time Studies</button>
-            <button id="tabCleaning" class="study-tab text-gray-600 px-4 py-2 rounded-md font-semibold">Cleaning Validation</button>
-          </div>
-          <button id="addRecordBtn" class="hidden bg-accent hover:bg-green-600 text-white px-5 py-2 rounded-lg font-semibold"><i class="fas fa-plus mr-2"></i>Add Study</button>
-        </div>
-        <div class="bg-white p-4 rounded-t-xl shadow-sm border flex flex-wrap gap-4 items-end">
-          <div class="flex-grow min-w-[200px]"><label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Search Product / API</label><input id="searchInput" class="w-full p-2 border rounded-md" placeholder="Search by name..."></div>
-          <div><label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Stage</label><select id="filterStage" class="p-2 border rounded-md"><option>All</option><option>Raw</option><option>Bulk</option><option>Finished Product</option><option>Cleaning Validation</option><option>CHT</option><option>DHT</option><option>Campaign Length</option></select></div>
-          <div><label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Status</label><select id="filterStatus" class="p-2 border rounded-md"><option>All</option><option>Draft</option><option>Pending Section Head</option><option>Pending Reviewer</option><option>Pending Deputy QA</option><option>Pending QA Manager</option><option>Returned for Revision</option><option>Approved</option><option>Rejected</option></select></div>
-          <div><label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Scale</label><select id="filterScale" class="p-2 border rounded-md"><option>All</option><option>Lab Scale</option><option>Pilot Scale</option><option>Commercial Scale</option></select></div>
-          <button id="clearFiltersBtn" class="px-4 py-2 text-gray-500 hover:bg-gray-100 rounded">Clear Filters</button>
-        </div>
-        <div class="bg-white rounded-b-xl shadow-md border flex-grow overflow-hidden">
-          <div class="overflow-auto scrollbar h-full">
-            <table class="min-w-full divide-y divide-gray-200">
-              <thead class="bg-gray-50 sticky top-0 z-10">
-                <tr>
-                  <th class="px-4 py-3 text-left text-xs">Product / API</th>
-                  <th class="px-4 py-3 text-left text-xs">Category</th>
-                  <th class="px-4 py-3 text-left text-xs">Date & Stage</th>
-                  <th class="px-4 py-3 text-left text-xs">Scale & Version</th>
-                  <th class="px-4 py-3 text-left text-xs">Reason / Notes</th>
-                  <th class="px-4 py-3 text-left text-xs">Status</th>
-                  <th class="px-4 py-3 text-center text-xs">Actions</th>
-                </tr>
-              </thead>
-              <tbody id="dataTableBody" class="divide-y text-sm"></tbody>
-            </table>
-          </div>
-          <div id="emptyState" class="hidden p-10 text-center text-gray-500">No records match your criteria.</div>
-        </div>
+  <!-- Dashboard Section -->
+  <div id="dashboardSection" class="hidden flex flex-col h-full overflow-hidden">
+    <header class="bg-slate-900 text-white px-6 py-4 flex justify-between items-center shadow-sm">
+      <h1 class="text-xl font-bold">ValidApp - Calibration Module</h1>
+      <button onclick="window.location.reload()" class="px-3 py-1.5 bg-red-600 text-white rounded text-sm">Logout</button>
+    </header>
+
+    <main class="flex-grow flex flex-col p-6 bg-slate-100 overflow-hidden">
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="text-lg font-bold text-slate-800">Calibration Records</h2>
+        <button onclick="window.triggerExcelImport()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md text-sm font-semibold flex items-center space-x-2">
+          <i class="fas fa-file-excel"></i><span>Import Calibration Excel/Macro</span>
+        </button>
       </div>
 
-      <div id="moduleView" class="hidden flex-col h-full overflow-hidden">
-        <div class="flex justify-between items-center mb-4 flex-wrap gap-3">
-          <div>
-            <h2 id="moduleTitle" class="text-2xl font-bold">Module</h2>
-            <p id="moduleDescription" class="text-gray-500 text-sm">Calibration records</p>
-          </div>
-          <div class="flex items-center gap-3">
-            <div id="excelImportContainer">
-              <label class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg cursor-pointer text-sm font-semibold inline-flex items-center gap-2">
-                <i class="fas fa-file-excel"></i> <span id="excelImportBtnText">Import Excel / Macro Data</span>
-                <input id="excelImportInput" type="file" class="hidden" accept=".xlsx, .xls, .xlsm">
-              </label>
-            </div>
-            <button id="addModuleBtn" class="bg-accent hover:bg-green-600 text-white px-5 py-2 rounded-lg font-semibold text-sm"><i class="fas fa-plus mr-2"></i>Add Record</button>
-          </div>
-        </div>
-
-        <!-- Module Filter Bar -->
-        <div class="bg-white p-4 rounded-t-xl shadow-sm border flex flex-wrap gap-4 items-end">
-          <div class="flex-grow min-w-[200px]">
-            <label id="modSearchLabel" class="block text-xs font-semibold text-gray-500 uppercase mb-1">Search</label>
-            <input id="modSearchInput" class="w-full p-2 border rounded-md text-sm" placeholder="Search records...">
-          </div>
-          <div id="modFilterGroup1">
-            <label id="modFilterLabel1" class="block text-xs font-semibold text-gray-500 uppercase mb-1">Department / Type</label>
-            <select id="modFilter1" class="p-2 border rounded-md text-sm"><option value="All">All</option></select>
-          </div>
-          <div id="modFilterGroup2">
-            <label id="modFilterLabel2" class="block text-xs font-semibold text-gray-500 uppercase mb-1">Location / Stage</label>
-            <select id="modFilter2" class="p-2 border rounded-md text-sm"><option value="All">All</option></select>
-          </div>
-          <div>
-            <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Status</label>
-            <select id="modFilterStatus" class="p-2 border rounded-md text-sm">
-              <option value="All">All</option>
-              <option value="Draft">Draft</option>
-              <option value="Pending Section Head">Pending Section Head</option>
-              <option value="Pending QA Manager">Pending QA Manager</option>
-              <option value="Completed">Completed</option>
-              <option value="Approved">Approved</option>
-              <option value="Rejected">Rejected</option>
-            </select>
-          </div>
-          <button id="modClearFiltersBtn" class="px-4 py-2 text-gray-500 hover:bg-gray-100 rounded text-sm">Clear Filters</button>
-        </div>
-
-        <!-- Module Bulk Actions Bar -->
-        <div id="moduleBulkBar" class="hidden bg-blue-50 border-x border-b border-blue-200 px-4 py-2 flex items-center justify-between">
-          <div class="text-sm font-semibold text-blue-900"><span id="moduleSelectedCount">0</span> records selected</div>
-          <div class="flex gap-2">
-            <button id="bulkModuleSubmitBtn" class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded text-xs font-semibold"><i class="fas fa-paper-plane mr-1"></i>Bulk Submit</button>
-            <button id="bulkModuleDeleteBtn" class="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-xs font-semibold"><i class="fas fa-trash-alt mr-1"></i>Bulk Delete</button>
-          </div>
-        </div>
-
-        <div class="bg-white rounded-b-xl shadow border flex-grow overflow-auto">
-          <table class="min-w-full divide-y">
-            <thead id="moduleTableHead" class="bg-gray-50 sticky top-0 z-10"></thead>
-            <tbody id="moduleTableBody" class="divide-y text-sm"></tbody>
+      <div class="bg-white rounded-lg shadow flex flex-col flex-grow overflow-hidden">
+        <div class="flex-grow overflow-auto">
+          <table class="w-full text-left border-collapse">
+            <thead class="bg-gray-100 sticky top-0 text-xs uppercase text-gray-600 font-semibold">
+              <tr>
+                <th class="px-4 py-3"><input type="checkbox"></th>
+                <th class="px-4 py-3">Cert. No & Instrument</th>
+                <th class="px-4 py-3">Department</th>
+                <th class="px-4 py-3">Location</th>
+                <th class="px-4 py-3">Cal. Date</th>
+                <th class="px-4 py-3">Status</th>
+                <th class="px-4 py-3 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="calibrationTableBody" class="text-sm divide-y divide-gray-200"></tbody>
           </table>
-          <div id="moduleEmptyState" class="hidden p-10 text-center text-gray-500">No records match your criteria.</div>
         </div>
       </div>
-    </section>
-  </main>
-
-  <footer class="bg-white border-t py-3 px-6 text-center text-xs text-gray-500 flex-shrink-0">
-    powered by Validation Team Nerhadou
-  </footer>
-
-  <!-- Record Modal -->
-  <div id="recordModal" class="modal fixed inset-0 bg-gray-900/60 z-50 items-center justify-center p-4">
-    <div class="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[95vh] overflow-y-auto">
-      <div class="bg-primary text-white p-4 flex justify-between"><h3 id="modalTitle" class="text-xl font-bold">Add Validation Study</h3><button data-close><i class="fas fa-times"></i></button></div>
-      <form id="recordForm" class="p-6 space-y-4">
-        <input type="hidden" id="recordId"><input type="hidden" id="studyStatus">
-        <div class="grid md:grid-cols-2 gap-4">
-          <div class="md:col-span-2"><label class="block text-sm font-medium">Product / API Name *</label><input id="productName" class="w-full p-2 border rounded" required></div>
-          <div><label class="block text-sm font-medium">Study Category *</label><select id="studyCategory" class="w-full p-2 border rounded"><option>Process Validation</option><option>Hold Time Study</option><option>Cleaning Validation</option></select></div>
-          <div><label class="block text-sm font-medium">Product Type *</label><select id="productType" class="w-full p-2 border rounded"><option>Finished Product</option><option>Bulk Product</option><option>API</option></select></div>
-          <div><label class="block text-sm font-medium">Study Date *</label><input type="date" id="studyDate" class="w-full p-2 border rounded" required></div>
-          <div><label class="block text-sm font-medium">Stage *</label><select id="stage" class="w-full p-2 border rounded"><option>Raw</option><option>Bulk</option><option>Finished Product</option><option>Cleaning Validation</option><option>CHT</option><option>DHT</option><option>Campaign Length</option></select></div>
-          <div><label class="block text-sm font-medium">Version *</label><input id="version" class="w-full p-2 border rounded" required></div>
-          <div><label class="block text-sm font-medium">Scale *</label><select id="scale" class="w-full p-2 border rounded"><option>Lab Scale</option><option>Pilot Scale</option><option>Commercial Scale</option></select></div>
-          <div><label class="block text-sm font-medium">Reviewer Department</label><input id="reviewerDepartment" class="w-full p-2 border rounded"></div>
-          <div class="flex items-center gap-2 mt-6"><input type="checkbox" id="requireOtherDeptReview"><label for="requireOtherDeptReview" class="text-sm">Require Other Department Reviewer</label></div>
-        </div>
-        <div><label class="block text-sm font-medium">Reason for Validation / Study *</label><textarea id="reason" rows="3" class="w-full p-2 border rounded" required></textarea></div>
-        <div><label class="block text-sm font-medium">Additional Notes</label><textarea id="notes" rows="3" class="w-full p-2 border rounded"></textarea></div>
-        <div class="flex justify-end gap-3"><button type="button" data-close class="px-4 py-2 bg-gray-200 rounded">Cancel</button><button class="px-4 py-2 bg-primary text-white rounded">Save Study</button></div>
-      </form>
-    </div>
-  </div>
-
-  <!-- File Modal -->
-  <div id="fileModal" class="modal fixed inset-0 bg-gray-900/60 z-50 items-center justify-center p-4">
-    <div class="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
-      <div class="bg-dark text-white p-4 flex justify-between"><h3 class="text-xl font-bold"><i class="fas fa-folder-open mr-2"></i>Controlled Documents & PDF Attachments</h3><button data-close><i class="fas fa-times"></i></button></div>
-      <div class="p-5 overflow-auto">
-        <div id="uploadFileContainer" class="flex flex-wrap items-center gap-3 mb-4">
-          <label class="bg-primary text-white px-4 py-2 rounded cursor-pointer"><i class="fas fa-upload mr-2"></i>Add Files / Import PDF<input id="fileInput" type="file" class="hidden" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.xlsm,.jpg,.jpeg,.png"></label>
-          <span id="uploadProgress" class="text-xs font-semibold text-blue-700"></span>
-        </div>
-        <input type="hidden" id="fileParentId"><input type="hidden" id="fileModule">
-        <div id="fileList" class="space-y-3"></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- History Modal -->
-  <div id="historyModal" class="modal fixed inset-0 bg-gray-900/60 z-50 items-center justify-center p-4">
-    <div class="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col">
-      <div class="bg-dark text-white p-4 flex justify-between"><h3 class="text-xl font-bold">Review History</h3><button data-close><i class="fas fa-times"></i></button></div>
-      <div id="historyBody" class="p-6 overflow-auto space-y-4"></div>
-    </div>
-  </div>
-
-  <!-- User Modal -->
-  <div id="userModal" class="modal fixed inset-0 bg-gray-900/60 z-50 items-center justify-center p-4">
-    <div class="bg-white rounded-xl shadow-2xl w-full max-w-5xl max-h-[92vh] flex flex-col">
-      <div class="bg-dark text-white p-4 flex justify-between"><h3 class="text-xl font-bold">User Management</h3><button data-close><i class="fas fa-times"></i></button></div>
-      <div class="p-4 bg-gray-50 border-b">
-        <form id="userForm" class="grid md:grid-cols-6 gap-3 items-end">
-          <input type="hidden" id="editUserId">
-          <div><label class="text-xs">Email *</label><input id="newEmail" type="email" class="w-full p-2 border rounded" required></div>
-          <div><label class="text-xs">Display Name *</label><input id="newDisplayName" class="w-full p-2 border rounded" required></div>
-          <div><label class="text-xs">Role *</label><select id="newRole" class="w-full p-2 border rounded"></select></div>
-          <div><label class="text-xs">Department</label><input id="newDepartment" class="w-full p-2 border rounded"></div>
-          <div><label class="text-xs">Password</label><input id="newPassword" type="password" minlength="8" class="w-full p-2 border rounded"></div>
-          <div class="flex gap-2"><button class="bg-accent text-white px-3 py-2 rounded text-sm">Save</button><button type="button" id="sendResetBtn" class="bg-gray-700 text-white px-3 py-2 rounded text-sm">Reset</button></div>
-          <div class="md:col-span-6 flex gap-2 items-center"><input type="checkbox" id="newDisabled"><label class="text-sm">Disable Profile</label></div>
-        </form>
-      </div>
-      <div class="overflow-auto"><table class="min-w-full divide-y"><thead class="bg-gray-100"><tr><th class="px-3 py-2 text-left text-xs">Email / Name</th><th class="px-3 py-2 text-left text-xs">Role</th><th class="px-3 py-2 text-left text-xs">Department</th><th class="px-3 py-2 text-left text-xs">Status</th><th class="px-3 py-2 text-center text-xs">Actions</th></tr></thead><tbody id="userTableBody" class="divide-y"></tbody></table></div>
-    </div>
-  </div>
-
-  <!-- Audit Modal -->
-  <div id="auditModal" class="modal fixed inset-0 bg-gray-900/60 z-50 items-center justify-center p-4">
-    <div class="bg-white rounded-xl shadow-2xl w-full max-w-6xl h-[85vh] flex flex-col">
-      <div class="bg-dark text-white p-4 flex justify-between"><h3 class="text-xl font-bold">Audit Trail</h3><button data-close><i class="fas fa-times"></i></button></div>
-      <div class="overflow-auto flex-grow"><table class="min-w-full divide-y"><thead class="bg-gray-100 sticky top-0"><tr><th class="px-3 py-2 text-left text-xs">Timestamp</th><th class="px-3 py-2 text-left text-xs">User / Role</th><th class="px-3 py-2 text-left text-xs">Action</th><th class="px-3 py-2 text-left text-xs">Study</th><th class="px-3 py-2 text-left text-xs">Details / Status</th></tr></thead><tbody id="auditTableBody" class="divide-y"></tbody></table></div>
-    </div>
-  </div>
-
-  <!-- Module Record Modal -->
-  <div id="moduleModal" class="modal fixed inset-0 bg-gray-900/60 z-50 items-center justify-center p-4">
-    <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto flex flex-col">
-      <div class="bg-primary text-white p-4 flex justify-between flex-shrink-0"><h3 id="moduleModalTitle" class="text-xl font-bold">Create Record</h3><button data-close><i class="fas fa-times"></i></button></div>
-      <form id="moduleForm" class="p-6 space-y-4 flex-grow">
-        <input type="hidden" id="moduleEditId">
-        <input type="hidden" id="moduleType">
-
-        <!-- Calibration Fields Group -->
-        <div id="calibrationFields" class="space-y-4">
-          <div class="grid md:grid-cols-2 gap-3">
-            <div><label class="block text-xs font-semibold mb-1">Certificate No. *</label><input id="calCertificateNo" class="w-full p-2 border rounded text-sm" placeholder="e.g. CERT-2026-001"></div>
-            <div><label class="block text-xs font-semibold mb-1">Dept. *</label><input id="calDept" class="w-full p-2 border rounded text-sm" placeholder="e.g. QC / Production"></div>
-            <div><label class="block text-xs font-semibold mb-1">Instrument *</label><input id="calInstrument" class="w-full p-2 border rounded text-sm" placeholder="Instrument Name"></div>
-            <div><label class="block text-xs font-semibold mb-1">Manuf. (Manufacturer)</label><input id="calManuf" class="w-full p-2 border rounded text-sm" placeholder="Manufacturer"></div>
-            <div><label class="block text-xs font-semibold mb-1">Model</label><input id="calModel" class="w-full p-2 border rounded text-sm" placeholder="Model"></div>
-            <div><label class="block text-xs font-semibold mb-1">S.N (Serial Number)</label><input id="calSN" class="w-full p-2 border rounded text-sm" placeholder="Serial Number"></div>
-            <div><label class="block text-xs font-semibold mb-1">Code *</label><input id="calCode" class="w-full p-2 border rounded text-sm" placeholder="Instrument Code"></div>
-            <div><label class="block text-xs font-semibold mb-1">Location</label><input id="calLocation" class="w-full p-2 border rounded text-sm" placeholder="Location"></div>
-            <div><label class="block text-xs font-semibold mb-1">Cal. range</label><input id="calRange" class="w-full p-2 border rounded text-sm" placeholder="e.g. 0-100 bar"></div>
-            <div><label class="block text-xs font-semibold mb-1">Acceptance Limits</label><input id="calAcceptanceLimits" class="w-full p-2 border rounded text-sm" placeholder="e.g. ±1% F.S."></div>
-            <div><label class="block text-xs font-semibold mb-1">Interval</label><input id="calInterval" class="w-full p-2 border rounded text-sm" placeholder="e.g. 1 Year"></div>
-            <div><label class="block text-xs font-semibold mb-1">Cal. Date</label><input type="date" id="calDate" class="w-full p-2 border rounded text-sm"></div>
-            <div><label class="block text-xs font-semibold mb-1">Due Date</label><input type="date" id="calDueDate" class="w-full p-2 border rounded text-sm"></div>
-            <div><label class="block text-xs font-semibold mb-1">Month-Year</label><input id="calMonthYear" class="w-full p-2 border rounded text-sm" placeholder="e.g. Jun-2026"></div>
-          </div>
-        </div>
-
-        <!-- Qualification Fields Group -->
-        <div id="qualificationFields" class="space-y-4 hidden">
-          <div class="grid md:grid-cols-2 gap-3">
-            <div><label class="block text-xs font-semibold mb-1">Record Name *</label><input id="qualName" class="w-full p-2 border rounded text-sm" placeholder="Name"></div>
-            <div><label class="block text-xs font-semibold mb-1">Reference ID *</label><input id="qualReference" class="w-full p-2 border rounded text-sm" placeholder="Protocol / Ref ID"></div>
-            
-            <div>
-              <label class="block text-xs font-semibold mb-1">Type of Qualification *</label>
-              <select id="qualType" class="w-full p-2 border rounded text-sm">
-                <option value="equipment">Equipment</option>
-                <option value="utilities">Utilities</option>
-                <option value="system">System</option>
-              </select>
-            </div>
-
-            <div>
-              <label class="block text-xs font-semibold mb-1">Stage of Qualification *</label>
-              <select id="qualStage" class="w-full p-2 border rounded text-sm">
-                <option value="DQ">DQ (Design Qualification)</option>
-                <option value="IQ">IQ (Installation Qualification)</option>
-                <option value="OQ">OQ (Operational Qualification)</option>
-                <option value="PQ">PQ (Performance Qualification)</option>
-                <option value="periodic PQ">Periodic PQ</option>
-              </select>
-            </div>
-
-            <div id="utilitySubtypeGroup" class="hidden md:col-span-2">
-              <label class="block text-xs font-semibold mb-1">Utility Classification *</label>
-              <select id="qualUtilityType" class="w-full p-2 border rounded text-sm">
-                <option value="HVAC">HVAC</option>
-                <option value="Compressed Air">Compressed Air</option>
-                <option value="Water station">Water station</option>
-                <option value="premises">Premises</option>
-              </select>
-            </div>
-
-            <div id="equipmentGroup" class="md:col-span-2">
-              <label class="block text-xs font-semibold mb-1">Equipment Information & Code *</label><input id="qualEquipmentInfo" class="w-full p-2 border rounded text-sm" placeholder="Equipment Code, Make, Model">
-            </div>
-
-            <div id="systemGroup" class="hidden md:col-span-2">
-              <label class="block text-xs font-semibold mb-1">System Information *</label><input id="qualSystemInfo" class="w-full p-2 border rounded text-sm" placeholder="Computerized / Process System details">
-            </div>
-
-            <div><label class="block text-xs font-semibold mb-1">Qualification Date</label><input type="date" id="qualDate" class="w-full p-2 border rounded text-sm"></div>
-            <div><label class="block text-xs font-semibold mb-1">Due Date</label><input type="date" id="qualDueDate" class="w-full p-2 border rounded text-sm"></div>
-          </div>
-          <div><label class="block text-xs font-semibold mb-1">Description / Scope</label><textarea id="qualDescription" rows="3" class="w-full p-2 border rounded text-sm" placeholder="Scope of qualification..."></textarea></div>
-        </div>
-
-        <div class="flex justify-end gap-3 pt-3 border-t"><button type="button" data-close class="px-4 py-2 bg-gray-200 rounded text-sm">Cancel</button><button class="px-4 py-2 bg-primary text-white rounded text-sm">Save Record</button></div>
-      </form>
-    </div>
-  </div>
-
-  <!-- Confirm Modal -->
-  <div id="confirmModal" class="modal fixed inset-0 bg-gray-900/60 z-[60] items-center justify-center p-4">
-    <div class="bg-white rounded-lg shadow-xl w-full max-w-md">
-      <div class="p-6"><h3 id="confirmTitle" class="text-xl font-bold">Confirm Action</h3><p id="confirmText" class="text-gray-600 py-4"></p><div id="reasonWrap" class="hidden"><label id="reasonLabel" class="block text-sm font-medium mb-1">Reason *</label><textarea id="reasonInput" rows="4" class="w-full p-2 border rounded"></textarea></div></div>
-      <div class="bg-gray-50 px-6 py-3 flex justify-end gap-3"><button data-close class="px-4 py-2 bg-gray-200 rounded">Cancel</button><button id="acceptConfirmBtn" class="px-4 py-2 bg-primary text-white rounded">Yes, Proceed</button></div>
-    </div>
+    </main>
   </div>
 
   <!-- Message Modal -->
-  <div id="messageModal" class="modal fixed inset-0 bg-gray-900/60 z-[70] items-center justify-center p-4">
-    <div class="bg-white rounded-lg shadow-xl w-full max-w-sm text-center">
-      <div id="messageIcon" class="pt-6"></div>
-      <h3 id="messageTitle" class="text-xl font-bold px-6 pt-2">Information</h3>
-      <p id="messageText" class="text-gray-600 px-6 py-4"></p>
-      <button data-close class="bg-primary text-white font-bold py-2 px-8 rounded-lg mb-5">OK</button>
+  <div id="messageModal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50">
+    <div class="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full">
+      <h3 id="messageTitle" class="text-lg font-bold mb-2"></h3>
+      <p id="messageText" class="text-sm text-gray-600 mb-4"></p>
+      <button onclick="document.getElementById('messageModal').classList.remove('active')" class="w-full py-2 bg-blue-600 text-white rounded font-medium">OK</button>
     </div>
   </div>
+  <style>.modal.active { display: flex !important; }</style>
 </body>
 </html>
