@@ -332,6 +332,7 @@
           await deleteDoc(docRef(collectionName, id));
           await logAudit(`${currentModule} Record Deleted`, id, r.name || r.instrument, 'Draft record deleted.', STATUS.DRAFT, 'Deleted');
 
+          selectedModuleIds.delete(id);
           showMessage('Deleted', 'Record successfully deleted.', 'success');
           await loadModule(currentModule);
         } catch (e) {
@@ -1143,11 +1144,11 @@
         try {
           const collectionName = currentModule === MODULES.CALIBRATION ? 'calibration' : 'qualification';
           let count = 0;
-          for (const id of selectedModuleIds) {
+          for (const id of Array.from(selectedModuleIds)) {
             const r = moduleRecords.find(x => x.id === id);
-            if (r && r.status === STATUS.DRAFT && (isAdmin() || r.createdByUid === currentUser?.uid)) {
+            if (r && r.status === STATUS.DRAFT && (isAdmin() || r.createdByUid === currentUser?.uid || r.createdByName === currentProfile?.displayName)) {
               await deleteDoc(docRef(collectionName, id));
-              await logAudit(`${currentModule} Bulk Deleted`, id, r.name || r.certificateNo, 'Deleted via bulk action.');
+              await logAudit(`${currentModule} Bulk Deleted`, id, r.name || r.certificateNo || r.reference, 'Deleted via bulk action.');
               count++;
             }
           }
@@ -1155,6 +1156,7 @@
           await loadModule(currentModule);
           showMessage('Success', `Successfully deleted ${count} draft record(s).`, 'success');
         } catch (e) {
+          console.error(e);
           showMessage('Bulk action failed', friendlyError(e), 'error');
         }
       });
@@ -1787,9 +1789,9 @@
           <div><label class="block text-xs font-semibold mb-1">Category *</label><select id="studyCategory" class="w-full p-2 border rounded text-sm"><option value="Process Validation">Process Validation</option><option value="Hold Time Study">Hold Time Study</option><option value="Cleaning Validation">Cleaning Validation</option></select></div>
           <div><label class="block text-xs font-semibold mb-1">Product Type *</label><select id="productType" class="w-full p-2 border rounded text-sm"><option value="Finished Product">Finished Product</option><option value="Raw Material">Raw Material</option><option value="Intermediate">Intermediate</option></select></div>
           <div><label class="block text-xs font-semibold mb-1">Study Date *</label><input type="date" id="studyDate" class="w-full p-2 border rounded text-sm" required></div>
-          <div><label class="block text-xs font-semibold mb-1">Stage *</label><select id="stage" class="p-2 border rounded text-sm"><option value="Raw">Raw</option><option value="Bulk">Bulk</option><option value="Finished Product">Finished Product</option><option value="Cleaning Validation">Cleaning Validation</option><option value="CHT">CHT</option><option value="DHT">DHT</option><option value="Campaign Length">Campaign Length</option></select></div>
+          <div><label class="block text-xs font-semibold mb-1">Stage *</label><select id="stage" class="w-full p-2 border rounded text-sm"><option value="Raw">Raw</option><option value="Bulk">Bulk</option><option value="Finished Product">Finished Product</option><option value="Cleaning Validation">Cleaning Validation</option><option value="CHT">CHT</option><option value="DHT">DHT</option><option value="Campaign Length">Campaign Length</option></select></div>
           <div><label class="block text-xs font-semibold mb-1">Version *</label><input type="text" id="version" class="w-full p-2 border rounded text-sm" value="v1.0" required></div>
-          <div><label class="block text-xs font-semibold mb-1">Scale *</label><select id="scale" class="p-2 border rounded text-sm"><option value="Lab Scale">Lab Scale</option><option value="Pilot Scale">Pilot Scale</option><option value="Commercial Scale">Commercial Scale</option></select></div>
+          <div><label class="block text-xs font-semibold mb-1">Scale *</label><select id="scale" class="w-full p-2 border rounded text-sm"><option value="Lab Scale">Lab Scale</option><option value="Pilot Scale">Pilot Scale</option><option value="Commercial Scale">Commercial Scale</option></select></div>
           <div>
             <label class="block text-xs font-semibold mb-1">Action Type *</label>
             <select id="studyAction" class="w-full p-2 border rounded text-sm">
@@ -1798,19 +1800,16 @@
             </select>
           </div>
           <div class="md:col-span-2"><label class="block text-xs font-semibold mb-1">Reason / Scope *</label><textarea id="reason" class="w-full p-2 border rounded text-sm" rows="2" required placeholder="Reason for protocol/study..."></textarea></div>
-          <div class="md:col-span-2"><label class="block text-xs font-semibold mb-1">Notes / Description</label><textarea id="notes" class="w-full p-2 border rounded text-sm" rows="2" placeholder="Additional details..."></textarea></div>
-          <div><label class="block text-xs font-semibold mb-1">Other Department Reviewer Dept</label><input type="text" id="reviewerDepartment" class="w-full p-2 border rounded text-sm" placeholder="e.g. QC, Engineering"></div>
-          <div class="flex items-center pt-5"><label class="flex items-center gap-2 text-sm font-medium"><input type="checkbox" id="requireOtherDeptReview" class="w-4 h-4"> Require Other Department Review</label></div>
+          <div class="md:col-span-2"><label class="block text-xs font-semibold mb-1">Notes / Description</label><textarea id="notes" class="w-full p-2 border rounded text-sm" rows="2" placeholder="Optional notes..."></textarea></div>
+          <div><label class="block text-xs font-semibold mb-1">Reviewer Department</label><input type="text" id="reviewerDepartment" class="w-full p-2 border rounded text-sm" placeholder="e.g. QC, Production"></div>
+          <div class="flex items-center gap-2 pt-6"><input type="checkbox" id="requireOtherDeptReview" class="rounded"><label class="text-xs font-semibold">Require Other Department Reviewer Stage</label></div>
         </div>
-        <div class="flex justify-end gap-2 pt-4">
-          <button type="button" data-close class="px-4 py-2 border rounded text-sm">Cancel</button>
-          <button type="submit" class="px-4 py-2 bg-primary text-white rounded text-sm font-semibold">Save Study</button>
-        </div>
+        <div class="flex justify-end gap-2 pt-4 border-t"><button type="button" data-close class="px-4 py-2 border rounded text-sm">Cancel</button><button type="submit" class="px-4 py-2 bg-primary text-white rounded text-sm font-semibold">Save Study</button></div>
       </form>
     </div>
   </div>
 
-  <!-- Module Record Modal (Calibration / Qualification) -->
+  <!-- Module Record Modal (Calibration & Qualification) -->
   <div id="moduleModal" class="modal fixed inset-0 bg-gray-900/60 z-50 items-center justify-center p-4">
     <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 space-y-4">
       <div class="flex justify-between items-center"><h3 id="moduleModalTitle" class="text-lg font-bold">Add Record</h3><button data-close><i class="fas fa-times"></i></button></div>
@@ -1818,169 +1817,160 @@
         <input type="hidden" id="moduleEditId">
         <input type="hidden" id="moduleType">
 
-        <!-- Calibration Fields -->
-        <div id="calibrationFields" class="grid md:grid-cols-2 gap-4">
-          <div><label class="block text-xs font-semibold mb-1">Certificate No *</label><input type="text" id="calCertificateNo" class="w-full p-2 border rounded text-sm"></div>
-          <div><label class="block text-xs font-semibold mb-1">Department</label><input type="text" id="calDept" class="w-full p-2 border rounded text-sm" placeholder="e.g. QA, QC, Production"></div>
-          <div><label class="block text-xs font-semibold mb-1">Instrument Name *</label><input type="text" id="calInstrument" class="w-full p-2 border rounded text-sm"></div>
-          <div><label class="block text-xs font-semibold mb-1">Manufacturer</label><input type="text" id="calManuf" class="w-full p-2 border rounded text-sm"></div>
-          <div><label class="block text-xs font-semibold mb-1">Model</label><input type="text" id="calModel" class="w-full p-2 border rounded text-sm"></div>
-          <div><label class="block text-xs font-semibold mb-1">Serial Number</label><input type="text" id="calSN" class="w-full p-2 border rounded text-sm"></div>
-          <div><label class="block text-xs font-semibold mb-1">Code / ID *</label><input type="text" id="calCode" class="w-full p-2 border rounded text-sm"></div>
-          <div><label class="block text-xs font-semibold mb-1">Location</label><input type="text" id="calLocation" class="w-full p-2 border rounded text-sm"></div>
-          <div><label class="block text-xs font-semibold mb-1">Calibration Range</label><input type="text" id="calRange" class="w-full p-2 border rounded text-sm"></div>
-          <div><label class="block text-xs font-semibold mb-1">Acceptance Limits</label><input type="text" id="calAcceptanceLimits" class="w-full p-2 border rounded text-sm"></div>
-          <div><label class="block text-xs font-semibold mb-1">Interval</label><input type="text" id="calInterval" class="w-full p-2 border rounded text-sm" placeholder="e.g. Annual, 6 Months"></div>
-          <div><label class="block text-xs font-semibold mb-1">Calibration Date</label><input type="date" id="calDate" class="w-full p-2 border rounded text-sm"></div>
-          <div><label class="block text-xs font-semibold mb-1">Due Date</label><input type="date" id="calDueDate" class="w-full p-2 border rounded text-sm"></div>
-          <div><label class="block text-xs font-semibold mb-1">Month / Year Label</label><input type="text" id="calMonthYear" class="w-full p-2 border rounded text-sm" placeholder="e.g. January 2026"></div>
-          <div>
-            <label class="block text-xs font-semibold mb-1">Action Type *</label>
-            <select id="calAction" class="w-full p-2 border rounded text-sm">
-              <option value="Executed">Executed</option>
-              <option value="In Plan">In Plan</option>
-            </select>
-          </div>
-          <div class="flex items-center gap-4 pt-4 md:col-span-2">
-            <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="calIsAddendum" class="w-4 h-4"> Addendum of Calibration</label>
-            <label class="flex items-center gap-2 text-sm text-red-600 font-semibold"><input type="checkbox" id="calIsOutOfCalibration" class="w-4 h-4"> Out of Calibration</label>
+        <!-- Calibration Fields Group -->
+        <div id="calibrationFields" class="space-y-4">
+          <div class="grid md:grid-cols-2 gap-4">
+            <div><label class="block text-xs font-semibold mb-1">Certificate No. *</label><input type="text" id="calCertificateNo" class="w-full p-2 border rounded text-sm"></div>
+            <div><label class="block text-xs font-semibold mb-1">Department *</label><input type="text" id="calDept" class="w-full p-2 border rounded text-sm" placeholder="QA, QC, Production..."></div>
+            <div><label class="block text-xs font-semibold mb-1">Instrument / Equipment *</label><input type="text" id="calInstrument" class="w-full p-2 border rounded text-sm"></div>
+            <div><label class="block text-xs font-semibold mb-1">Manufacturer</label><input type="text" id="calManuf" class="w-full p-2 border rounded text-sm"></div>
+            <div><label class="block text-xs font-semibold mb-1">Model</label><input type="text" id="calModel" class="w-full p-2 border rounded text-sm"></div>
+            <div><label class="block text-xs font-semibold mb-1">Serial Number</label><input type="text" id="calSN" class="w-full p-2 border rounded text-sm"></div>
+            <div><label class="block text-xs font-semibold mb-1">Code / ID *</label><input type="text" id="calCode" class="w-full p-2 border rounded text-sm"></div>
+            <div><label class="block text-xs font-semibold mb-1">Location</label><input type="text" id="calLocation" class="w-full p-2 border rounded text-sm"></div>
+            <div><label class="block text-xs font-semibold mb-1">Calibration Range</label><input type="text" id="calRange" class="w-full p-2 border rounded text-sm"></div>
+            <div><label class="block text-xs font-semibold mb-1">Acceptance Limits</label><input type="text" id="calAcceptanceLimits" class="w-full p-2 border rounded text-sm"></div>
+            <div><label class="block text-xs font-semibold mb-1">Interval</label><input type="text" id="calInterval" class="w-full p-2 border rounded text-sm" placeholder="e.g. Annual, 6 Months"></div>
+            <div><label class="block text-xs font-semibold mb-1">Cal Date</label><input type="date" id="calDate" class="w-full p-2 border rounded text-sm"></div>
+            <div><label class="block text-xs font-semibold mb-1">Due Date</label><input type="date" id="calDueDate" class="w-full p-2 border rounded text-sm"></div>
+            <div><label class="block text-xs font-semibold mb-1">Month / Year Label</label><input type="text" id="calMonthYear" class="w-full p-2 border rounded text-sm" placeholder="January 2026"></div>
+            <div>
+              <label class="block text-xs font-semibold mb-1">Action Type *</label>
+              <select id="calAction" class="w-full p-2 border rounded text-sm">
+                <option value="Executed">Executed</option>
+                <option value="In Plan">In Plan</option>
+              </select>
+            </div>
+            <div class="flex flex-col gap-2 pt-4">
+              <label class="flex items-center gap-2 text-xs font-semibold"><input type="checkbox" id="calIsAddendum" class="rounded"> Is Addendum of Calibration</label>
+              <label class="flex items-center gap-2 text-xs font-semibold text-red-600"><input type="checkbox" id="calIsOutOfCalibration" class="rounded"> Is Out of Calibration</label>
+            </div>
           </div>
         </div>
 
-        <!-- Qualification Fields -->
-        <div id="qualificationFields" class="grid md:grid-cols-2 gap-4 hidden">
-          <div><label class="block text-xs font-semibold mb-1">Name / Equipment *</label><input type="text" id="qualName" class="w-full p-2 border rounded text-sm"></div>
-          <div><label class="block text-xs font-semibold mb-1">Reference ID / Protocol *</label><input type="text" id="qualReference" class="w-full p-2 border rounded text-sm"></div>
-          <div>
-            <label class="block text-xs font-semibold mb-1">Qualification Type *</label>
-            <select id="qualType" class="w-full p-2 border rounded text-sm">
-              <option value="equipment">Equipment Qualification</option>
-              <option value="utilities">Utilities Qualification</option>
-              <option value="system">Computerized System Validation</option>
-            </select>
+        <!-- Qualification Fields Group -->
+        <div id="qualificationFields" class="space-y-4 hidden">
+          <div class="grid md:grid-cols-2 gap-4">
+            <div><label class="block text-xs font-semibold mb-1">Name / Title *</label><input type="text" id="qualName" class="w-full p-2 border rounded text-sm"></div>
+            <div><label class="block text-xs font-semibold mb-1">Reference ID / Protocol *</label><input type="text" id="qualReference" class="w-full p-2 border rounded text-sm"></div>
+            <div>
+              <label class="block text-xs font-semibold mb-1">Qualification Type *</label>
+              <select id="qualType" class="w-full p-2 border rounded text-sm">
+                <option value="equipment">Equipment</option>
+                <option value="utilities">Utilities</option>
+                <option value="system">Computerized System</option>
+              </select>
+            </div>
+            <div id="utilitySubtypeGroup" class="hidden">
+              <label class="block text-xs font-semibold mb-1">Utility Subtype *</label>
+              <select id="qualUtilityType" class="w-full p-2 border rounded text-sm">
+                <option value="HVAC">HVAC</option>
+                <option value="WFI">WFI (Water for Injection)</option>
+                <option value="PW">PW (Purified Water)</option>
+                <option value="Clean Steam">Clean Steam</option>
+                <option value="Compressed Air">Compressed Air</option>
+              </select>
+            </div>
+            <div id="equipmentGroup">
+              <label class="block text-xs font-semibold mb-1">Equipment Info</label>
+              <input type="text" id="qualEquipmentInfo" class="w-full p-2 border rounded text-sm" placeholder="Make, model, tag...">
+            </div>
+            <div id="systemGroup" class="hidden">
+              <label class="block text-xs font-semibold mb-1">System Info / GAMP Category</label>
+              <input type="text" id="qualSystemInfo" class="w-full p-2 border rounded text-sm" placeholder="Category 4 / 5...">
+            </div>
+            <div>
+              <label class="block text-xs font-semibold mb-1">Stage *</label>
+              <select id="qualStage" class="w-full p-2 border rounded text-sm">
+                <option value="DQ">DQ</option>
+                <option value="IQ">IQ</option>
+                <option value="OQ">OQ</option>
+                <option value="PQ">PQ</option>
+                <option value="PERIODIC PQ">Periodic PQ</option>
+              </select>
+            </div>
+            <div><label class="block text-xs font-semibold mb-1">Planned Date</label><input type="date" id="qualDate" class="w-full p-2 border rounded text-sm"></div>
+            <div><label class="block text-xs font-semibold mb-1">Due Date</label><input type="date" id="qualDueDate" class="w-full p-2 border rounded text-sm"></div>
+            <div>
+              <label class="block text-xs font-semibold mb-1">Action Type *</label>
+              <select id="qualAction" class="w-full p-2 border rounded text-sm">
+                <option value="Executed">Executed</option>
+                <option value="In Plan">In Plan</option>
+              </select>
+            </div>
+            <div class="md:col-span-2"><label class="block text-xs font-semibold mb-1">Description / Scope</label><textarea id="qualDescription" class="w-full p-2 border rounded text-sm" rows="2"></textarea></div>
           </div>
-          <div id="utilitySubtypeGroup" class="hidden">
-            <label class="block text-xs font-semibold mb-1">Utility Subtype</label>
-            <select id="qualUtilityType" class="w-full p-2 border rounded text-sm">
-              <option value="HVAC">HVAC</option>
-              <option value="Water System">Water System (PW/WFI/纯化水)</option>
-              <option value="Compressed Air">Compressed Air</option>
-              <option value="Pure Steam">Pure Steam</option>
-            </select>
-          </div>
-          <div id="equipmentGroup">
-            <label class="block text-xs font-semibold mb-1">Equipment Info</label>
-            <input type="text" id="qualEquipmentInfo" class="w-full p-2 border rounded text-sm" placeholder="Maker, Model...">
-          </div>
-          <div id="systemGroup" class="hidden">
-            <label class="block text-xs font-semibold mb-1">System Info</label>
-            <input type="text" id="qualSystemInfo" class="w-full p-2 border rounded text-sm" placeholder="Software version, GAMP category...">
-          </div>
-          <div>
-            <label class="block text-xs font-semibold mb-1">Stage *</label>
-            <select id="qualStage" class="w-full p-2 border rounded text-sm">
-              <option value="DQ">DQ</option>
-              <option value="IQ" selected>IQ</option>
-              <option value="OQ">OQ</option>
-              <option value="PQ">PQ</option>
-              <option value="PERIODIC PQ">Periodic PQ</option>
-            </select>
-          </div>
-          <div><label class="block text-xs font-semibold mb-1">Planned Date</label><input type="date" id="qualDate" class="w-full p-2 border rounded text-sm"></div>
-          <div><label class="block text-xs font-semibold mb-1">Due Date</label><input type="date" id="qualDueDate" class="w-full p-2 border rounded text-sm"></div>
-          <div>
-            <label class="block text-xs font-semibold mb-1">Action Type *</label>
-            <select id="qualAction" class="w-full p-2 border rounded text-sm">
-              <option value="Executed">Executed</option>
-              <option value="In Plan">In Plan</option>
-            </select>
-          </div>
-          <div class="md:col-span-2"><label class="block text-xs font-semibold mb-1">Description / Scope</label><textarea id="qualDescription" class="w-full p-2 border rounded text-sm" rows="2" placeholder="Description..."></textarea></div>
         </div>
 
-        <div class="flex justify-end gap-2 pt-4">
-          <button type="button" data-close class="px-4 py-2 border rounded text-sm">Cancel</button>
-          <button type="submit" class="px-4 py-2 bg-primary text-white rounded text-sm font-semibold">Save Record</button>
-        </div>
+        <div class="flex justify-end gap-2 pt-4 border-t"><button type="button" data-close class="px-4 py-2 border rounded text-sm">Cancel</button><button type="submit" class="px-4 py-2 bg-primary text-white rounded text-sm font-semibold">Save Record</button></div>
       </form>
     </div>
   </div>
 
-  <!-- File Modal -->
+  <!-- Files Modal -->
   <div id="fileModal" class="modal fixed inset-0 bg-gray-900/60 z-50 items-center justify-center p-4">
-    <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 space-y-4">
-      <div class="flex justify-between items-center"><h3 class="text-lg font-bold">Manage Attachments</h3><button data-close><i class="fas fa-times"></i></button></div>
-      <div id="uploadFileContainer" class="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center">
-        <input type="hidden" id="fileParentId"><input type="hidden" id="fileModule">
-        <label class="cursor-pointer text-primary font-semibold text-sm hover:underline"><i class="fas fa-upload mr-1"></i>Upload Files (Max 25MB)<input type="file" id="fileInput" class="hidden" multiple></label>
-        <div id="uploadProgress" class="text-xs text-gray-500 mt-1"></div>
+    <div class="bg-white rounded-xl shadow-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto p-6 space-y-4">
+      <div class="flex justify-between items-center"><h3 class="text-lg font-bold">Attached Documents</h3><button data-close><i class="fas fa-times"></i></button></div>
+      <input type="hidden" id="fileParentId">
+      <input type="hidden" id="fileModule">
+      <div id="fileList" class="space-y-3"></div>
+      <div id="uploadFileContainer" class="pt-4 border-t space-y-2">
+        <label class="block text-xs font-semibold text-gray-700">Upload New File (PDF, Word, Excel up to 25MB)</label>
+        <div class="flex items-center gap-3">
+          <input type="file" id="fileInput" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-primary hover:file:bg-blue-100">
+        </div>
+        <div id="uploadProgress" class="text-xs font-semibold text-blue-600"></div>
       </div>
-      <div id="fileList" class="space-y-2"></div>
+      <div class="flex justify-end pt-2"><button data-close class="px-4 py-2 bg-gray-200 rounded text-sm font-semibold">Close</button></div>
     </div>
   </div>
 
   <!-- History Modal -->
   <div id="historyModal" class="modal fixed inset-0 bg-gray-900/60 z-50 items-center justify-center p-4">
-    <div class="bg-white rounded-xl shadow-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto p-6 space-y-4">
-      <div class="flex justify-between items-center"><h3 class="text-lg font-bold">Review History & Audit Log</h3><button data-close><i class="fas fa-times"></i></button></div>
+    <div class="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 space-y-4">
+      <div class="flex justify-between items-center"><h3 class="text-lg font-bold">Workflow & Review History</h3><button data-close><i class="fas fa-times"></i></button></div>
       <div id="historyBody" class="space-y-3"></div>
-    </div>
-  </div>
-
-  <!-- Audit Modal -->
-  <div id="auditModal" class="modal fixed inset-0 bg-gray-900/60 z-50 items-center justify-center p-4">
-    <div class="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto p-6 space-y-4">
-      <div class="flex justify-between items-center"><h3 class="text-lg font-bold">System Audit Trail</h3><button data-close><i class="fas fa-times"></i></button></div>
-      <div class="overflow-y-auto max-h-[60vh]">
-        <table class="min-w-full divide-y text-left">
-          <thead class="bg-gray-50 sticky top-0">
-            <tr>
-              <th class="px-3 py-2 text-xs">Timestamp</th>
-              <th class="px-3 py-2 text-xs">User</th>
-              <th class="px-3 py-2 text-xs">Action</th>
-              <th class="px-3 py-2 text-xs">Target</th>
-              <th class="px-3 py-2 text-xs">Details / State Change</th>
-            </tr>
-          </thead>
-          <tbody id="auditTableBody" class="divide-y text-xs"></tbody>
-        </table>
-      </div>
+      <div class="flex justify-end pt-2"><button data-close class="px-4 py-2 bg-gray-200 rounded text-sm font-semibold">Close</button></div>
     </div>
   </div>
 
   <!-- User Management Modal -->
   <div id="userModal" class="modal fixed inset-0 bg-gray-900/60 z-50 items-center justify-center p-4">
-    <div class="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto p-6 space-y-6">
-      <div class="flex justify-between items-center"><h3 class="text-lg font-bold">User Access Management</h3><button data-close><i class="fas fa-times"></i></button></div>
-      <form id="userForm" class="bg-gray-50 p-4 rounded-lg border space-y-3">
-        <input type="hidden" id="editUserId">
-        <div class="grid md:grid-cols-3 gap-3">
-          <div><label class="block text-xs font-semibold mb-1">Email *</label><input type="email" id="newEmail" class="w-full p-2 border rounded text-sm" required></div>
-          <div><label class="block text-xs font-semibold mb-1">Display Name *</label><input type="text" id="newDisplayName" class="w-full p-2 border rounded text-sm" required></div>
-          <div><label class="block text-xs font-semibold mb-1">Role *</label><select id="newRole" class="w-full p-2 border rounded text-sm" required></select></div>
-          <div><label class="block text-xs font-semibold mb-1">Department</label><input type="text" id="newDepartment" class="w-full p-2 border rounded text-sm"></div>
-          <div><label class="block text-xs font-semibold mb-1">Temporary Password</label><input type="password" id="newPassword" class="w-full p-2 border rounded text-sm" placeholder="Min 8 chars if new user"></div>
-          <div class="flex items-center pt-5"><label class="flex items-center gap-2 text-sm font-medium"><input type="checkbox" id="newDisabled" class="w-4 h-4"> Disable Account</label></div>
-        </div>
-        <div class="flex justify-end gap-2">
-          <button type="button" id="sendResetBtn" class="px-3 py-1.5 bg-gray-200 hover:bg-gray-300 rounded text-xs font-semibold">Send Password Reset</button>
-          <button type="submit" class="px-4 py-1.5 bg-primary text-white rounded text-xs font-semibold">Save User Profile</button>
-        </div>
-      </form>
-      <div class="overflow-y-auto max-h-[40vh]">
-        <table class="min-w-full divide-y text-left">
-          <thead class="bg-gray-50 sticky top-0">
-            <tr>
-              <th class="px-3 py-2 text-xs">User</th>
-              <th class="px-3 py-2 text-xs">Role</th>
-              <th class="px-3 py-2 text-xs">Department</th>
-              <th class="px-3 py-2 text-xs">Status</th>
-              <th class="px-3 py-2 text-center text-xs">Actions</th>
-            </tr>
-          </thead>
-          <tbody id="userTableBody" class="divide-y text-xs"></tbody>
+    <div class="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto p-6 space-y-4">
+      <div class="flex justify-between items-center"><h3 class="text-lg font-bold"><i class="fas fa-users-cog mr-2"></i>User & Role Management</h3><button data-close><i class="fas fa-times"></i></button></div>
+      <div class="overflow-x-auto max-h-60 border rounded">
+        <table class="min-w-full divide-y">
+          <thead class="bg-gray-50"><tr><th class="px-3 py-2 text-left text-xs">User</th><th class="px-3 py-2 text-left text-xs">Role</th><th class="px-3 py-2 text-left text-xs">Dept</th><th class="px-3 py-2 text-left text-xs">Status</th><th class="px-3 py-2 text-center text-xs">Actions</th></tr></thead>
+          <tbody id="userTableBody" class="divide-y text-sm"></tbody>
         </table>
       </div>
+      <form id="userForm" class="border-t pt-4 space-y-3">
+        <h4 class="font-bold text-sm">Create or Update User Account</h4>
+        <input type="hidden" id="editUserId">
+        <div class="grid md:grid-cols-2 gap-3">
+          <div><label class="block text-xs font-semibold mb-1">Email *</label><input type="email" id="newEmail" class="w-full p-2 border rounded text-sm" required></div>
+          <div><label class="block text-xs font-semibold mb-1">Display Name *</label><input type="text" id="newDisplayName" class="w-full p-2 border rounded text-sm" required></div>
+          <div><label class="block text-xs font-semibold mb-1">Role *</label><select id="newRole" class="w-full p-2 border rounded text-sm"></select></div>
+          <div><label class="block text-xs font-semibold mb-1">Department</label><input type="text" id="newDepartment" class="w-full p-2 border rounded text-sm" placeholder="e.g. Quality Assurance"></div>
+          <div><label class="block text-xs font-semibold mb-1">Password (New Users)</label><input type="password" id="newPassword" class="w-full p-2 border rounded text-sm" placeholder="Min 8 characters"></div>
+          <div class="flex items-center gap-2 pt-5"><input type="checkbox" id="newDisabled" class="rounded"><label class="text-xs font-semibold text-red-600">Disable User Account Access</label></div>
+        </div>
+        <div class="flex justify-end gap-2 pt-2"><button type="button" id="sendResetBtn" class="px-3 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded text-xs font-semibold">Send Password Reset</button><button type="submit" class="px-4 py-2 bg-primary text-white rounded text-xs font-semibold">Save User Profile</button></div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Audit Trail Modal -->
+  <div id="auditModal" class="modal fixed inset-0 bg-gray-900/60 z-50 items-center justify-center p-4">
+    <div class="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto p-6 space-y-4">
+      <div class="flex justify-between items-center"><h3 class="text-lg font-bold"><i class="fas fa-history mr-2"></i>System Audit Trail</h3><button data-close><i class="fas fa-times"></i></button></div>
+      <div class="overflow-x-auto max-h-[60vh] border rounded">
+        <table class="min-w-full divide-y">
+          <thead class="bg-gray-50 sticky top-0"><tr><th class="px-3 py-2 text-left text-xs">Timestamp</th><th class="px-3 py-2 text-left text-xs">User & Role</th><th class="px-3 py-2 text-left text-xs">Action</th><th class="px-3 py-2 text-left text-xs">Reference</th><th class="px-3 py-2 text-left text-xs">Details / State Change</th></tr></thead>
+          <tbody id="auditTableBody" class="divide-y text-sm"></tbody>
+        </table>
+      </div>
+      <div class="flex justify-end"><button data-close class="px-4 py-2 bg-gray-200 rounded text-sm font-semibold">Close</button></div>
     </div>
   </div>
 </body>
