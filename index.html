@@ -54,9 +54,9 @@ body{font-family:Inter,Arial,sans-serif;background:#f1f5f9}
       </div>
       <div class="min-w-0">
         <div class="flex items-center gap-2"><h1 class="text-xl md:text-2xl font-extrabold tracking-wide">ValidApp</h1>
-          <span class="hidden lg:inline text-blue-100 text-xs">Validation & Qualification</span>
+          <span class="hidden lg:inline text-blue-100 text-xs">ODF • Capsule • Validation & Qualification</span>
         </div>
-        <div class="text-[11px] text-blue-100">Nerhadou Validation Team</div>
+        <div class="text-[11px] text-blue-100">Nerhadou Validation Workflow</div>
       </div>
     </div>
     <div id="userInfo" class="hidden items-center gap-2 flex-wrap justify-end">
@@ -205,7 +205,7 @@ const SUPABASE_ANON_KEY="sb_publishable__0Xw5joGtNrlh38qYOhrpw_vMALXzrV";
 const EMAILJS_PUBLIC_KEY="tx8P6mYyi6C6APSXn",EMAILJS_SERVICE_ID="service_nyq8c6p",EMAILJS_TEMPLATE_ID="template_008bbdj";
 if(window.emailjs) window.emailjs.init(EMAILJS_PUBLIC_KEY);
 const msalConfig={auth:{clientId:"22315588-6d90-4c55-87be-3e293fc5a7a9",authority:"https://login.microsoftonline.com/a0463def-3037-44e8-8e17-e94af8f05069",redirectUri:window.location.origin+window.location.pathname},cache:{cacheLocation:"localStorage",storeAuthStateInCookie:false}};
-const msalInstance=new msal.PublicClientApplication(msalConfig);
+const msalInstance=(window.msal&&window.msal.PublicClientApplication)?new msal.PublicClientApplication(msalConfig):null;
 const firebaseConfig=typeof __firebase_config!=="undefined"?JSON.parse(__firebase_config):MY_FIREBASE_CONFIG;
 const appId=typeof __app_id!=="undefined"?__app_id:"validapp-default";
 const app=initializeApp(firebaseConfig),auth=getAuth(app),db=getFirestore(app);
@@ -267,10 +267,29 @@ function isDelegatedDeputy(){
 function delegationLabel(){return isDelegatedDeputy()?`QA Manager Delegation Active (${currentProfile.qaDelegation.startDate} → ${currentProfile.qaDelegation.endDate})`:""}
 
 async function loadProfile(u){
-  const s=await getDoc(docRef("users",u.uid));if(!s.exists())throw Error("Your Firebase account exists, but no ValidApp profile was found.");
-  const p={id:s.id,...s.data()};if(!ROLE_LIST.includes(p.role))throw Error("Invalid ValidApp role.");if(p.disabled===true)throw Error("Your ValidApp account is disabled.");
+  // Backward-compatible profile lookup: existing ValidApp users may have their
+  // Firestore profile keyed by UID, email, or username from an older version.
+  let s=await getDoc(docRef("users",u.uid));
+  if(!s.exists() && u.email) s=await getDoc(docRef("users",u.email.toLowerCase()));
+  if(!s.exists() && u.email) s=await getDoc(docRef("users",u.email.split("@")[0].toLowerCase()));
+  if(!s.exists()){
+    try{
+      const q=await getDocs(query(colRef("users"),where("email","==",u.email.toLowerCase()),limit(1)));
+      if(!q.empty) s=q.docs[0];
+    }catch(e){console.warn("Email profile lookup skipped:",e)}
+  }
+  if(!s.exists()) throw Error("Your Firebase account exists, but no ValidApp profile was found for this email. Contact an Administrator.");
+  const raw=s.data();
+  const aliases={admin:ROLES.ADMIN,administrator:ROLES.ADMIN,creator:ROLES.CREATOR,"section head":ROLES.SECTION_HEAD,"deputy qa manager":ROLES.DEPUTY,"qa deputy manager":ROLES.DEPUTY,"qa manager":ROLES.QA_MANAGER,"reviewer":ROLES.REVIEWER,"reviewer — other department":ROLES.REVIEWER,viewer:ROLES.VIEWER};
+  const normalizedRole=ROLE_LIST.includes(raw.role)?raw.role:aliases[String(raw.role||"").trim().toLowerCase()];
+  if(!normalizedRole) throw Error(`Your ValidApp profile has an invalid role: ${raw.role||"not assigned"}.`);
+  if(raw.disabled===true) throw Error("Your ValidApp account is disabled.");
+  const p={id:s.id,...raw,role:normalizedRole};
   const changed=p.passwordChangedAt?.toDate?p.passwordChangedAt.toDate():p.passwordChangedAt?new Date(p.passwordChangedAt):null;
-  p.passwordExpired=!!changed&&(Date.now()-changed.getTime()>90*24*60*60*1000);
+  p.passwordExpired=!!changed&&!Number.isNaN(changed.getTime())&&(Date.now()-changed.getTime()>90*24*60*60*1000);
+  // If this is an older profile keyed by email/username, keep it usable and
+  // transparently migrate it to the Firebase Auth UID after successful login.
+  if(s.id!==u.uid){try{await setDoc(docRef("users",u.uid),{...raw,email:u.email||raw.email,role:normalizedRole,username:raw.username||u.email?.split("@")[0],migratedFrom:s.id,updatedAt:serverTimestamp()},{merge:true})}catch(e){console.warn("Profile migration skipped:",e)}}
   return p;
 }
 async function updateActivity(){lastActivity=Date.now();if(inactivityTimer)clearTimeout(inactivityTimer);inactivityTimer=setTimeout(()=>{if(currentUser){showMsg("Session expired","You were automatically logged out after 15 minutes without activity.","error");setTimeout(()=>signOut(auth),700)}},15*60*1000)}
@@ -573,8 +592,8 @@ $("addRecordBtn").onclick=()=>openStudy();$("addModuleBtn").onclick=()=>openModu
 $("sopSearch").oninput=renderSops;$("sopTypeFilter").onchange=renderSops;$("prpoSearch").oninput=renderPrpo;$("prpoType").onchange=renderPrpo;$("prpoStatus").onchange=renderPrpo;
 document.addEventListener("click",e=>{if(e.target.closest("[data-dashboard-refresh]"))loadDashboard()});
 
-$("loginForm").onsubmit=async e=>{e.preventDefault();try{await signInWithEmailAndPassword(auth,$("username").value.trim(),$("password").value)}catch(err){$("loginError").textContent="Invalid email or password.";$("loginError").classList.remove("hidden")}};
-$("azureSsoBtn").onclick=async()=>{try{const r=await msalInstance.loginPopup({scopes:["User.Read","openid","profile","email"]});$("username").value=r.account.username;$("password").focus()}catch(e){$("loginError").textContent="Microsoft 365 authentication failed.";$("loginError").classList.remove("hidden")}};
+$("loginForm").onsubmit=async e=>{e.preventDefault();try{await signInWithEmailAndPassword(auth,$("username").value.trim(),$("password").value)}catch(err){console.error("Firebase login error:",err);const m={"auth/invalid-credential":"Invalid email or password.","auth/invalid-email":"Please enter a valid email address.","auth/user-disabled":"This Firebase account is disabled.","auth/too-many-requests":"Too many login attempts. Please wait and try again.","auth/network-request-failed":"Network connection failed. Check your internet connection.","auth/operation-not-allowed":"Email/password sign-in is not enabled in Firebase Authentication."};$("loginError").textContent=m[err?.code]||err?.message||"Sign-in failed.";$("loginError").classList.remove("hidden")}};
+$("azureSsoBtn").onclick=async()=>{try{if(!msalInstance) throw Error("Microsoft 365 sign-in is unavailable. Use the local Firebase account login.");const r=await msalInstance.loginPopup({scopes:["User.Read","openid","profile","email"]});$("username").value=r.account.username;$("password").focus()}catch(e){$("loginError").textContent="Microsoft 365 authentication failed.";$("loginError").classList.remove("hidden")}};
 $("sopUploadLabel").classList.toggle("hidden",!isSopUser());
 
 onAuthStateChanged(auth,async user=>{
