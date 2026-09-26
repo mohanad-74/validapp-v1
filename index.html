@@ -1,223 +1,750 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ValidApp - Pharmaceutical Validation & Quality Management</title>
-    <!-- Tailwind CSS CDN -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!-- FontAwesome for Icons -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ValidApp - Validation & Qualification Nerhadou</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://alcdn.msauth.net/browser/2.38.0/js/msal-browser.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
+tailwind.config={theme:{extend:{colors:{
+  primary:'#1e40af',secondary:'#3b82f6',accent:'#10b981',dark:'#0f172a',light:'#f8fafc'
+}}}};
+</script>
+<style>
+html,body{height:100%;margin:0}
+body{font-family:Inter,Arial,sans-serif;background:#f1f5f9}
+*{scrollbar-width:thin;scrollbar-color:#94a3b8 #e2e8f0}
+::-webkit-scrollbar{width:9px;height:9px}::-webkit-scrollbar-track{background:#e2e8f0}
+::-webkit-scrollbar-thumb{background:#94a3b8;border-radius:8px}
+.modal{display:none}.modal.active{display:flex}
+.app-scroll{overflow:auto;min-width:0;min-height:0}
+.table-scroll{overflow:auto;min-width:0;min-height:0}
+.nav-btn{transition:.15s}.nav-btn.active{background:#1d4ed8;font-weight:800}
+.card{background:#fff;border:1px solid #e2e8f0;border-radius:16px;box-shadow:0 3px 12px rgba(15,23,42,.06)}
+.kpi{transition:.15s}.kpi:hover{transform:translateY(-2px);box-shadow:0 8px 20px rgba(15,23,42,.1)}
+.tab{white-space:nowrap}.tab.active{background:#fff;color:#1e40af;box-shadow:0 1px 5px rgba(0,0,0,.1)}
+.subtab.active{background:#1e40af;color:#fff}
+.pill{display:inline-flex;align-items:center;border-radius:999px;padding:.2rem .55rem;font-size:.72rem;font-weight:700;border:1px solid}
+.logo-mark{width:46px;height:46px}
+@media print{body>*:not(#printArea){display:none!important}#printArea{display:block!important}}
+#printArea{display:none}
+</style>
 </head>
-<body class="bg-slate-50 text-slate-800 antialiased font-sans">
+<body class="text-slate-800 h-screen overflow-hidden">
 
-    <!-- App Container -->
-    <div id="app" class="min-h-screen flex flex-col">
-
-        <!-- ================= LOGIN VIEW ================= -->
-        <div id="login-view" class="flex-1 flex items-center justify-center bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 p-4">
-            <div class="max-w-md w-full bg-white rounded-2xl shadow-2xl overflow-hidden p-8">
-                <div class="text-center mb-8">
-                    <div class="inline-flex items-center justify-center w-16 h-16 rounded-xl bg-blue-600 text-white text-2xl font-bold mb-4 shadow-lg shadow-blue-500/30">
-                        <i class="fa-solid fa-shield-halved"></i>
-                    </div>
-                    <h1 class="text-2xl font-bold text-slate-900">ValidApp</h1>
-                    <p class="text-sm text-slate-500 mt-1">Pharmaceutical Validation & Quality Control</p>
-                </div>
-
-                <form id="login-form" class="space-y-5" onsubmit="handleLogin(event)">
-                    <div>
-                        <label class="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-2">Email Address</label>
-                        <div class="relative">
-                            <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
-                                <i class="fa-solid fa-envelope"></i>
-                            </span>
-                            <input type="email" id="login-email" required placeholder="name@company.com" 
-                                class="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none transition-all">
-                        </div>
-                    </div>
-
-                    <div>
-                        <label class="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-2">Password</label>
-                        <div class="relative">
-                            <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
-                                <i class="fa-solid fa-lock"></i>
-                            </span>
-                            <input type="password" id="login-password" required placeholder="••••••••" 
-                                class="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none transition-all">
-                        </div>
-                    </div>
-
-                    <div id="login-error" class="hidden text-xs text-red-600 bg-red-50 p-2.5 rounded-lg border border-red-200"></div>
-
-                    <button type="submit" class="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg shadow-md shadow-blue-600/20 transition-all text-sm">
-                        Sign In to Dashboard
-                    </button>
-                </form>
-
-                <div class="mt-8 pt-6 border-t border-slate-100 text-center text-xs text-slate-400">
-                    GxP Compliant System • Secure Audit Trail Enabled
-                </div>
-            </div>
+<nav class="bg-primary text-white shadow-lg flex-shrink-0">
+  <div class="max-w-[1800px] mx-auto px-4 py-3 flex items-center justify-between gap-4">
+    <div class="flex items-center gap-3 min-w-0">
+      <div class="logo-mark shrink-0">
+        <svg viewBox="0 0 64 64" class="w-full h-full" aria-label="ODF and capsule logo">
+          <rect x="2" y="2" width="60" height="60" rx="16" fill="white" opacity=".98"/>
+          <path d="M13 24h22a8 8 0 0 1 8 8v4a8 8 0 0 1-8 8H13z" fill="#1e40af"/>
+          <path d="M13 24h22a8 8 0 0 1 8 8v4a8 8 0 0 1-8 8H13z" fill="#3b82f6"/>
+          <path d="M40 16h7a8 8 0 0 1 0 16h-7z" fill="#10b981"/>
+          <path d="M47 16h4a8 8 0 0 1 0 16h-4z" fill="#93c5fd"/>
+          <path d="M14 48h36" stroke="#1e40af" stroke-width="3" stroke-linecap="round"/>
+          <circle cx="18" cy="32" r="2" fill="white"/><circle cx="25" cy="32" r="2" fill="white"/>
+        </svg>
+      </div>
+      <div class="min-w-0">
+        <div class="flex items-center gap-2"><h1 class="text-xl md:text-2xl font-extrabold tracking-wide">ValidApp</h1>
+          <span class="hidden lg:inline text-blue-100 text-xs">ODF • Capsule • Validation & Qualification</span>
         </div>
-
-        <!-- ================= MAIN DASHBOARD VIEW (Hidden by Default) ================= -->
-        <div id="dashboard-view" class="hidden flex-1 flex flex-col">
-            <!-- Top Navigation Bar -->
-            <header class="bg-white border-b border-slate-200 h-16 flex items-center justify-between px-6 sticky top-0 z-30">
-                <div class="flex items-center space-x-3">
-                    <div class="w-9 h-9 rounded-lg bg-blue-600 text-white flex items-center justify-center font-bold shadow-sm">
-                        <i class="fa-solid fa-shield-halved text-sm"></i>
-                    </div>
-                    <span class="font-bold text-slate-900 text-lg">ValidApp</span>
-                    <span class="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full font-medium border border-blue-200">v1.0 GxP</span>
-                </div>
-
-                <div class="flex items-center space-x-4">
-                    <div class="text-right hidden sm:block">
-                        <div id="user-display-name" class="text-xs font-semibold text-slate-800">QA Specialist</div>
-                        <div class="text-[10px] text-slate-500 uppercase tracking-wider">Validated User</div>
-                    </div>
-                    <button onclick="handleLogout()" class="p-2 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Sign Out">
-                        <i class="fa-solid fa-right-from-bracket text-base"></i>
-                    </button>
-                </div>
-            </header>
-
-            <!-- Content Body with Sidebar -->
-            <div class="flex-1 flex flex-col md:flex-row">
-                <!-- Sidebar -->
-                <aside class="w-full md:w-64 bg-white border-r border-slate-200 p-4 space-y-1">
-                    <button onclick="switchTab('studies')" id="nav-studies" class="w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium bg-blue-50 text-blue-700 transition-colors">
-                        <i class="fa-solid fa-folder-open w-5"></i>
-                        <span>Validation Studies</span>
-                    </button>
-                    <button onclick="switchTab('qualification')" id="nav-qualification" class="w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-colors">
-                        <i class="fa-solid fa-screwdriver-wrench w-5"></i>
-                        <span>Equipment Qualification</span>
-                    </button>
-                    <button onclick="switchTab('audit')" id="nav-audit" class="w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-colors">
-                        <i class="fa-solid fa-clock-rotate-left w-5"></i>
-                        <span>Audit Trail</span>
-                    </button>
-                </aside>
-
-                <!-- Main Content Panels -->
-                <main class="flex-1 p-6 bg-slate-50 overflow-y-auto">
-                    <!-- Studies Tab -->
-                    <div id="tab-studies" class="space-y-6">
-                        <div class="flex justify-between items-center">
-                            <div>
-                                <h2 class="text-xl font-bold text-slate-900">Validation Studies</h2>
-                                <p class="text-xs text-slate-500 mt-0.5">Manage active protocol lifecycles and documentation.</p>
-                            </div>
-                            <button onclick="alert('Open New Study Modal')" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-medium shadow-sm transition-all flex items-center space-x-2">
-                                <i class="fa-solid fa-plus"></i>
-                                <span>New Study</span>
-                            </button>
-                        </div>
-                        <div class="bg-white border border-slate-200 rounded-xl p-6 text-center text-slate-400 text-sm">
-                            No validation studies loaded in current workspace. Click "New Study" to begin.
-                        </div>
-                    </div>
-
-                    <!-- Equipment Qualification Tab -->
-                    <div id="tab-qualification" class="hidden space-y-6">
-                        <div class="flex justify-between items-center">
-                            <div>
-                                <h2 class="text-xl font-bold text-slate-900">Equipment Qualification</h2>
-                                <p class="text-xs text-slate-500 mt-0.5">Track IQ/OQ/PQ execution statuses.</p>
-                            </div>
-                        </div>
-                        <div class="bg-white border border-slate-200 rounded-xl p-6 text-center text-slate-400 text-sm">
-                            Equipment inventory database is synchronized.
-                        </div>
-                    </div>
-
-                    <!-- Audit Trail Tab -->
-                    <div id="tab-audit" class="hidden space-y-6">
-                        <div class="flex justify-between items-center">
-                            <div>
-                                <h2 class="text-xl font-bold text-slate-900">System Audit Trail</h2>
-                                <p class="text-xs text-slate-500 mt-0.5">21 CFR Part 11 immutable event logs.</p>
-                            </div>
-                        </div>
-                        <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
-                            <table class="w-full text-left border-collapse text-xs">
-                                <thead class="bg-slate-50 text-slate-500 border-b border-slate-200 uppercase tracking-wider">
-                                    <tr>
-                                        <th class="p-3 font-semibold">Timestamp</th>
-                                        <th class="p-3 font-semibold">User</th>
-                                        <th class="p-3 font-semibold">Action</th>
-                                        <th class="p-3 font-semibold">Module</th>
-                                    </tr>
-                                </thead>
-                                <tbody class="divide-y divide-slate-100 text-slate-700">
-                                    <tr>
-                                        <td class="p-3 font-mono text-slate-400">2026-09-26 19:30:00</td>
-                                        <td class="p-3 font-medium">system.admin@company.com</td>
-                                        <td class="p-3">User Authentication Success</td>
-                                        <td class="p-3"><span class="bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full font-medium">Auth</span></td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </main>
-            </div>
-        </div>
-
+        <div class="text-[11px] text-blue-100">Nerhadou Validation Workflow</div>
+      </div>
     </div>
+    <div id="userInfo" class="hidden items-center gap-2 flex-wrap justify-end">
+      <div class="bg-blue-800/80 rounded-xl px-3 py-1.5 text-xs">
+        <i class="fas fa-user-circle mr-1"></i><span id="currentUserDisplay"></span>
+        <span class="opacity-60"> • </span><span id="currentUserRole"></span>
+        <span class="opacity-60"> • </span><span id="currentUserDepartment"></span>
+      </div>
+      <div id="mainNav" class="flex gap-1 overflow-x-auto">
+        <button id="homeNav" class="nav-btn px-3 py-2 rounded-lg text-sm"><i class="fas fa-home mr-1"></i>Home</button>
+        <button id="studiesNav" class="nav-btn px-3 py-2 rounded-lg text-sm"><i class="fas fa-flask mr-1"></i>Studies</button>
+        <button id="calibrationNav" class="nav-btn px-3 py-2 rounded-lg text-sm"><i class="fas fa-gauge-high mr-1"></i>Calibration</button>
+        <button id="qualificationNav" class="nav-btn px-3 py-2 rounded-lg text-sm"><i class="fas fa-certificate mr-1"></i>Qualification</button>
+        <button id="sopNav" class="nav-btn hidden px-3 py-2 rounded-lg text-sm"><i class="fas fa-file-shield mr-1"></i>Module SOPs</button>
+        <button id="prpoNav" class="nav-btn px-3 py-2 rounded-lg text-sm"><i class="fas fa-file-invoice-dollar mr-1"></i>PR / PO</button>
+        <button id="userManagementBtn" class="nav-btn hidden px-3 py-2 rounded-lg text-sm"><i class="fas fa-users-cog mr-1"></i>Users</button>
+        <button id="auditTrailBtn" class="nav-btn hidden px-3 py-2 rounded-lg text-sm"><i class="fas fa-history mr-1"></i>Audit</button>
+      </div>
+      <button id="logoutBtn" class="bg-red-500 hover:bg-red-600 px-3 py-2 rounded-lg text-sm font-bold"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
+    </div>
+  </div>
+</nav>
 
-    <!-- Application Script Logic -->
-    <script>
-        // Handle Login Submission
-        function handleLogin(event) {
-            event.preventDefault();
-            const email = document.getElementById('login-email').value.trim();
-            const password = document.getElementById('login-password').value;
-            const errorDiv = document.getElementById('login-error');
+<main class="max-w-[1800px] mx-auto w-full flex-1 min-h-0 p-3 md:p-4 app-scroll">
+<section id="loginSection" class="max-w-md mx-auto mt-12 card p-7">
+  <div class="text-center mb-6">
+    <div class="mx-auto w-20 h-20 mb-3">
+      <svg viewBox="0 0 64 64" class="w-full h-full"><rect x="2" y="2" width="60" height="60" rx="16" fill="#dbeafe"/><path d="M13 24h22a8 8 0 0 1 8 8v4a8 8 0 0 1-8 8H13z" fill="#1e40af"/><path d="M40 16h7a8 8 0 0 1 0 16h-7z" fill="#10b981"/><path d="M14 48h36" stroke="#1e40af" stroke-width="3" stroke-linecap="round"/></svg>
+    </div>
+    <h2 class="text-2xl font-extrabold">ValidApp</h2>
+    <p class="text-slate-500 text-sm">Controlled Validation & Qualification Workflow</p>
+  </div>
+  <button id="azureSsoBtn" class="w-full mb-5 bg-slate-800 hover:bg-slate-900 text-white font-semibold py-3 rounded-lg flex items-center justify-center gap-3">
+    <i class="fab fa-microsoft"></i> Sign in with Microsoft 365
+  </button>
+  <div class="relative flex items-center mb-5"><div class="flex-1 border-t"></div><span class="px-3 text-xs text-slate-400 uppercase">or local account</span><div class="flex-1 border-t"></div></div>
+  <form id="loginForm" class="space-y-4">
+    <div><label class="text-sm font-semibold">Email</label><input id="username" type="email" autocomplete="username" required class="w-full mt-1 p-3 border rounded-lg"></div>
+    <div><label class="text-sm font-semibold">Password</label><input id="password" type="password" autocomplete="current-password" required class="w-full mt-1 p-3 border rounded-lg"></div>
+    <div id="loginError" class="hidden text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-3"></div>
+    <button class="w-full bg-primary hover:bg-blue-800 text-white font-bold py-3 rounded-lg">Sign In</button>
+  </form>
+</section>
 
-            // Basic validation simulation (Replace with Firebase/Backend Auth integration as needed)
-            if (email && password.length >= 6) {
-                errorDiv.classList.add('hidden');
-                
-                // Toggle Views
-                document.getElementById('login-view').classList.add('hidden');
-                document.getElementById('dashboard-view').classList.remove('hidden');
-                
-                // Set User Info Display
-                document.getElementById('user-display-name').innerText = email;
-            } else {
-                errorDiv.innerText = 'Invalid credentials or password too short (minimum 6 characters required).';
-                errorDiv.classList.remove('hidden');
-            }
-        }
+<section id="dashboardSection" class="hidden space-y-4">
+  <div id="homeView" class="space-y-4">
+    <div class="card p-5 bg-gradient-to-r from-blue-900 to-blue-700 text-white">
+      <div class="flex flex-wrap justify-between gap-4 items-center">
+        <div><p class="text-blue-200 text-xs uppercase font-bold">Validation Department Control Center</p><h2 class="text-2xl md:text-3xl font-extrabold mt-1">Welcome to ValidApp</h2><p class="text-blue-100 text-sm mt-1">Monitor studies, calibration, qualification, SOPs and procurement activity from one dashboard.</p></div>
+        <div class="text-right"><div id="dashboardClock" class="text-lg font-bold"></div><div class="text-xs text-blue-200">Session timeout: 15 minutes inactivity</div></div>
+      </div>
+    </div>
+    <div id="kpiGrid" class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3"></div>
+    <div class="grid grid-cols-1 xl:grid-cols-3 gap-4">
+      <div class="card p-4 xl:col-span-2">
+        <div class="flex justify-between items-center mb-3"><h3 class="font-extrabold">Module Overview</h3><button data-dashboard-refresh class="text-primary text-sm font-bold"><i class="fas fa-sync mr-1"></i>Refresh</button></div>
+        <div id="moduleOverview" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3"></div>
+      </div>
+      <div class="card p-4"><h3 class="font-extrabold mb-3">My Pending Actions</h3><div id="pendingList" class="space-y-2"></div></div>
+    </div>
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+      <div class="card p-4"><h3 class="font-extrabold mb-3">Recent Activity</h3><div id="recentActivity" class="space-y-2 max-h-80 overflow-auto"></div></div>
+      <div class="card p-4"><h3 class="font-extrabold mb-3">Quick Access</h3><div id="quickAccess" class="grid grid-cols-2 gap-3"></div></div>
+    </div>
+    <div class="text-center text-sm font-bold text-blue-700 py-2">Powered By Nerhadou Validation Team</div>
+  </div>
 
-        // Handle Logout Session Termination
-        function handleLogout() {
-            document.getElementById('dashboard-view').classList.add('hidden');
-            document.getElementById('login-view').classList.remove('hidden');
-            document.getElementById('login-form').reset();
-        }
+  <div id="studiesView" class="hidden space-y-3">
+    <div class="card p-3">
+      <div class="flex flex-wrap gap-2 overflow-x-auto">
+        <button id="tabProcess" class="tab active px-4 py-2 rounded-lg font-bold">Process Validation</button>
+        <button id="tabHoldTime" class="tab px-4 py-2 rounded-lg font-bold">Hold Time Study</button>
+        <button id="tabCleaning" class="tab px-4 py-2 rounded-lg font-bold">Cleaning Validation</button>
+        <button id="addRecordBtn" class="ml-auto bg-accent text-white px-4 py-2 rounded-lg font-bold"><i class="fas fa-plus mr-1"></i>Add Study</button>
+      </div>
+      <div id="studySubtabs" class="mt-3 flex gap-2 overflow-x-auto p-1 bg-slate-100 rounded-lg"></div>
+    </div>
+    <div class="card p-3">
+      <div class="flex flex-wrap gap-3 items-end">
+        <div class="flex-1 min-w-[220px]"><label class="text-xs font-bold text-slate-500">Search</label><input id="searchInput" class="w-full p-2 border rounded-lg" placeholder="Product / API / reason"></div>
+        <div><label class="text-xs font-bold text-slate-500">Stage</label><select id="filterStage" class="p-2 border rounded-lg"><option>All</option><option>Raw</option><option>Bulk</option><option>Finished Product</option><option>Cleaning Validation</option><option>CHT</option><option>DHT</option><option>Campaign Length</option></select></div>
+        <div><label class="text-xs font-bold text-slate-500">Status</label><select id="filterStatus" class="p-2 border rounded-lg"><option>All</option><option>Draft</option><option>Pending Section Head</option><option>Pending Reviewer</option><option>Pending Deputy QA</option><option>Pending QA Manager</option><option>Returned for Revision</option><option>Approved</option><option>Rejected</option><option>Completed</option></select></div>
+        <div><label class="text-xs font-bold text-slate-500">Scale</label><select id="filterScale" class="p-2 border rounded-lg"><option>All</option><option>Lab Scale</option><option>Pilot Scale</option><option>Commercial Scale</option></select></div>
+        <button id="clearFiltersBtn" class="p-2 text-slate-500 hover:bg-slate-100 rounded-lg">Clear</button>
+      </div>
+    </div>
+    <div class="card table-scroll max-h-[calc(100vh-255px)]">
+      <table class="min-w-[1200px] w-full divide-y">
+        <thead class="bg-slate-50 sticky top-0 z-10"><tr><th class="p-3 text-left text-xs">Product / API</th><th class="p-3 text-left text-xs">Subcategory</th><th class="p-3 text-left text-xs">Date / Stage</th><th class="p-3 text-left text-xs">Plan / Execution</th><th class="p-3 text-left text-xs">Status</th><th class="p-3 text-left text-xs">Owner</th><th class="p-3 text-center text-xs">Actions</th></tr></thead>
+        <tbody id="dataTableBody" class="divide-y text-sm"></tbody>
+      </table>
+      <div id="emptyState" class="hidden p-10 text-center text-slate-500">No records match your criteria.</div>
+    </div>
+  </div>
 
-        // Tab Switching Logic
-        function switchTab(tabName) {
-            const tabs = ['studies', 'qualification', 'audit'];
-            
-            tabs.forEach(t => {
-                const tabEl = document.getElementById(`tab-${t}`);
-                const navEl = document.getElementById(`nav-${t}`);
-                
-                if (t === tabName) {
-                    tabEl.classList.remove('hidden');
-                    navEl.className = "w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium bg-blue-50 text-blue-700 transition-colors";
-                } else {
-                    tabEl.classList.add('hidden');
-                    navEl.className = "w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-colors";
-                }
-            });
-        }
-    </script>
+  <div id="moduleView" class="hidden space-y-3">
+    <div class="card p-4">
+      <div class="flex flex-wrap justify-between gap-3 items-center"><div><h2 id="moduleTitle" class="text-2xl font-extrabold"></h2><p id="moduleDescription" class="text-sm text-slate-500"></p></div>
+      <div class="flex gap-2"><label class="bg-emerald-600 text-white px-3 py-2 rounded-lg text-sm font-bold cursor-pointer"><i class="fas fa-file-excel mr-1"></i><span id="excelImportBtnText">Import Excel / Macro</span><input id="excelImportInput" type="file" class="hidden" accept=".xlsx,.xls,.xlsm"></label><button id="addModuleBtn" class="bg-accent text-white px-4 py-2 rounded-lg font-bold"><i class="fas fa-plus mr-1"></i>Add Record</button></div></div>
+      <div id="calibrationSubTabs" class="hidden mt-3 flex gap-2 overflow-x-auto p-1 bg-slate-100 rounded-lg">
+        <button class="module-tab subtab active px-3 py-2 rounded-lg text-sm font-bold" data-cal-tab="all">All Items</button>
+        <button class="module-tab subtab px-3 py-2 rounded-lg text-sm font-bold" data-cal-tab="monthly">Monthly Plan</button>
+        <button class="module-tab subtab px-3 py-2 rounded-lg text-sm font-bold" data-cal-tab="dept">Department List</button>
+        <button class="module-tab subtab px-3 py-2 rounded-lg text-sm font-bold" data-cal-tab="addendum">Addendum</button>
+        <button class="module-tab subtab px-3 py-2 rounded-lg text-sm font-bold" data-cal-tab="out">Out of Calibration</button>
+      </div>
+      <div id="qualificationSubTabs" class="hidden mt-3 flex gap-2 overflow-x-auto p-1 bg-slate-100 rounded-lg">
+        <button class="module-tab subtab active px-3 py-2 rounded-lg text-sm font-bold" data-qual-tab="all">All Items</button>
+        <button class="module-tab subtab px-3 py-2 rounded-lg text-sm font-bold" data-qual-tab="monthly">Monthly Plan</button>
+        <button class="module-tab subtab px-3 py-2 rounded-lg text-sm font-bold" data-qual-tab="utilities">Utilities</button>
+        <button class="module-tab subtab px-3 py-2 rounded-lg text-sm font-bold" data-qual-tab="system">System</button>
+        <button class="module-tab subtab px-3 py-2 rounded-lg text-sm font-bold" data-qual-tab="equipment">Equipment</button>
+      </div>
+      <div id="moduleMonthTabs" class="hidden mt-2 flex gap-1 overflow-x-auto bg-slate-800 p-1 rounded-lg"></div>
+    </div>
+    <div class="card p-3">
+      <div class="flex flex-wrap gap-3 items-end"><div class="flex-1 min-w-[220px]"><label id="modSearchLabel" class="text-xs font-bold text-slate-500">Search</label><input id="modSearchInput" class="w-full p-2 border rounded-lg"></div><div><label id="modFilterLabel1" class="text-xs font-bold text-slate-500">Filter</label><select id="modFilter1" class="p-2 border rounded-lg"><option value="All">All</option></select></div><div><label id="modFilterLabel2" class="text-xs font-bold text-slate-500">Filter</label><select id="modFilter2" class="p-2 border rounded-lg"><option value="All">All</option></select></div><div><label class="text-xs font-bold text-slate-500">Status</label><select id="modFilterStatus" class="p-2 border rounded-lg"><option value="All">All</option><option>Draft</option><option>Pending Section Head</option><option>Pending QA Manager</option><option>Completed</option><option>Approved</option></select></div><button id="modClearFiltersBtn" class="p-2 text-slate-500">Clear</button></div>
+    </div>
+    <div class="card table-scroll max-h-[calc(100vh-330px)]"><table class="min-w-[1250px] w-full divide-y"><thead id="moduleTableHead" class="bg-slate-50 sticky top-0 z-10"></thead><tbody id="moduleTableBody" class="divide-y text-sm"></tbody></table><div id="moduleEmptyState" class="hidden p-10 text-center text-slate-500">No records found.</div></div>
+  </div>
+
+  <div id="sopView" class="hidden space-y-3">
+    <div class="card p-5"><div class="flex flex-wrap justify-between gap-3"><div><h2 class="text-2xl font-extrabold">Validation Department SOPs</h2><p class="text-sm text-slate-500">Controlled repository for validation department procedures and work instructions.</p></div><label id="sopUploadLabel" class="bg-primary text-white px-4 py-2 rounded-lg font-bold cursor-pointer"><i class="fas fa-upload mr-1"></i>Upload SOP<input id="sopInput" type="file" class="hidden" accept=".pdf,.doc,.docx,.xls,.xlsx,.xlsm"></label></div></div>
+    <div class="card p-4"><div class="flex gap-3 mb-3"><input id="sopSearch" class="flex-1 p-2 border rounded-lg" placeholder="Search SOP title / file"><select id="sopTypeFilter" class="p-2 border rounded-lg"><option value="All">All Types</option><option value="SOP">SOP</option><option value="Work Instruction">Work Instruction</option><option value="Form">Form</option><option value="Other">Other</option></select></div><div id="sopList" class="space-y-2"></div></div>
+  </div>
+
+  <div id="prpoView" class="hidden space-y-3">
+    <div class="card p-4"><div class="flex flex-wrap justify-between gap-3"><div><h2 class="text-2xl font-extrabold">PR / PO Department Tracking</h2><p class="text-sm text-slate-500">Track purchase requisitions and purchase orders supporting validation activities.</p></div><button id="addPrpoBtn" class="bg-accent text-white px-4 py-2 rounded-lg font-bold"><i class="fas fa-plus mr-1"></i>Add PR / PO</button></div></div>
+    <div class="card p-3"><div class="flex flex-wrap gap-3"><input id="prpoSearch" class="flex-1 min-w-[220px] p-2 border rounded-lg" placeholder="PR / PO / supplier / description"><select id="prpoType" class="p-2 border rounded-lg"><option>All</option><option>PR</option><option>PO</option></select><select id="prpoStatus" class="p-2 border rounded-lg"><option>All</option><option>Draft</option><option>Pending Section Head</option><option>Pending QA Manager</option><option>Approved</option><option>Completed</option><option>Rejected</option></select></div></div>
+    <div class="card table-scroll max-h-[calc(100vh-290px)]"><table class="min-w-[1200px] w-full divide-y"><thead class="bg-slate-50 sticky top-0"><tr><th class="p-3 text-left text-xs">Type / Number</th><th class="p-3 text-left text-xs">Description</th><th class="p-3 text-left text-xs">Supplier</th><th class="p-3 text-left text-xs">Value</th><th class="p-3 text-left text-xs">Need / Due</th><th class="p-3 text-left text-xs">Status</th><th class="p-3 text-center text-xs">Actions</th></tr></thead><tbody id="prpoBody" class="divide-y"></tbody></table></div>
+  </div>
+</section>
+</main>
+
+<div id="modalRoot"></div>
+<div id="printArea"></div>
+
+<script type="module">
+import {initializeApp,deleteApp} from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+import {getAuth,onAuthStateChanged,signInWithEmailAndPassword,signOut,createUserWithEmailAndPassword,sendPasswordResetEmail} from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+import {getFirestore,collection,doc,getDoc,getDocs,setDoc,addDoc,updateDoc,deleteDoc,query,where,orderBy,limit,serverTimestamp} from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+const MY_FIREBASE_CONFIG={apiKey:"AIzaSyDEV8rEluViDZiA5nnv7BiIU78rgq5enA",authDomain:"validapp-db.firebaseapp.com",projectId:"validapp-db",storageBucket:"validapp-db.firebasestorage.app",messagingSenderId:"702664233017",appId:"1:702664233017:web:25fbede2f3c7244cdbfde8",measurementId:"G-7FTDYP0XWS"};
+const SUPABASE_URL="https://lnyignnyhihrkjauhzsk.supabase.co";
+const SUPABASE_ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxueWlnbm55aGlocmtqYXVoc3prIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjY2Mzg0MDAsImV4cCI6MjA0MjIxNDQwMH0.X9J2Q3K7L8M4N5P6Q7R8S9T0U1V2W3X4Y5Z6";
+const EMAILJS_PUBLIC_KEY="tx8P6mYyi6C6APSXn",EMAILJS_SERVICE_ID="service_nyq8c6p",EMAILJS_TEMPLATE_ID="template_008bbdj";
+if(window.emailjs) window.emailjs.init(EMAILJS_PUBLIC_KEY);
+const msalConfig={auth:{clientId:"22315588-6d90-4c55-87be-3e293fc5a7a9",authority:"https://login.microsoftonline.com/a0463def-3037-44e8-8e17-e94af8f05069",redirectUri:window.location.origin+window.location.pathname},cache:{cacheLocation:"localStorage",storeAuthStateInCookie:false}};
+const msalInstance=(window.msal&&window.msal.PublicClientApplication)?new msal.PublicClientApplication(msalConfig):null;
+const firebaseConfig=typeof __firebase_config!=="undefined"?JSON.parse(__firebase_config):MY_FIREBASE_CONFIG;
+const appId=typeof __app_id!=="undefined"?__app_id:"validapp-default";
+const app=initializeApp(firebaseConfig),auth=getAuth(app),db=getFirestore(app);
+const supabaseClient=window.supabase?.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
+
+const ROLES=Object.freeze({ADMIN:"Administrator",CREATOR:"Creator",SECTION_HEAD:"Section Head",DEPUTY:"Deputy QA Manager",QA_MANAGER:"QA Manager",REVIEWER:"Reviewer — Other Department",VIEWER:"Viewer"});
+const ROLE_LIST=Object.values(ROLES);
+const STATUS=Object.freeze({DRAFT:"Draft",PENDING_SECTION_HEAD:"Pending Section Head",PENDING_REVIEWER:"Pending Reviewer",PENDING_DEPUTY:"Pending Deputy QA",PENDING_QA:"Pending QA Manager",RETURNED:"Returned for Revision",APPROVED:"Approved",REJECTED:"Rejected",COMPLETED:"Completed"});
+const ACTIONS={IN_PLAN:"In Plan",EXECUTED:"Executed"};
+const CATS={PROCESS:"Process Validation",HOLD:"Hold Time Study",CLEANING:"Cleaning Validation"};
+const MODULES={STUDIES:"Studies",CAL:"Calibration",QUAL:"Qualification",SOP:"SOPs",PRPO:"PR / PO"};
+const MAX_FILE=25*1024*1024;
+const ALLOWED=["pdf","doc","docx","xls","xlsx","xlsm","jpg","jpeg","png"];
+
+let currentUser=null,currentProfile=null,currentView="home",currentCategory=CATS.PROCESS,currentStudySubtab="all";
+let currentModule=MODULES.CAL,currentModuleTab="all",currentMonth=new Date().toLocaleString("en-US",{month:"long"});
+let records=[],moduleRecords=[],users=[],sops=[],prpos=[],auditLogs=[],filesByParent=[],pendingAction=null;
+let inactivityTimer=null,lastActivity=Date.now(),passwordExpired=false;
+
+const $=id=>document.getElementById(id);
+const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+const colRef=n=>collection(db,"artifacts",appId,"public","data",n);
+const docRef=(n,id)=>doc(db,"artifacts",appId,"public","data",n,id);
+const nowLabel=v=>{if(!v)return"—";const d=v?.toDate?v.toDate():new Date(v);return Number.isNaN(d.getTime())?"—":d.toLocaleString()};
+const role=()=>currentProfile?.role;
+const can=(...r)=>!!currentProfile&&r.includes(role());
+const admin=()=>can(ROLES.ADMIN),creator=()=>can(ROLES.CREATOR),viewer=()=>can(ROLES.VIEWER);
+const reviewer=()=>can(ROLES.SECTION_HEAD,ROLES.REVIEWER,ROLES.DEPUTY,ROLES.QA_MANAGER);
+const isQAApprover=()=>can(ROLES.QA_MANAGER)||isDelegatedDeputy();
+const isSopUser=()=>can(ROLES.ADMIN,ROLES.CREATOR,ROLES.SECTION_HEAD,ROLES.DEPUTY,ROLES.QA_MANAGER);
+
+function friendly(e){if(e?.code?.includes("permission-denied"))return"Permission denied. Check Firestore rules and the user's role profile.";if(e?.code?.includes("network"))return"Network connection failed.";return e?.message||"Unexpected error."}
+function badge(s){let c=s===STATUS.APPROVED||s===STATUS.COMPLETED?"bg-green-50 text-green-700 border-green-200":s===STATUS.REJECTED?"bg-red-50 text-red-700 border-red-200":s===STATUS.RETURNED?"bg-amber-50 text-amber-700 border-amber-200":"bg-blue-50 text-blue-700 border-blue-200";return`<span class="pill ${c}">${esc(s||"—")}</span>`}
+function actionBadge(a){return`<span class="pill ${a===ACTIONS.EXECUTED?"bg-emerald-50 text-emerald-700 border-emerald-200":"bg-indigo-50 text-indigo-700 border-indigo-200"}">${esc(a||ACTIONS.IN_PLAN)}</span>`}
+function showMsg(title,text,type="info"){const id="msgModal";if($(id))$(id).remove();document.body.insertAdjacentHTML("beforeend",`<div id="${id}" class="modal active fixed inset-0 bg-black/50 z-[100] items-center justify-center p-4"><div class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 text-center"><div class="text-4xl mb-3">${type==="error"?"❌":type==="success"?"✅":"ℹ️"}</div><h3 class="font-extrabold text-lg">${esc(title)}</h3><p class="text-sm text-slate-600 mt-2 whitespace-pre-wrap">${esc(text)}</p><button data-close-msg class="mt-5 w-full bg-primary text-white py-2 rounded-lg font-bold">OK</button></div></div>`);$("msgModal").querySelector("[data-close-msg]").onclick=()=>$("msgModal").remove()}
+function modal(html){$("modalRoot").innerHTML=html}
+function closeModal(){$("modalRoot").innerHTML=""}
+function confirmAction(title,text,callback,reason=false,label="Reason / Comment *"){pendingAction=callback;modal(`<div class="modal active fixed inset-0 bg-black/50 z-[90] items-center justify-center p-4"><div class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6"><h3 class="font-extrabold text-lg">${esc(title)}</h3><p class="text-sm text-slate-600 mt-2">${esc(text)}</p>${reason?`<label class="block text-xs font-bold mt-4">${esc(label)}</label><textarea id="confirmReason" class="w-full p-2 border rounded-lg mt-1" rows="3"></textarea>`:""}<div class="flex justify-end gap-2 mt-5"><button data-cancel class="px-4 py-2 border rounded-lg">Cancel</button><button id="confirmAccept" class="px-4 py-2 bg-primary text-white rounded-lg font-bold">Confirm</button></div></div></div>`);document.querySelector("[data-cancel]").onclick=closeModal;$("#confirmAccept").onclick=async()=>{const r=$("#confirmReason")?.value.trim()||"";if(reason&&!r)return showMsg("Comment required","Please enter the required comment.","error");const cb=pendingAction;pendingAction=null;closeModal();await cb(r)}}
+
+async function audit(action,targetId="",targetName="",details="",previous="",next="",extra={}) {
+  if(!currentUser||!currentProfile)return;
+  try{await addDoc(colRef("audit"),{userId:currentUser.uid,userName:currentProfile.displayName||currentUser.email,userRole:role(),action,targetId:targetId||null,targetName:targetName||null,studyId:targetId||null,studyName:targetName||null,previousStatus:previous||null,newStatus:next||null,details,createdAt:serverTimestamp(),clientTimestamp:new Date().toISOString(),...extra})}catch(e){console.error("Audit:",e)}
+}
+async function notifyEmails(action,targetName,status,details,excludeSelf=false){
+  if(!window.emailjs||!currentUser)return;
+  try{
+    const snap=await getDocs(colRef("users"));const recipients=snap.docs.map(d=>d.data()).filter(u=>u.disabled!==true&&u.email&&(!excludeSelf||u.email.toLowerCase()!==currentUser.email.toLowerCase()));
+    for(const u of recipients){
+      await window.emailjs.send(EMAILJS_SERVICE_ID,EMAILJS_TEMPLATE_ID,{to_email:u.email,action_taken:action,timestamp:new Date().toLocaleString(),username:currentProfile?.displayName||currentUser.email,product_details:targetName||"N/A",current_status:status||"N/A",audit_details:details||""});
+    }
+  }catch(e){console.warn("Email notification:",e)}
+}
+function isDelegatedDeputy(){
+  if(!can(ROLES.DEPUTY))return false;
+  const d=currentProfile?.qaDelegation;if(!d?.active)return false;
+  const now=Date.now(),from=d.startDate?new Date(d.startDate+"T00:00:00").getTime():0,to=d.endDate?new Date(d.endDate+"T23:59:59").getTime():0;
+  return now>=from&&now<=to;
+}
+function delegationLabel(){return isDelegatedDeputy()?`QA Manager Delegation Active (${currentProfile.qaDelegation.startDate} → ${currentProfile.qaDelegation.endDate})`:""}
+
+async function loadProfile(u){
+  let s=await getDoc(docRef("users",u.uid));
+  if(!s.exists() && u.email) s=await getDoc(docRef("users",u.email.toLowerCase()));
+  if(!s.exists() && u.email) s=await getDoc(docRef("users",u.email.split("@")[0].toLowerCase()));
+  if(!s.exists()){
+    try{
+      const q=await getDocs(query(colRef("users"),where("email","==",u.email.toLowerCase()),limit(1)));
+      if(!q.empty) s=q.docs[0];
+    }catch(e){console.warn("Email profile lookup skipped:",e)}
+  }
+  if(!s.exists()) throw Error("Your Firebase account exists, but no ValidApp profile was found for this email. Contact an Administrator.");
+  const raw=s.data();
+  const aliases={admin:ROLES.ADMIN,administrator:ROLES.ADMIN,creator:ROLES.CREATOR,"section head":ROLES.SECTION_HEAD,"deputy qa manager":ROLES.DEPUTY,"qa deputy manager":ROLES.DEPUTY,"qa manager":ROLES.QA_MANAGER,"reviewer":ROLES.REVIEWER,"reviewer — other department":ROLES.REVIEWER,viewer:ROLES.VIEWER};
+  const normalizedRole=ROLE_LIST.includes(raw.role)?raw.role:aliases[String(raw.role||"").trim().toLowerCase()];
+  if(!normalizedRole) throw Error(`Your ValidApp profile has an invalid role: ${raw.role||"not assigned"}.`);
+  if(raw.disabled===true) throw Error("Your ValidApp account is disabled.");
+  const p={id:s.id,...raw,role:normalizedRole};
+  const changed=p.passwordChangedAt?.toDate?p.passwordChangedAt.toDate():p.passwordChangedAt?new Date(p.passwordChangedAt):null;
+  p.passwordExpired=!!changed&&!Number.isNaN(changed.getTime())&&(Date.now()-changed.getTime()>90*24*60*60*1000);
+  if(s.id!==u.uid){try{await setDoc(docRef("users",u.uid),{...raw,email:u.email||raw.email,role:normalizedRole,username:raw.username||u.email?.split("@")[0],migratedFrom:s.id,updatedAt:serverTimestamp()},{merge:true})}catch(e){console.warn("Profile migration skipped:",e)}}
+  return p;
+}
+function updateActivity(){lastActivity=Date.now();if(inactivityTimer)clearTimeout(inactivityTimer);inactivityTimer=setTimeout(()=>{if(currentUser){showMsg("Session expired","You were automatically logged out after 15 minutes without activity.","error");setTimeout(()=>signOut(auth),700)}},15*60*1000)}
+function setupActivity(){["click","keydown","mousemove","scroll","touchstart"].forEach(e=>document.addEventListener(e,updateActivity,{passive:true}));updateActivity()}
+function resetUI(){ $("loginSection").classList.remove("hidden");$("dashboardSection").classList.add("hidden");$("userInfo").classList.add("hidden");$("userInfo").classList.remove("flex");}
+function nav(id){document.querySelectorAll(".nav-btn").forEach(x=>x.classList.remove("active"));if($(id))$(id).classList.add("active")}
+function configureNav(){
+  $("userInfo").classList.remove("hidden");$("userInfo").classList.add("flex");
+  $("currentUserDisplay").textContent=currentProfile?.displayName||currentUser.email;
+  $("currentUserRole").textContent=role()+(isDelegatedDeputy()?" • Delegate":"");
+  $("currentUserDepartment").textContent=currentProfile?.department||"—";
+  $("userManagementBtn").classList.toggle("hidden",!admin());
+  $("auditTrailBtn").classList.toggle("hidden",!can(ROLES.ADMIN,ROLES.QA_MANAGER,ROLES.DEPUTY));
+  $("sopNav").classList.toggle("hidden",!isSopUser());
+  $("addRecordBtn").classList.toggle("hidden",!(admin()||creator()));
+}
+function showView(v){
+  currentView=v;["homeView","studiesView","moduleView","sopView","prpoView"].forEach(id=>$(id).classList.add("hidden"));
+  if(v==="home"){$("homeView").classList.remove("hidden");nav("homeNav");loadDashboard()}
+  if(v==="studies"){$("studiesView").classList.remove("hidden");nav("studiesNav");loadStudies()}
+  if(v==="cal"){$("moduleView").classList.remove("hidden");nav("calibrationNav");currentModule=MODULES.CAL;loadModule()}
+  if(v==="qual"){$("moduleView").classList.remove("hidden");nav("qualificationNav");currentModule=MODULES.QUAL;loadModule()}
+  if(v==="sop"){$("sopView").classList.remove("hidden");nav("sopNav");loadSops()}
+  if(v==="prpo"){$("prpoView").classList.remove("hidden");nav("prpoNav");loadPrpo()}
+}
+function studySubtabs(){
+  let a=[];
+  if(currentCategory===CATS.PROCESS)a=["all|All Studies","draft|Draft Studies","odf|Process Validation of ODF Products","hgc|Process Validation of HGC Products","verification|Process Verification"];
+  if(currentCategory===CATS.HOLD)a=["all|All Studies","draft|Draft Studies","bulkodf|Bulk Hold Time Study for ODF","bulkcap|Bulk Hold Time Study for Capsule","api|Dispensed API Hold Time"];
+  if(currentCategory===CATS.CLEANING)a=["all|All Studies","draft|Draft Studies","odfclean|Cleaning Validation for ODF Equipment","capclean|Cleaning Validation for Capsule Equipment","cht|CHT","dht|DHT","campaign|Campaign Length","newEq|Results of New Equipment"];
+  $("studySubtabs").innerHTML=a.map(x=>{let [v,t]=x.split("|");return`<button class="study-sub px-3 py-2 rounded-lg text-xs font-bold ${currentStudySubtab===v?"bg-primary text-white":"bg-slate-100 text-slate-700"}" data-study-sub="${v}">${esc(t)}</button>`}).join("");
+}
+function studySubMatch(r){
+  if(currentStudySubtab==="all")return true;
+  if(currentStudySubtab==="draft")return r.status===STATUS.DRAFT;
+  const s=(r.subCategory||r.stage||"").toLowerCase();
+  const map={odf:"odf",hgc:"hgc",verification:"verification",bulkodf:"bulk hold time study for odf",bulkcap:"bulk hold time study for capsule",api:"dispensed api hold time",odfclean:"cleaning validation for odf",capclean:"cleaning validation for capsule",cht:"cht",dht:"dht",campaign:"campaign length",newEq:"results of new equipment"};
+  return s.includes(map[currentStudySubtab]||"###");
+}
+async function loadStudies(){
+  try{const snap=await getDocs(query(colRef("records"),orderBy("createdAt","desc")));records=snap.docs.map(d=>({id:d.id,...d.data()}));renderStudies()}catch(e){showMsg("Study load failed",friendly(e),"error")}
+}
+function nextStatus(r){
+  if(r.status===STATUS.PENDING_SECTION_HEAD)return r.requireOtherDeptReview?STATUS.PENDING_REVIEWER:STATUS.PENDING_DEPUTY;
+  if(r.status===STATUS.PENDING_REVIEWER)return STATUS.PENDING_DEPUTY;
+  if(r.status===STATUS.PENDING_DEPUTY)return STATUS.PENDING_QA;
+  return STATUS.PENDING_QA;
+}
+function studyButtons(r){
+  const owner=admin()||r.createdByUid===currentUser?.uid;
+  let b=[];
+  if(owner&&[STATUS.DRAFT,STATUS.RETURNED].includes(r.status))b.push(`<button data-edit-study="${r.id}" class="text-blue-700 font-bold">Edit</button>`);
+  if(owner&&r.status===STATUS.DRAFT)b.push(`<button data-submit-study="${r.id}" class="text-indigo-700 font-bold">Submit</button>`);
+  if(r.status===STATUS.APPROVED&&owner)b.push(r.action===ACTIONS.EXECUTED?`<button data-study-action="${r.id}" data-action="In Plan" class="text-indigo-700 font-bold">Mark In Plan</button>`:`<button data-study-action="${r.id}" data-action="Executed" class="text-emerald-700 font-bold">Mark Executed</button>`);
+  if(can(ROLES.SECTION_HEAD)&&r.status===STATUS.PENDING_SECTION_HEAD)b.push(`<button data-review-study="${r.id}" class="text-blue-700 font-bold">Review</button>`);
+  if(can(ROLES.REVIEWER)&&r.status===STATUS.PENDING_REVIEWER)b.push(`<button data-review-study="${r.id}" class="text-blue-700 font-bold">Review</button>`);
+  if(can(ROLES.DEPUTY)&&r.status===STATUS.PENDING_DEPUTY)b.push(`<button data-review-study="${r.id}" class="text-blue-700 font-bold">Review</button>`);
+  if(isQAApprover()&&r.status===STATUS.PENDING_QA)b.push(`<button data-approve-study="${r.id}" class="text-green-700 font-bold">${isDelegatedDeputy()?"Approve as Delegate":"Approve"}</button>`);
+  if((reviewer()||admin())&&!["Approved","Rejected"].includes(r.status)&&r.status!==STATUS.DRAFT)b.push(`<button data-return-study="${r.id}" class="text-amber-700 font-bold">Return</button>`);
+  if((can(ROLES.QA_MANAGER)||isDelegatedDeputy())&&r.status===STATUS.PENDING_QA)b.push(`<button data-reject-study="${r.id}" class="text-red-700 font-bold">Reject</button>`);
+  b.push(`<button data-files-study="${r.id}" class="text-slate-600 font-bold">Files</button>`);
+  if(r.status!==STATUS.DRAFT)b.push(`<button data-history-study="${r.id}" class="text-slate-600 font-bold">History</button>`);
+  return b.join(" · ");
+}
+function renderStudies(){
+  studySubtabs();const q=$("searchInput").value.trim().toLowerCase(),st=$("filterStage").value,ss=$("filterStatus").value,sc=$("filterScale").value;
+  let arr=records.filter(r=>r.studyCategory===currentCategory&&studySubMatch(r)&&(!q||`${r.productName} ${r.reason} ${r.notes}`.toLowerCase().includes(q))&&(st==="All"||r.stage===st)&&(ss==="All"||r.status===ss)&&(sc==="All"||r.scale===sc));
+  if(viewer())arr=arr.filter(r=>r.status===STATUS.APPROVED||r.status===STATUS.COMPLETED);
+  $("dataTableBody").innerHTML=arr.map(r=>`<tr class="hover:bg-slate-50"><td class="p-3 font-bold">${esc(r.productName)}<div class="text-xs text-slate-500">${esc(r.productType)}</div></td><td class="p-3 text-xs">${esc(r.subCategory||r.stage||"—")}</td><td class="p-3 text-xs">${esc(r.date)}<div class="font-semibold">${esc(r.stage)}</div></td><td class="p-3">${actionBadge(r.action)}<div class="text-xs mt-1">${r.executedAt?esc(nowLabel(r.executedAt)):""}</div></td><td class="p-3">${badge(r.status)}</td><td class="p-3 text-xs">${esc(r.createdByName||"—")}</td><td class="p-3 text-center whitespace-nowrap">${studyButtons(r)}</td></tr>`).join("");
+  $("emptyState").classList.toggle("hidden",arr.length>0);
+}
+function openStudy(record=null){
+  modal(`<div class="modal active fixed inset-0 bg-black/50 z-50 items-center justify-center p-4"><div class="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[92vh] overflow-auto p-6"><div class="flex justify-between border-b pb-3 mb-4"><h3 class="text-xl font-extrabold">${record?"Edit":"Add"} Validation Study</h3><button data-modal-close>✕</button></div>
+<form id="studyForm" class="space-y-4"><input type="hidden" id="studyId" value="${record?.id||""}"><div class="grid md:grid-cols-2 gap-4">
+<div><label class="text-sm font-bold">Product / API *</label><input id="productName" required class="w-full p-2 border rounded-lg" value="${esc(record?.productName)}"></div>
+<div><label class="text-sm font-bold">Category *</label><select id="studyCategory" class="w-full p-2 border rounded-lg"><option ${currentCategory===CATS.PROCESS?"selected":""}>${CATS.PROCESS}</option><option ${currentCategory===CATS.HOLD?"selected":""}>${CATS.HOLD}</option><option ${currentCategory===CATS.CLEANING?"selected":""}>${CATS.CLEANING}</option></select></div>
+<div><label class="text-sm font-bold">Subcategory</label><input id="subCategory" class="w-full p-2 border rounded-lg" value="${esc(record?.subCategory||"")}"></div>
+<div><label class="text-sm font-bold">Product Type</label><input id="productType" class="w-full p-2 border rounded-lg" value="${esc(record?.productType||"Finished Product")}"></div>
+<div><label class="text-sm font-bold">Study Date *</label><input id="studyDate" type="date" required class="w-full p-2 border rounded-lg" value="${esc(record?.date||"")}"></div>
+<div><label class="text-sm font-bold">Stage</label><select id="stage" class="w-full p-2 border rounded-lg">${["Raw","Bulk","Finished Product","Cleaning Validation","CHT","DHT","Campaign Length"].map(x=>`<option ${x===(record?.stage||"Raw")?"selected":""}>${x}</option>`).join("")}</select></div>
+<div><label class="text-sm font-bold">Scale</label><select id="scale" class="w-full p-2 border rounded-lg">${["Lab Scale","Pilot Scale","Commercial Scale"].map(x=>`<option ${x===(record?.scale||"Lab Scale")?"selected":""}>${x}</option>`).join("")}</select></div>
+<div><label class="text-sm font-bold">Version *</label><input id="version" required class="w-full p-2 border rounded-lg" value="${esc(record?.version||"v1.0")}"></div></div>
+<div><label class="text-sm font-bold">Reason / Scope *</label><textarea id="reason" required class="w-full p-2 border rounded-lg" rows="2">${esc(record?.reason)}</textarea></div>
+<div><label class="text-sm font-bold">Notes</label><textarea id="notes" class="w-full p-2 border rounded-lg" rows="2">${esc(record?.notes)}</textarea></div>
+<label class="flex items-center gap-2 text-sm font-semibold"><input id="requireOtherDeptReview" type="checkbox" ${record?.requireOtherDeptReview?"checked":""}> Require Other Department Review</label>
+<div class="flex justify-end gap-2 pt-3 border-t"><button type="button" data-modal-close class="px-4 py-2 border rounded-lg">Cancel</button><button class="px-5 py-2 bg-primary text-white rounded-lg font-bold">Save Draft</button></div></form></div></div>`);
+  document.querySelectorAll("[data-modal-close]").forEach(x=>x.onclick=closeModal);
+  $("#studyForm").onsubmit=async e=>{e.preventDefault();await saveStudy(record)};
+}
+async function saveStudy(old){
+  const data={productName:$("#productName").value.trim(),studyCategory:$("#studyCategory").value,subCategory:$("#subCategory").value.trim(),productType:$("#productType").value.trim(),date:$("#studyDate").value,stage:$("#stage").value,scale:$("#scale").value,version:$("#version").value.trim(),reason:$("#reason").value.trim(),notes:$("#notes").value.trim(),requireOtherDeptReview:$("#requireOtherDeptReview").checked,updatedAt:serverTimestamp()};
+  if(!data.productName||!data.date||!data.reason||!data.version)return showMsg("Missing fields","Complete all required fields.","error");
+  try{
+    if(old){await updateDoc(docRef("records",old.id),data);showMsg("Saved","Draft/study updated.","success")}
+    else{await addDoc(colRef("records"),{...data,status:STATUS.DRAFT,action:ACTIONS.IN_PLAN,createdByUid:currentUser.uid,createdByName:currentProfile.displayName||currentUser.email,createdAt:serverTimestamp()});showMsg("Draft created","The study is saved as Draft.","success")}
+    closeModal();loadStudies();
+  }catch(e){showMsg("Save failed",friendly(e),"error")}
+}
+async function submitStudy(id){
+  const r=records.find(x=>x.id===id);if(!r)return;
+  try{const next=STATUS.PENDING_SECTION_HEAD;await updateDoc(docRef("records",id),{status:next,submittedAt:serverTimestamp(),updatedAt:serverTimestamp()});await audit("Study Submitted",id,r.productName,"Draft submitted for controlled review.",STATUS.DRAFT,next);await notifyEmails("Study Submitted",r.productName,next,"A study has been submitted for Section Head review.");await loadStudies();showMsg("Submitted","Study submitted to Section Head.","success")}catch(e){showMsg("Submission failed",friendly(e),"error")}
+}
+async function workflow(id,target,comment="",actionName="Workflow Progressed"){
+  const r=records.find(x=>x.id===id);if(!r)return;const old=r.status;
+  const u={status:target,updatedAt:serverTimestamp(),lastActionByUid:currentUser.uid,lastActionByName:currentProfile.displayName||currentUser.email,lastActionRole:role()};
+  if(target===STATUS.APPROVED){u.approvedByUid=currentUser.uid;u.approvedByName=currentProfile.displayName||currentUser.email;u.approvedAt=serverTimestamp();u.approvedAsDelegate=isDelegatedDeputy()}
+  if(target===STATUS.REJECTED){u.rejectedByUid=currentUser.uid;u.rejectedAt=serverTimestamp();u.rejectionReason=comment}
+  await updateDoc(docRef("records",id),u);await addDoc(colRef("reviews"),{studyId:id,studyName:r.productName,reviewerUid:currentUser.uid,reviewerName:currentProfile.displayName||currentUser.email,reviewerRole:role(),comment,action:actionName,createdAt:serverTimestamp()});
+  await audit(actionName,id,r.productName,comment||`${role()} action`,old,target,{delegatedApproval:isDelegatedDeputy()});await notifyEmails(actionName,r.productName,target,comment||`${old} → ${target}`);await loadStudies();
+}
+async function returnStudy(id){
+  const r=records.find(x=>x.id===id);if(!r)return;
+  confirmAction("Return for Revision", `Return "${r.productName}" to the Creator?`, async c=>{
+    try{await workflow(id,STATUS.DRAFT,c,"Returned for Revision");}catch(e){console.error(e);alert(e.message);}
+  });
+}
+async function reviewStudy(id){
+  const r=records.find(x=>x.id===id);if(!r)return;
+  confirmAction("Complete Review", `Complete review for "${r.productName}"?`, async c=>{
+    try{await workflow(id,STATUS.PENDING_DEPUTY,c,"Review Completed");}catch(e){console.error(e);alert(e.message);}
+  });
+}
+async function approveStudy(id){
+  const r=records.find(x=>x.id===id);if(!r)return;
+  confirmAction(isDelegatedDeputy()?"Approve as QA Manager Delegate":"Approve Study", `Approve "${r.productName}"?`, async c=>{
+    try{await workflow(id,STATUS.APPROVED,c,"Approved");}catch(e){console.error(e);alert(e.message);}
+  });
+}
+async function rejectStudy(id){
+  confirmAction("Reject Study","Rejection requires a documented reason.",async c=>{
+    try{await workflow(id,STATUS.REJECTED,c,"Study Rejected");showMsg("Rejected","Study rejected.","success")}catch(e){showMsg("Rejection failed",friendly(e),"error")}
+  },true,"Rejection reason *");
+}
+async function setStudyAction(id,a){
+  const r=records.find(x=>x.id===id);if(!r)return;
+  try{await updateDoc(docRef("records",id),{action:a,executedAt:a===ACTIONS.EXECUTED?serverTimestamp():null,lastActionByUid:currentUser.uid,lastActionByName:currentProfile.displayName||currentUser.email,updatedAt:serverTimestamp()});await audit(a===ACTIONS.EXECUTED?"Study Executed":"Study Returned to Plan",id,r.productName,`Execution status changed to ${a}`,r.status,r.status);await notifyEmails(`Study ${a}`,r.productName,r.status,`Execution status changed to ${a}.`);await loadStudies();showMsg("Updated",`Study is now marked "${a}".`,"success")}catch(e){showMsg("Execution update failed",friendly(e),"error")}
+}
+async function filesFor(parentId,module){
+  try{const snap=await getDocs(query(colRef("studyFiles"),where("parentId","==",parentId)));filesByParent=snap.docs.map(d=>({id:d.id,...d.data()})).filter(x=>!x.deletedAt);openFileModal(parentId,module)}catch(e){showMsg("File load failed",friendly(e),"error")}
+}
+function openFileModal(parentId,module){
+  const canUpload=module==="sop"?isSopUser():!viewer();
+  modal(`<div class="modal active fixed inset-0 bg-black/50 z-50 items-center justify-center p-4"><div class="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-auto p-6"><div class="flex justify-between border-b pb-3 mb-4"><h3 class="font-extrabold text-lg">Documents & Attachments</h3><button data-modal-close>✕</button></div>${canUpload?`<label class="inline-block bg-primary text-white px-4 py-2 rounded-lg font-bold cursor-pointer mb-4">Upload<input id="modalFileInput" type="file" multiple class="hidden" accept=".pdf,.doc,.docx,.xls,.xlsx,.xlsm,.jpg,.jpeg,.png"></label>`:""}<div id="modalFiles" class="space-y-2"></div></div></div>`);
+  document.querySelectorAll("[data-modal-close]").forEach(x=>x.onclick=closeModal);
+  renderModalFiles(parentId,module);if(canUpload)$("#modalFileInput").onchange=e=>uploadFiles(parentId,e.target,module);
+}
+async function uploadFiles(parentId,input,module){
+  if(!supabaseClient)return showMsg("Storage unavailable","Supabase client is not initialized.","error");
+  for(const f of Array.from(input.files||[])){
+    const ext=f.name.split(".").pop().toLowerCase();if(!ALLOWED.includes(ext)||f.size>MAX_FILE)return showMsg("Invalid file",`${f.name}: unsupported type or larger than 25 MB.`,"error");
+    try{const fid=crypto.randomUUID(),path=`${appId}/${module}/${parentId}/${fid}_${f.name.replace(/[^a-zA-Z0-9._-]/g,"_")}`;const {error}=await supabaseClient.storage.from("documents").upload(path,f,{upsert:false,cacheControl:"3600"});if(error)throw Error(error.message);await addDoc(colRef("studyFiles"),{parentId,module,name:f.name,contentType:f.type,size:f.size,storagePath:path,uploadedByUid:currentUser.uid,uploadedByName:currentProfile.displayName||currentUser.email,createdAt:serverTimestamp(),uploadedAt:serverTimestamp()});if(module==="sop")await audit("SOP Uploaded",parentId,f.name,"Controlled SOP document uploaded.");else await audit("File Uploaded",parentId,"",f.name); }catch(e){showMsg("Upload failed",friendly(e),"error")}
+  }
+  await filesFor(parentId,module);
+}
+async function renderModalFiles(parentId,module){
+  const arr=filesByParent.filter(f=>f.parentId===parentId);
+  $("#modalFiles").innerHTML=arr.map(f=>`<div class="border rounded-lg p-3 flex justify-between gap-3"><div><b>${esc(f.name)}</b><div class="text-xs text-slate-500">${(f.size/1048576).toFixed(2)} MB • ${esc(nowLabel(f.createdAt))}</div></div><div class="flex gap-2"><button data-file-view="${f.id}" class="text-primary font-bold text-sm">View</button><button data-file-download="${f.id}" class="text-slate-600 font-bold text-sm">Download</button></div></div>`).join("")||`<div class="text-sm text-slate-500">No documents.</div>`;
+  document.querySelectorAll("[data-file-view]").forEach(b=>b.onclick=()=>openStoredFile(arr.find(f=>f.id===b.dataset.fileView),false));
+  document.querySelectorAll("[data-file-download]").forEach(b=>b.onclick=()=>openStoredFile(arr.find(f=>f.id===b.dataset.fileDownload),true));
+}
+async function openStoredFile(f,download){
+  try{const {data,error}=await supabaseClient.storage.from("documents").createSignedUrl(f.storagePath,120,{download:download?f.name:false});if(error)throw Error(error.message);if(download){const a=document.createElement("a");a.href=data.signedUrl;a.download=f.name;a.click()}else window.open(data.signedUrl,"_blank","noopener")}catch(e){showMsg("File access failed",friendly(e),"error")}
+}
+async function showHistory(id){
+  const snap=await getDocs(query(colRef("reviews"),where("studyId","==",id)));const arr=snap.docs.map(d=>d.data()).sort((a,b)=>(b.createdAt?.seconds||0)-(a.createdAt?.seconds||0));
+  modal(`<div class="modal active fixed inset-0 bg-black/50 z-50 items-center justify-center p-4"><div class="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-auto p-6"><div class="flex justify-between"><h3 class="font-extrabold text-lg">Workflow History</h3><button data-modal-close>✕</button></div><div class="mt-4 space-y-3">${arr.map(x=>`<div class="border-l-4 border-blue-500 pl-3"><b>${esc(x.action\vert{}\vert{}"Review")} • ${esc(x.reviewerRole||"")}</b><div class="text-xs text-slate-500">${esc(x.reviewerName)} •${esc(nowLabel(x.createdAt))}</div><div class="text-sm mt-1 whitespace-pre-wrap">${esc(x.comment||"No comment")}</div></div>`).join("")||"<p class='text-sm text-slate-500'>No history.</p>"}</div></div></div>`);
+  document.querySelectorAll("[data-modal-close]").forEach(x=>x.onclick=closeModal);
+}
+
+async function loadModule(){
+  const cal=currentModule===MODULES.CAL;$("#moduleTitle").textContent=cal?"Calibration":"Qualification";$("#moduleDescription").textContent=cal?"Calibration monthly and department plans, due dates and execution tracking":"Qualification monthly plan, utilities and systems with due-date monitoring";
+  $("#calibrationSubTabs").classList.toggle("hidden",!cal);$("#qualificationSubTabs").classList.toggle("hidden",cal);
+  const c=cal?"calibration":"qualification";try{const snap=await getDocs(query(colRef(c),orderBy("createdAt","desc")));moduleRecords=snap.docs.map(d=>({id:d.id,...d.data()}));populateModuleFilters();renderModuleTable()}catch(e){showMsg("Module load failed",friendly(e),"error")}
+}
+function moduleMatch(r){
+  if(currentModuleTab==="all")return true;
+  if(currentModule===MODULES.CAL){
+    if(currentModuleTab==="monthly")return monthMatch(r.monthYear||r.dueDate||r.calDate);
+    if(currentModuleTab==="dept")return !!r.department;
+    if(currentModuleTab==="addendum")return !!r.isAddendum;
+    if(currentModuleTab==="out")return !!r.isOutOfCalibration;
+  }else{
+    if(currentModuleTab==="monthly")return monthMatch(r.plannedDate||r.dueDate);
+    if(currentModuleTab==="utilities")return r.qualificationType==="utilities";
+    if(currentModuleTab==="system")return r.qualificationType==="system";
+    if(currentModuleTab==="equipment")return r.qualificationType==="equipment";
+  }return true;
+}
+function monthMatch(v){if(!v)return false;const s=String(v).toLowerCase(),m=currentMonth.toLowerCase();return s.includes(m)||s.includes(m.slice(0,3))}
+function populateModuleFilters(){
+  const cal=currentModule===MODULES.CAL;$("#modSearchLabel").textContent=cal?"Certificate / Instrument / Code":"Name / Reference";$("#modFilterLabel1").textContent=cal?"Department":"Type";$("#modFilterLabel2").textContent=cal?"Location":"Stage";
+  const vals1=[...new Set(moduleRecords.map(r=>cal?r.department:r.qualificationType).filter(Boolean))].sort(),vals2=[...new Set(moduleRecords.map(r=>cal?r.location:r.stage).filter(Boolean))].sort();
+  $("#modFilter1").innerHTML=`<option value="All">All</option>`+vals1.map(x=>`<option>${esc(x)}</option>`).join("");$("#modFilter2").innerHTML=`<option value="All">All</option>`+vals2.map(x=>`<option>${esc(x)}</option>`).join("");
+}
+function moduleCanEdit(r){return admin()||r.createdByUid===currentUser?.uid}
+function moduleButtons(r){
+  let b=[];if(moduleCanEdit(r)&&[STATUS.DRAFT,STATUS.RETURNED].includes(r.status))b.push(`<button data-module-edit="${r.id}" class="text-blue-700 font-bold">Edit</button>`);
+  if(moduleCanEdit(r)&&r.status===STATUS.DRAFT)b.push(`<button data-module-submit="${r.id}" class="text-indigo-700 font-bold">Submit</button>`);
+  if(r.status===STATUS.APPROVED&&moduleCanEdit(r))b.push(`<button data-module-exec="${r.id}" data-exec="${r.executedTracker?0:1}" class="text-emerald-700 font-bold">${r.executedTracker?"Mark In Plan":"Mark Executed"}</button>`);
+  if(can(ROLES.SECTION_HEAD)&&r.status===STATUS.PENDING_SECTION_HEAD)b.push(`<button data-module-review="${r.id}" class="text-blue-700 font-bold">Review</button>`);
+  if(isQAApprover()&&r.status===STATUS.PENDING_QA)b.push(`<button data-module-approve="${r.id}" class="text-green-700 font-bold">${isDelegatedDeputy()?"Approve as Delegate":"Approve"}</button>`);
+  if((reviewer()||admin())&&r.status!==STATUS.DRAFT&&r.status!==STATUS.APPROVED)b.push(`<button data-module-return="${r.id}" class="text-amber-700 font-bold">Return</button>`);
+  if(currentModule===MODULES.CAL&&r.status===STATUS.APPROVED)b.push(`<button data-print-cal="${r.id}" class="text-slate-700 font-bold">Print Monthly Plan</button>`);
+  b.push(`<button data-module-files="${r.id}" class="text-slate-600 font-bold">Files</button>`);return b.join(" · ");
+}
+function renderModuleTable(){
+  const cal=currentModule===MODULES.CAL,q=$("#modSearchInput").value.trim().toLowerCase(),f1=$("#modFilter1").value,f2=$("#modFilter2").value,st=$("#modFilterStatus").value;
+  let arr=moduleRecords.filter(r=>moduleMatch(r)&&(!q||`${r.name||""} ${r.reference||""} ${r.instrument||""} ${r.code||""}`.toLowerCase().includes(q))&&(f1==="All"||(cal?r.department:r.qualificationType)===f1)&&(f2==="All"||(cal?r.location:r.stage)===f2)&&(st==="All"||r.status===st));
+  if(viewer())arr=arr.filter(r=>r.status===STATUS.APPROVED||r.status===STATUS.COMPLETED);
+  if(cal){
+    $("#moduleTableHead").innerHTML="<tr><th class='p-3 text-left text-xs'>Certificate / Instrument</th><th class='p-3 text-left text-xs'>Code / S.N.</th><th class='p-3 text-left text-xs'>Department</th><th class='p-3 text-left text-xs'>Calibration / Due</th><th class='p-3 text-left text-xs'>Status</th><th class='p-3 text-left text-xs'>Execution</th><th class='p-3 text-center text-xs'>Actions</th></tr>";
+    $("#moduleTableBody").innerHTML=arr.map(r=>`<tr><td class='p-3 font-bold'>${esc(r.certificateNo||r.reference)}<div class='text-xs text-slate-500'>${esc(r.instrument||r.name)}</div></td><td class='p-3 text-xs'>${esc(r.code)}<div>S/N ${esc(r.serialNumber||"—")}</div></td><td class='p-3 text-xs'>${esc(r.department||"—")}<div>${esc(r.location||"—")}</div></td><td class='p-3 text-xs'>${esc(r.calDate||r.monthYear||"—")}<div class='text-red-600 font-bold'>Due: ${esc(r.dueDate||"—")}</div></td><td class='p-3'>${badge(r.status)}</td><td class='p-3'>${actionBadge(r.executedTracker?ACTIONS.EXECUTED:ACTIONS.IN_PLAN)}</td><td class='p-3 text-center whitespace-nowrap'>${moduleButtons(r)}</td></tr>`).join("");
+  }else{
+    $("#moduleTableHead").innerHTML="<tr><th class='p-3 text-left text-xs'>Name / Reference</th><th class='p-3 text-left text-xs'>Type</th><th class='p-3 text-left text-xs'>Stage</th><th class='p-3 text-left text-xs'>Planned / Due</th><th class='p-3 text-left text-xs'>Status</th><th class='p-3 text-left text-xs'>Execution</th><th class='p-3 text-center text-xs'>Actions</th></tr>";
+    $("#moduleTableBody").innerHTML=arr.map(r=>`<tr><td class='p-3 font-bold'>${esc(r.name)}<div class='text-xs text-slate-500'>${esc(r.reference)}</div></td><td class='p-3 text-xs'>${esc(r.qualificationType)}<div>${esc(r.utilitySubtype||"")}</div></td><td class='p-3 text-xs'>${esc(r.stage)}<div>${esc(r.equipmentSystemInfo||"")}</div></td><td class='p-3 text-xs'>${esc(r.plannedDate||"—")}<div class='text-red-600 font-bold'>Due: ${esc(r.dueDate||"—")}</div></td><td class='p-3'>${badge(r.status)}</td><td class='p-3'>${actionBadge(r.executedTracker?ACTIONS.EXECUTED:ACTIONS.IN_PLAN)}</td><td class='p-3 text-center whitespace-nowrap'>${moduleButtons(r)}</td></tr>`).join("");
+  }
+  $("#moduleEmptyState").classList.toggle("hidden",arr.length>0);
+}
+function openModule(record=null){
+  const cal=currentModule===MODULES.CAL;
+  modal(`<div class="modal active fixed inset-0 bg-black/50 z-50 items-center justify-center p-4"><div class="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[92vh] overflow-auto p-6"><div class="flex justify-between border-b pb-3 mb-4"><h3 class="text-xl font-extrabold">${record?"Edit":"Add"} ${cal?"Calibration":"Qualification"} Record</h3><button data-modal-close>✕</button></div><form id="moduleForm" class="space-y-4"><input type="hidden" id="moduleId" value="${record?.id||""}">${cal?calFields(record):qualFields(record)}<div class="flex justify-end gap-2 border-t pt-3"><button type="button" data-modal-close class="px-4 py-2 border rounded-lg">Cancel</button><button class="px-5 py-2 bg-primary text-white rounded-lg font-bold">Save Draft</button></div></form></div></div>`);
+  document.querySelectorAll("[data-modal-close]").forEach(x=>x.onclick=closeModal);$("#moduleForm").onsubmit=async e=>{e.preventDefault();await saveModule(record)}
+}
+function calFields(r){return`<div class="grid md:grid-cols-2 gap-4">${[
+["Certificate No.","calCertificateNo",r?.certificateNo],["Department","calDept",r?.department],["Instrument","calInstrument",r?.instrument],["Code","calCode",r?.code],["Manufacturer","calManuf",r?.manufacturer],["Model","calModel",r?.model],["Serial Number","calSN",r?.serialNumber],["Location","calLocation",r?.location],["Calibration Range","calRange",r?.calRange],["Acceptance Limits","calLimits",r?.acceptanceLimits],["Interval","calInterval",r?.interval],["Month / Year","calMonthYear",r?.monthYear]].map(x=>`<div><label class="text-sm font-bold">${x[0]}</label><input id="${x[1]}" class="w-full p-2 border rounded-lg" value="${esc(x[2]||"")}"></div>`).join("")}<div><label class="text-sm font-bold">Calibration Date</label><input id="calDate" type="date" class="w-full p-2 border rounded-lg" value="${esc(r?.calDate||"")}"></div><div><label class="text-sm font-bold">Due Date</label><input id="calDueDate" type="date" class="w-full p-2 border rounded-lg" value="${esc(r?.dueDate||"")}"></div></div><div class="flex gap-5"><label><input id="calAdd" type="checkbox" ${r?.isAddendum?"checked":""}> Addendum</label><label><input id="calOut" type="checkbox" ${r?.isOutOfCalibration?"checked":""}> Out of Calibration</label></div>`}
+function qualFields(r){return`<div class="grid md:grid-cols-2 gap-4"><div><label class="text-sm font-bold">Name *</label><input id="qualName" required class="w-full p-2 border rounded-lg" value="${esc(r?.name||"")}"></div><div><label class="text-sm font-bold">Reference / Protocol *</label><input id="qualRef" required class="w-full p-2 border rounded-lg" value="${esc(r?.reference||"")}"></div><div><label class="text-sm font-bold">Type</label><select id="qualType" class="w-full p-2 border rounded-lg"><option value="equipment" ${r?.qualificationType==="equipment"?"selected":""}>Equipment</option><option value="utilities" ${r?.qualificationType==="utilities"?"selected":""}>Utilities</option><option value="system" ${r?.qualificationType==="system"?"selected":""}>System</option></select></div><div><label class="text-sm font-bold">Stage</label><select id="qualStage" class="w-full p-2 border rounded-lg">${["DQ","IQ","OQ","PQ","PERIODIC PQ"].map(x=>`<option ${r?.stage===x?"selected":""}>${x}</option>`).join("")}</select></div><div><label class="text-sm font-bold">Planned Date</label><input id="qualDate" type="date" class="w-full p-2 border rounded-lg" value="${esc(r?.plannedDate||"")}"></div><div><label class="text-sm font-bold">Due Date</label><input id="qualDueDate" type="date" class="w-full p-2 border rounded-lg" value="${esc(r?.dueDate||"")}"></div><div class="md:col-span-2"><label class="text-sm font-bold">Equipment / Utility / System Details</label><input id="qualInfo" class="w-full p-2 border rounded-lg" value="${esc(r?.equipmentSystemInfo||"")}"></div><div class="md:col-span-2"><label class="text-sm font-bold">Description / Scope</label><textarea id="qualDesc" rows="2" class="w-full p-2 border rounded-lg">${esc(r?.description||"")}</textarea></div></div>`}
+async function saveModule(old){
+  const cal=currentModule===MODULES.CAL,data=cal?{certificateNo:$("#calCertificateNo").value.trim(),department:$("#calDept").value.trim(),instrument:$("#calInstrument").value.trim(),code:$("#calCode").value.trim(),manufacturer:$("#calManuf").value.trim(),model:$("#calModel").value.trim(),serialNumber:$("#calSN").value.trim(),location:$("#calLocation").value.trim(),calRange:$("#calRange").value.trim(),acceptanceLimits:$("#calLimits").value.trim(),interval:$("#calInterval").value.trim(),monthYear:$("#calMonthYear").value.trim(),calDate:$("#calDate").value,dueDate:$("#calDueDate").value,isAddendum:$("#calAdd").checked,isOutOfCalibration:$("#calOut").checked,name:$("#calInstrument").value.trim(),reference:$("#calCertificateNo").value.trim()}:{name:$("#qualName").value.trim(),reference:$("#qualRef").value.trim(),qualificationType:$("#qualType").value,stage:$("#qualStage").value,plannedDate:$("#qualDate").value,dueDate:$("#qualDueDate").value,equipmentSystemInfo:$("#qualInfo").value.trim(),description:$("#qualDesc").value.trim()};
+  if(cal&&(!data.certificateNo||!data.instrument||!data.code))return showMsg("Missing fields","Certificate No., Instrument and Code are required.","error");
+  if(!cal&&(!data.name||!data.reference))return showMsg("Missing fields","Name and Reference are required.","error");
+  try{const c=cal?"calibration":"qualification";if(old){await updateDoc(docRef(c,old.id),{...data,updatedAt:serverTimestamp()})}else await addDoc(colRef(c),{...data,status:STATUS.DRAFT,executedTracker:false,createdByUid:currentUser.uid,createdByName:currentProfile.displayName||currentUser.email,createdAt:serverTimestamp(),updatedAt:serverTimestamp()});closeModal();await loadModule();showMsg("Saved","Record saved as Draft.","success")}catch(e){showMsg("Save failed",friendly(e),"error")}
+}
+async function submitModule(id){
+  const c=currentModule===MODULES.CAL?"calibration":"qualification",r=moduleRecords.find(x=>x.id===id);if(!r)return;
+  try{
+    await updateDoc(docRef(c,id),{status:STATUS.PENDING_SECTION_HEAD,submittedAt:serverTimestamp(),updatedAt:serverTimestamp()});
+    await audit(`${currentModule} Submitted`,id,r.name||r.instrument||r.certificateNo,"Submitted for Section Head review.",STATUS.DRAFT,STATUS.PENDING_SECTION_HEAD);
+    await notifyEmails(`${currentModule} Submitted`,r.name||r.instrument||r.certificateNo,STATUS.PENDING_SECTION_HEAD,"Submitted for Section Head review.");
+    await loadModule();showMsg("Submitted","Record submitted to Section Head.","success");
+  }catch(e){showMsg("Submit failed",friendly(e),"error")}
+}
+async function moduleReview(id){
+  const r=moduleRecords.find(x=>x.id===id);if(!r)return;
+  confirmAction("Complete Review",`Complete review for ${r.name||r.instrument||r.certificateNo}?`,async c=>{
+    try{
+      const target=r.status===STATUS.PENDING_SECTION_HEAD?STATUS.PENDING_QA:STATUS.COMPLETED;
+      await updateModuleWorkflow(id,target,c,"Module Review Completed");
+      showMsg("Review completed","Record advanced.","success");
+    }catch(e){showMsg("Review failed",friendly(e),"error")}
+  });
+}
+async function updateModuleWorkflow(id,target,comment,actionName){
+  const c=currentModule===MODULES.CAL?"calibration":"qualification",r=moduleRecords.find(x=>x.id===id);const old=r.status;
+  await updateDoc(docRef(c,id),{status:target,updatedAt:serverTimestamp(),lastActionByUid:currentUser.uid,lastActionByName:currentProfile.displayName||currentUser.email,approvedByUid:target===STATUS.APPROVED?currentUser.uid:null,approvedAsDelegate:target===STATUS.APPROVED&&isDelegatedDeputy()});
+  await audit(actionName,id,r.name||r.instrument||r.certificateNo,comment||"",old,target,{delegatedApproval:isDelegatedDeputy()});
+  await notifyEmails(actionName,r.name||r.instrument||r.certificateNo,target,comment||"");
+  await loadModule();
+}
+async function moduleApprove(id){
+  const r=moduleRecords.find(x=>x.id===id);
+  confirmAction(isDelegatedDeputy()?"Approve as QA Manager Delegate":"Approve",`Approve ${r.name||r.instrument||r.certificateNo}?`,async()=>{
+    try{
+      await updateModuleWorkflow(id,STATUS.APPROVED,isDelegatedDeputy()?"Approved under active delegation":"Approved","Module Approved");
+      showMsg("Approved","Record approved.","success");
+    }catch(e){showMsg("Approval failed",friendly(e),"error")}
+  });
+}
+async function moduleReturn(id){
+  const r=moduleRecords.find(x=>x.id===id);
+  confirmAction("Return for Revision",`Return ${r.name||r.instrument||r.certificateNo}?`,async c=>{
+    try{
+      await updateModuleWorkflow(id,STATUS.RETURNED,c,"Module Returned");
+      showMsg("Returned","Record returned.","success");
+    }catch(e){showMsg("Return failed",friendly(e),"error")}
+  },true);
+}
+async function toggleModuleExecution(id,checked){
+  const c=currentModule===MODULES.CAL?"calibration":"qualification",r=moduleRecords.find(x=>x.id===id);if(!r)return;
+  try{
+    await updateDoc(docRef(c,id),{executedTracker:checked,executedAt:checked?serverTimestamp():null,updatedAt:serverTimestamp(),lastActionByUid:currentUser.uid,lastActionByName:currentProfile.displayName||currentUser.email});
+    await audit(`${currentModule} ${checked?"Executed":"Returned to Plan"}`,id,r.name||r.instrument||r.certificateNo,`Execution status: ${checked?"Executed":"In Plan"}`,r.status,r.status);
+    await notifyEmails(`${currentModule} Execution Status`,r.name||r.instrument||r.certificateNo,r.status,`Execution status changed to ${checked?"Executed":"In Plan"}.`);
+    await loadModule();showMsg("Execution updated",checked?"Item is now Executed.":"Item is now In Plan.","success");
+  }catch(e){showMsg("Execution failed",friendly(e),"error")}
+}
+async function importModuleExcel(ev){
+  const file=ev.target.files[0];if(!file)return;
+  try{
+    const wb=XLSX.read(new Uint8Array(await file.arrayBuffer()),{type:"array"});let rows=[];wb.SheetNames.forEach(s=>rows.push(...XLSX.utils.sheet_to_json(wb.Sheets[s])));const c=currentModule===MODULES.CAL?"calibration":"qualification";let count=0;
+    for(const row of rows){
+      const x={};Object.keys(row).forEach(k=>x[k.toLowerCase().replace(/[^a-z0-9]/g,"")]=row[k]);let p;
+      if(currentModule===MODULES.CAL)p={certificateNo:String(x.certificateno||x.certno||x.reference||""),department:String(x.department||x.dept||""),instrument:String(x.instrument||x.name||""),code:String(x.code||x.instrumentcode||""),manufacturer:String(x.manufacturer||x.manuf||""),model:String(x.model||""),serialNumber:String(x.serialnumber||x.serialno||x.sn||""),location:String(x.location||""),calRange:String(x.calrange||x.range||""),acceptanceLimits:String(x.acceptancelimits||x.limits||""),interval:String(x.interval||""),monthYear:String(x.monthyear||""),calDate:String(x.caldate||x.date||""),dueDate:String(x.duedate||""),isAddendum:["true","yes","1"].includes(String(x.isaddendum||x.addendum||"").toLowerCase()),isOutOfCalibration:["true","yes","1"].includes(String(x.isoutofcalibration||x.outofcal||x.out||"").toLowerCase()),name:String(x.instrument||x.name||"Imported Instrument"),reference:String(x.certificateno||x.certno||x.reference||"IMP-"+Date.now())};
+      else p={name:String(x.name||x.equipmentname||x.systemname||""),reference:String(x.reference||x.refid||x.protocol||""),qualificationType:["equipment","utilities","system"].includes(String(x.qualificationtype||x.type||"").toLowerCase())?String(x.qualificationtype||x.type).toLowerCase():"equipment",stage:String(x.stage||x.qualificationstage||"IQ").toUpperCase(),plannedDate:String(x.planneddate||x.date||""),dueDate:String(x.duedate||""),equipmentSystemInfo:String(x.equipmentsysteminfo||x.info||x.details||""),description:String(x.description||x.scope||"")};
+      if((currentModule===MODULES.CAL&&(p.instrument||p.code))||(currentModule===MODULES.QUAL&&(p.name&&p.reference))){
+        await addDoc(colRef(c),{...p,status:STATUS.DRAFT,executedTracker:false,createdByUid:currentUser.uid,createdByName:currentProfile.displayName||currentUser.email,createdAt:serverTimestamp(),updatedAt:serverTimestamp()});count++;
+      }
+    }
+    await audit(`${currentModule} Excel/Macro Imported`,"","",`Imported ${count} draft records.`);await loadModule();showMsg("Import complete",`${count} records imported as Draft.`,"success");
+  }catch(e){showMsg("Import failed",friendly(e),"error")}ev.target.value=""
+}
+function printCalibration(id){
+  const r=moduleRecords.find(x=>x.id===id);if(!r)return;const prepared=r.createdByName||"Creator",reviewed=r.reviewedByName||"Section Head",approved=r.approvedByName||(r.approvedAsDelegate?"QA Deputy Manager (Delegate)":"QA Manager");
+  const {jsPDF}=window.jspdf;const pdf=new jsPDF();pdf.setFontSize(18);pdf.text("ValidApp - Calibration Monthly Plan",20,20);pdf.setFontSize(10);pdf.text(`Generated: ${new Date().toLocaleString()}`,20,28);let y=42;
+  [["Certificate No.",r.certificateNo],["Instrument",r.instrument],["Code",r.code],["Department",r.department],["Location",r.location],["Calibration Date",r.calDate],["Due Date",r.dueDate],["Execution Status",r.executedTracker?"Executed":"In Plan"],["Prepared By",prepared],["Reviewed By",reviewed],["Approved By",approved]].forEach(([a,b])=>{pdf.setFont("helvetica","bold");pdf.text(`${a}:`,20,y);pdf.setFont("helvetica","normal");pdf.text(String(b||"—"),65,y);y+=9});pdf.save(`ValidApp_Calibration_${r.code||r.certificateNo||id}.pdf`);
+}
+
+async function loadSops(){
+  if(!isSopUser())return;try{const snap=await getDocs(query(colRef("sops"),orderBy("createdAt","desc")));sops=snap.docs.map(d=>({id:d.id,...d.data()}));renderSops()}catch(e){showMsg("SOP load failed",friendly(e),"error")}
+}
+function renderSops(){const q=$("sopSearch").value.trim().toLowerCase(),t=$("sopTypeFilter").value;const arr=sops.filter(x=>(!q||`${x.title} ${x.name}`.toLowerCase().includes(q))&&(t==="All"||x.type===t));$("sopList").innerHTML=arr.map(x=>`<div class="border rounded-xl p-3 flex flex-wrap justify-between gap-3"><div><b>${esc(x.title||x.name)}</b><div class="text-xs text-slate-500">${esc(x.type||"SOP")} • ${esc(x.name)} • ${esc(nowLabel(x.createdAt))}</div></div><div class="flex gap-3"><button data-sop-file="${x.id}" class="text-primary font-bold">Open</button><button data-sop-delete="${x.id}" class="text-red-600 font-bold">Delete</button></div></div>`).join("")||`<div class="text-sm text-slate-500">No SOPs found.</div>`}
+async function uploadSop(ev){
+  const f=ev.target.files[0];if(!f)return;if(!isSopUser())return;
+  try{
+    const title=prompt("SOP title:",f.name)||f.name,type=prompt("Document type: SOP / Work Instruction / Form / Other","SOP")||"SOP",id=crypto.randomUUID(),path=`${appId}/sops/${id}_${f.name.replace(/[^a-zA-Z0-9._-]/g,"_")}`;
+    const {error}=await supabaseClient.storage.from("documents").upload(path,f,{upsert:false});if(error)throw Error(error.message);
+    const ref=await addDoc(colRef("sops"),{title,type,name:f.name,storagePath:path,uploadedByUid:currentUser.uid,uploadedByName:currentProfile.displayName||currentUser.email,createdAt:serverTimestamp()});
+    await audit("SOP Uploaded",ref.id,title,`Type: ${type}`);await loadSops();showMsg("Uploaded","SOP uploaded successfully.","success");
+  }catch(e){showMsg("SOP upload failed",friendly(e),"error")}ev.target.value=""
+}
+async function deleteSop(id){
+  const s=sops.find(x=>x.id===id);if(!s)return;
+  confirmAction("Delete SOP",`Delete "${s.title||s.name}"?`,async()=>{
+    try{
+      await supabaseClient.storage.from("documents").remove([s.storagePath]);
+      await updateDoc(docRef("sops",id),{deletedAt:serverTimestamp()});
+      await audit("SOP Deleted",id,s.title||s.name,"Controlled SOP marked deleted.");
+      await loadSops();
+    }catch(e){showMsg("Delete failed",friendly(e),"error")}
+  });
+}
+async function openSop(id){const s=sops.find(x=>x.id===id);if(s)await openStoredFile(s,false)}
+
+async function loadPrpo(){try{const snap=await getDocs(query(colRef("prpo"),orderBy("createdAt","desc")));prpos=snap.docs.map(d=>({id:d.id,...d.data()}));renderPrpo()}catch(e){showMsg("PR/PO load failed",friendly(e),"error")}}
+function renderPrpo(){const q=$("prpoSearch").value.trim().toLowerCase(),t=$("prpoType").value,s=$("prpoStatus").value;const arr=prpos.filter(x=>(!q||`${x.number} ${x.description} ${x.supplier}`.toLowerCase().includes(q))&&(t==="All"||x.type===t)&&(s==="All"||x.status===s));$("prpoBody").innerHTML=arr.map(x=>`<tr><td class="p-3 font-bold">${esc(x.type)}<div>${esc(x.number)}</div></td><td class="p-3 text-sm">${esc(x.description)}</td><td class="p-3 text-sm">${esc(x.supplier||"—")}</td><td class="p-3 text-sm">${esc(x.currency||"")} ${esc(x.value||"—")}</td><td class="p-3 text-xs">${esc(x.needDate||"—")}<div>Due: ${esc(x.dueDate||"—")}</div></td><td class="p-3">${badge(x.status)}</td><td class="p-3 text-center whitespace-nowrap">${prpoButtons(x)}</td></tr>`).join("")}
+function prpoButtons(x){let b=[];if((admin()||x.createdByUid===currentUser.uid)&&x.status==="Draft")b.push(`<button data-prpo-edit="${x.id}" class="text-blue-700 font-bold">Edit</button><button data-prpo-submit="${x.id}" class="text-indigo-700 font-bold">Submit</button>`);if(can(ROLES.SECTION_HEAD)&&x.status===STATUS.PENDING_SECTION_HEAD)b.push(`<button data-prpo-review="${x.id}" class="text-blue-700 font-bold">Review</button>`);if(isQAApprover()&&x.status===STATUS.PENDING_QA)b.push(`<button data-prpo-approve="${x.id}" class="text-green-700 font-bold">Approve</button>`);if(reviewer()&&x.status!==STATUS.DRAFT&&x.status!==STATUS.APPROVED)b.push(`<button data-prpo-return="${x.id}" class="text-amber-700 font-bold">Return</button>`);return b.join(" · ")}
+function openPrpo(old=null){modal(`<div class="modal active fixed inset-0 bg-black/50 z-50 items-center justify-center p-4"><div class="bg-white rounded-2xl max-w-2xl w-full p-6"><div class="flex justify-between"><h3 class="font-extrabold text-xl">${old?"Edit":"Add"} PR / PO</h3><button data-modal-close>✕</button></div><form id="prpoForm" class="grid md:grid-cols-2 gap-4 mt-4"><input type="hidden" id="prpoId" value="${old?.id||""}"><div><label class="text-sm font-bold">Type</label><select id="ppType" class="w-full p-2 border rounded-lg"><option ${old?.type==="PR"?"selected":""}>PR</option><option ${old?.type==="PO"?"selected":""}>PO</option></select></div><div><label class="text-sm font-bold">Number *</label><input id="ppNumber" required class="w-full p-2 border rounded-lg" value="${esc(old?.number||"")}"></div><div class="md:col-span-2"><label class="text-sm font-bold">Description *</label><textarea id="ppDesc" required class="w-full p-2 border rounded-lg">${esc(old?.description||"")}</textarea></div><div><label class="text-sm font-bold">Supplier</label><input id="ppSupplier" class="w-full p-2 border rounded-lg" value="${esc(old?.supplier||"")}"></div><div><label class="text-sm font-bold">Value</label><input id="ppValue" class="w-full p-2 border rounded-lg" value="${esc(old?.value||"")}"></div><div><label class="text-sm font-bold">Currency</label><input id="ppCurrency" class="w-full p-2 border rounded-lg" value="${esc(old?.currency||"EGP")}"></div><div><label class="text-sm font-bold">Need Date</label><input id="ppNeed" type="date" class="w-full p-2 border rounded-lg" value="${esc(old?.needDate||"")}"></div><div><label class="text-sm font-bold">Due Date</label><input id="ppDue" type="date" class="w-full p-2 border rounded-lg" value="${esc(old?.dueDate||"")}"></div><div class="md:col-span-2 flex justify-end gap-2"><button type="button" data-modal-close class="px-4 py-2 border rounded-lg">Cancel</button><button class="px-5 py-2 bg-primary text-white rounded-lg font-bold">Save Draft</button></div></form></div></div>`);document.querySelectorAll("[data-modal-close]").forEach(x=>x.onclick=closeModal);$("#prpoForm").onsubmit=async e=>{e.preventDefault();await savePrpo(old)}}
+async function savePrpo(old){const d={type:$("#ppType").value,number:$("#ppNumber").value.trim(),description:$("#ppDesc").value.trim(),supplier:$("#ppSupplier").value.trim(),value:$("#ppValue").value.trim(),currency:$("#ppCurrency").value.trim(),needDate:$("#ppNeed").value,dueDate:$("#ppDue").value,updatedAt:serverTimestamp()};if(!d.number||!d.description)return showMsg("Missing fields","Number and description are required.","error");try{if(old)await updateDoc(docRef("prpo",old.id),d);else await addDoc(colRef("prpo"),{...d,status:STATUS.DRAFT,createdByUid:currentUser.uid,createdByName:currentProfile.displayName||currentUser.email,createdAt:serverTimestamp()});closeModal();await loadPrpo();showMsg("Saved","PR/PO saved as Draft.","success")}catch(e){showMsg("Save failed",friendly(e),"error")}}
+async function submitPrpo(id){const x=prpos.find(a=>a.id===id);try{await updateDoc(docRef("prpo",id),{status:STATUS.PENDING_SECTION_HEAD,submittedAt:serverTimestamp(),updatedAt:serverTimestamp()});await audit("PR/PO Submitted",id,x.number,"Submitted for Section Head review.",STATUS.DRAFT,STATUS.PENDING_SECTION_HEAD);await loadPrpo()}catch(e){showMsg("Submit failed",friendly(e),"error")}}
+async function prpoWorkflow(id,target,comment,action){const x=prpos.find(a=>a.id===id),old=x.status;await updateDoc(docRef("prpo",id),{status:target,updatedAt:serverTimestamp(),approvedAsDelegate:target===STATUS.APPROVED&&isDelegatedDeputy()});await audit(action,id,x.number,comment||"",old,target,{delegatedApproval:isDelegatedDeputy()});await notifyEmails(action,x.number,target,comment||"");await loadPrpo()}
+
+async function loadAudit(){try{const snap=await getDocs(query(colRef("audit"),orderBy("createdAt","desc"),limit(500)));auditLogs=snap.docs.map(d=>({id:d.id,...d.data()}));modal(`<div class="modal active fixed inset-0 bg-black/50 z-50 items-center justify-center p-4"><div class="bg-white rounded-2xl shadow-2xl max-w-6xl w-full max-h-[92vh] overflow-auto p-6"><div class="flex justify-between"><h3 class="text-xl font-extrabold">System Audit Trail</h3><button data-modal-close>✕</button></div><div class="mt-4 overflow-auto"><table class="min-w-[1100px] w-full divide-y"><thead class="bg-slate-50"><tr><th class="p-2 text-left text-xs">Timestamp</th><th class="p-2 text-left text-xs">User / Role</th><th class="p-2 text-left text-xs">Action</th><th class="p-2 text-left text-xs">Target</th><th class="p-2 text-left text-xs">Status</th><th class="p-2 text-left text-xs">Details</th></tr></thead><tbody>${auditLogs.map(x=>`<tr><td class="p-2 text-xs">${esc(nowLabel(x.createdAt))}</td><td class="p-2 text-xs">${esc(x.userName)}<div>${esc(x.userRole)}</div></td><td class="p-2 text-xs font-bold">${esc(x.action)}</td><td class="p-2 text-xs">${esc(x.targetName||x.studyName||x.targetId||"—")}</td><td class="p-2 text-xs">${esc(x.previousStatus\vert{}\vert{}"—")} → ${esc(x.newStatus||"—")}</td><td class="p-2 text-xs">${esc(x.details||"")}</td></tr>`).join("")}</tbody></table></div></div></div>`);document.querySelectorAll("[data-modal-close]").forEach(x=>x.onclick=closeModal)}catch(e){showMsg("Audit load failed",friendly(e),"error")}}
+
+async function loadUsers(){if(!admin())return;const snap=await getDocs(colRef("users"));users=snap.docs.map(d=>({id:d.id,...d.data()}));openUserModal()}
+function openUserModal(){modal(`<div class="modal active fixed inset-0 bg-black/50 z-50 items-center justify-center p-4"><div class="bg-white rounded-2xl shadow-2xl max-w-6xl w-full max-h-[94vh] overflow-auto p-6"><div class="flex justify-between"><h3 class="text-xl font-extrabold">User Management & Delegation</h3><button data-modal-close>✕</button></div><form id="userForm" class="grid md:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-xl mt-4"><input type="hidden" id="editUserId"><div><label class="text-xs font-bold">Email *</label><input id="newEmail" type="email" required class="w-full p-2 border rounded"></div><div><label class="text-xs font-bold">Display Name *</label><input id="newName" required class="w-full p-2 border rounded"></div><div><label class="text-xs font-bold">Role *</label><select id="newRole" class="w-full p-2 border rounded">${ROLE_LIST.map(x=>`<option>${x}</option>`).join("")}</select></div><div><label class="text-xs font-bold">Department</label><input id="newDept" class="w-full p-2 border rounded"></div><div><label class="text-xs font-bold">Temporary Password</label><input id="newPass" type="password" class="w-full p-2 border rounded"></div><div><label class="text-xs font-bold">Delegation Start</label><input id="delStart" type="date" class="w-full p-2 border rounded"></div><div><label class="text-xs font-bold">Delegation End</label><input id="delEnd" type="date" class="w-full p-2 border rounded"></div><div class="flex items-center gap-2 pt-5"><input id="delActive" type="checkbox"><label class="text-xs font-bold">QA Delegation Active</label></div><div class="md:col-span-4 flex flex-wrap justify-end gap-2"><button type="button" id="resetPasswordBtn" class="px-3 py-2 bg-amber-600 text-white rounded font-bold">Send Password Reset</button><button class="px-4 py-2 bg-primary text-white rounded font-bold">Save User</button></div></form><div class="overflow-auto mt-4"><table class="min-w-[1050px] w-full divide-y"><thead class="bg-slate-50"><tr><th class="p-2 text-left text-xs">User</th><th class="p-2 text-left text-xs">Role</th><th class="p-2 text-left text-xs">Password</th><th class="p-2 text-left text-xs">Delegation</th><th class="p-2 text-left text-xs">Status</th><th class="p-2 text-center text-xs">Manage</th></tr></thead><tbody id="usersBody"></tbody></table></div></div></div>`);document.querySelectorAll("[data-modal-close]").forEach(x=>x.onclick=closeModal);renderUsers();$("#userForm").onsubmit=saveUser;$("#resetPasswordBtn").onclick=sendReset}
+function renderUsers(){$("#usersBody").innerHTML=users.map(u=>{const exp=u.passwordChangedAt?(Date.now()-new Date(u.passwordChangedAt?.toDate?u.passwordChangedAt.toDate():u.passwordChangedAt).getTime()>90*86400000):false;const del=u.qaDelegation?.active?`${u.qaDelegation.startDate} → ${u.qaDelegation.endDate}`:"—";return`<tr><td class="p-2 text-xs font-bold">${esc(u.displayName||u.username)}<div class="font-normal text-slate-500">${esc(u.email)}</div></td><td class="p-2 text-xs">${esc(u.role)}</td><td class="p-2 text-xs">${exp?'<span class="text-red-600 font-bold">Expired</span>':'<span class="text-green-700 font-bold">Valid / 90 days</span>'}</td><td class="p-2 text-xs">${esc(del)}</td><td class="p-2 text-xs">${u.disabled?"Disabled":"Active"}</td><td class="p-2 text-center"><button data-user-edit="${u.id}" class="text-blue-700 font-bold mr-2">Edit</button><button data-user-toggle="${u.id}" class="text-amber-700 font-bold">${u.disabled?"Enable":"Disable"}</button></td></tr>`}).join("")}
+function editUser(id){const u=users.find(x=>x.id===id);if(!u)return;$("#editUserId").value=id;$("#newEmail").value=u.email\vert{}\vert{}"";$("#newName").value=u.displayName||"";$("#newRole").value=u.role\vert{}\vert{}ROLES.VIEWER;$("#newDept").value=u.department||"";$("#newPass").value="";$("#delStart").value=u.qaDelegation?.startDate||"";$("#delEnd").value=u.qaDelegation?.endDate\vert{}\vert{}"";$("#delActive").checked=!!u.qaDelegation?.active}
+async function saveUser(e){
+  e.preventDefault();const id=$("#editUserId").value,email=$("#newEmail").value.trim().toLowerCase(),d={email,displayName:$("#newName").value.trim(),username:email.split("@")[0],role:$("#newRole").value,department:$("#newDept").value.trim(),qaDelegation:{active:$("#delActive").checked,startDate:$("#delStart").value,endDate:$("#delEnd").value},updatedAt:serverTimestamp()};
+  try{
+    if(id){await updateDoc(docRef("users",id),d);await audit("User Updated",id,d.displayName,`Role=${d.role}; Delegation=${d.qaDelegation.active}`)}
+    else{const p=$("#newPass").value;if(p.length<8)throw Error("New user temporary password must be at least 8 characters.");const sec=initializeApp(firebaseConfig,"UserCreate_"+Date.now()),sa=getAuth(sec),cred=await createUserWithEmailAndPassword(sa,email,p);await setDoc(docRef("users",cred.user.uid),{...d,disabled:false,passwordChangedAt:serverTimestamp(),createdAt:serverTimestamp()});await signOut(sa);await deleteApp(sec);await audit("User Created",cred.user.uid,d.displayName,`Role=${d.role}`)}
+    users=(await getDocs(colRef("users"))).docs.map(x=>({id:x.id,...x.data()}));renderUsers();showMsg("Saved","User profile saved.","success");
+  }catch(e){showMsg("User operation failed",friendly(e),"error")}
+}
+async function sendReset(){const email=$("#newEmail").value.trim();if(!email)return showMsg("Email required","Enter an email address first.","error");try{await sendPasswordResetEmail(auth,email);showMsg("Reset sent","Password reset email sent.","success")}catch(e){showMsg("Reset failed",friendly(e),"error")}}
+async function toggleUser(id){const u=users.find(x=>x.id===id);if(!u||id===currentUser.uid)return;try{await updateDoc(docRef("users",id),{disabled:!u.disabled,updatedAt:serverTimestamp()});await audit(u.disabled?"User Enabled":"User Disabled",id,u.displayName||u.email,"Account status changed.");users=(await getDocs(colRef("users"))).docs.map(x=>({id:x.id,...x.data()}));renderUsers()}catch(e){showMsg("Operation failed",friendly(e),"error")}}
+
+async function loadDashboard(){
+  try{
+    const [rs,cs,qs,ps,ss,as]=await Promise.all([getDocs(colRef("records")),getDocs(colRef("calibration")),getDocs(colRef("qualification")),getDocs(colRef("prpo")),isSopUser()?getDocs(colRef("sops")):Promise.resolve({docs:[]}),getDocs(query(colRef("audit"),orderBy("createdAt","desc"),limit(20)))]);
+    const r=rs.docs.map(d=>d.data()),c=cs.docs.map(d=>d.data()),q=qs.docs.map(d=>d.data()),p=ps.docs.map(d=>d.data()),s=ss.docs.map(d=>d.data()),a=as.docs.map(d=>d.data());
+    const pending=r.filter(x=>x.status===STATUS.PENDING_SECTION_HEAD&&can(ROLES.SECTION_HEAD)).length+r.filter(x=>x.status===STATUS.PENDING_REVIEWER&&can(ROLES.REVIEWER)).length+r.filter(x=>x.status===STATUS.PENDING_DEPUTY&&can(ROLES.DEPUTY)).length+r.filter(x=>x.status===STATUS.PENDING_QA&&isQAApprover()).length;
+    const k=[["Studies",r.length,"fa-flask","studies"],["Study Pending",r.filter(x=>x.status?.startsWith("Pending")).length,"fa-hourglass-half","studies"],["Approved Studies",r.filter(x=>x.status===STATUS.APPROVED).length,"fa-check-circle","studies"],["Calibration",c.length,"fa-gauge-high","cal"],["Calibration Due",c.filter(x=>x.dueDate&&new Date(x.dueDate)<new Date(Date.now()+30*86400000)).length,"fa-calendar-day","cal"],["Qualification",q.length,"fa-certificate","qual"],["PR / PO",p.length,"fa-file-invoice","prpo"],["SOPs",s.length,"fa-file-shield","sop"]];
+    $("kpiGrid").innerHTML=k.map(x=>`<button data-kpi="${x[3]}" class="kpi card p-4 text-left"><i class="fas ${x[2]} text-primary text-xl"></i><div class="text-2xl font-extrabold mt-2">${x[1]}</div><div class="text-xs text-slate-500 font-bold">${x[0]}</div></button>`).join("");
+    $("moduleOverview").innerHTML=[["Studies",r.length,r.filter(x=>x.status===STATUS.APPROVED).length,"studies"],["Calibration",c.length,c.filter(x=>x.executedTracker).length,"cal"],["Qualification",q.length,q.filter(x=>x.executedTracker).length,"qual"],["PR / PO",p.length,p.filter(x=>x.status===STATUS.COMPLETED||x.status===STATUS.APPROVED).length,"prpo"],["Module SOPs",s.length,0,"sop"]].map(x=>`<button data-kpi="${x[3]}" class="border rounded-xl p-4 text-left hover:bg-slate-50"><b>${x[0]}</b><div class="text-2xl font-extrabold">${x[1]}</div><div class="text-xs text-slate-500">${x[2]} completed / approved</div></button>`).join("");
+    $("pendingList").innerHTML=`<div class="p-3 bg-blue-50 rounded-lg font-bold">${pending} action(s) currently assigned to your role.</div>`+r.filter(x=>x.status?.startsWith("Pending")).slice(0,6).map(x=>`<button data-kpi="studies" class="block w-full text-left border-b py-2 text-sm">${esc(x.productName)} <span class="float-right">${badge(x.status)}</span></button>`).join("");
+    $("recentActivity").innerHTML=a.slice(0,10).map(x=>`<div class="border-b pb-2"><div class="font-bold text-sm">${esc(x.action)}</div><div class="text-xs text-slate-500">${esc(x.userName)} • ${esc(nowLabel(x.createdAt))}</div><div class="text-xs">${esc(x.targetName||x.studyName||"")}</div></div>`).join("")||"<div class='text-sm text-slate-500'>No recent activity.</div>";
+    $("quickAccess").innerHTML=[["Studies","fa-flask","studies"],["Calibration","fa-gauge-high","cal"],["Qualification","fa-certificate","qual"],["PR / PO","fa-file-invoice-dollar","prpo"]].map(x=>`<button data-kpi="${x[2]}" class="border rounded-xl p-4 text-left hover:bg-blue-50"><i class="fas ${x[1]} text-primary"></i><b class="ml-2">${x[0]}</b></button>`).join("");
+  }catch(e){console.error(e)}
+}
+function tickClock(){$("dashboardClock").textContent=new Date().toLocaleString()}
+setInterval(tickClock,1000);tickClock();
+
+document.addEventListener("click",async e=>{
+  const b=e.target.closest("button");if(!b)return;
+  if(b.id==="homeNav")showView("home");
+  if(b.id==="studiesNav")showView("studies");
+  if(b.id==="calibrationNav")showView("cal");
+  if(b.id==="qualificationNav")showView("qual");
+  if(b.id==="sopNav")showView("sop");
+  if(b.id==="prpoNav")showView("prpo");
+  if(b.id==="userManagementBtn")await loadUsers();
+  if(b.id==="auditTrailBtn")await loadAudit();
+  if(b.id==="logoutBtn")await signOut(auth);
+  if(b.id==="addRecordBtn")openStudy();
+  if(b.id==="addModuleBtn")openModule();
+  if(b.id==="addPrpoBtn")openPrpo();
+  if(b.dataset.studySub){currentStudySubtab=b.dataset.studySub;renderStudies()}
+  if(b.dataset.editStudy)openStudy(records.find(x=>x.id===b.dataset.editStudy));
+  if(b.dataset.submitStudy)await submitStudy(b.dataset.submitStudy);
+  if(b.dataset.reviewStudy)await reviewStudy(b.dataset.reviewStudy);
+  if(b.dataset.approveStudy)await approveStudy(b.dataset.approveStudy);
+  if(b.dataset.returnStudy)await returnStudy(b.dataset.returnStudy);
+  if(b.dataset.rejectStudy)await rejectStudy(b.dataset.rejectStudy);
+  if(b.dataset.studyAction)await setStudyAction(b.dataset.studyAction,b.dataset.action);
+  if(b.dataset.filesStudy)await filesFor(b.dataset.filesStudy,MODULES.STUDIES);
+  if(b.dataset.historyStudy)await showHistory(b.dataset.historyStudy);
+  if(b.dataset.moduleEdit)openModule(moduleRecords.find(x=>x.id===b.dataset.moduleEdit));
+  if(b.dataset.moduleSubmit)await submitModule(b.dataset.moduleSubmit);
+  if(b.dataset.moduleReview)await moduleReview(b.dataset.moduleReview);
+  if(b.dataset.moduleApprove)await moduleApprove(b.dataset.moduleApprove);
+  if(b.dataset.moduleReturn)await moduleReturn(b.dataset.moduleReturn);
+  if(b.dataset.moduleExec)await toggleModuleExecution(b.dataset.moduleExec,b.dataset.exec==="1");
+  if(b.dataset.moduleFiles)await filesFor(b.dataset.moduleFiles,currentModule);
+  if(b.dataset.printCal)printCalibration(b.dataset.printCal);
+  if(b.dataset.sopFile)await openSop(b.dataset.sopFile);
+  if(b.dataset.sopDelete)await deleteSop(b.dataset.sopDelete);
+  if(b.dataset.userEdit)editUser(b.dataset.userEdit);
+  if(b.dataset.userToggle)await toggleUser(b.dataset.userToggle);
+  if(b.dataset.kpi)showView(b.dataset.kpi);
+  if(b.dataset.dashboardRefresh)loadDashboard();
+});
+
+document.addEventListener("change",async e=>{
+  const t=e.target;
+  if(t.id==="excelImportInput")await importModuleExcel(e);
+  if(t.id==="sopInput")await uploadSop(e);
+});
+
+$("tabProcess").onclick=()=>{currentCategory=CATS.PROCESS;currentStudySubtab="all";document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));$("tabProcess").classList.add("active");renderStudies()};
+$("tabHoldTime").onclick=()=>{currentCategory=CATS.HOLD;currentStudySubtab="all";document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));$("tabHoldTime").classList.add("active");renderStudies()};
+$("tabCleaning").onclick=()=>{currentCategory=CATS.CLEANING;currentStudySubtab="all";document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));$("tabCleaning").classList.add("active");renderStudies()};
+
+["searchInput","filterStage","filterStatus","filterScale"].forEach(id=>$(id).oninput=renderStudies);$("clearFiltersBtn").onclick=()=>{["searchInput","filterStage","filterStatus","filterScale"].forEach(id=>$(id).value="All");$("searchInput").value="";renderStudies()};
+["modSearchInput","modFilter1","modFilter2","modFilterStatus"].forEach(id=>$(id).oninput=renderModuleTable);$("modClearFiltersBtn").onclick=()=>{["modSearchInput","modFilter1","modFilter2","modFilterStatus"].forEach(id=>$(id).value="All");$("modSearchInput").value="";renderModuleTable()};
+["sopSearch","sopTypeFilter"].forEach(id=>$(id).oninput=renderSops);
+["prpoSearch","prpoType","prpoStatus"].forEach(id=>$(id).oninput=renderPrpo);
+
+document.querySelectorAll(".module-tab").forEach(b=>b.onclick=e=>{
+  const p=b.parentElement;p.querySelectorAll(".module-tab").forEach(x=>x.classList.remove("active"));b.classList.add("active");
+  currentModuleTab=b.dataset.calTab||b.dataset.qualTab||"all";renderModuleTable();
+});
+
+$("azureSsoBtn").onclick=async()=>{
+  if(!msalInstance)return showMsg("SSO unavailable","MSAL instance is not configured.","error");
+  try{const res=await msalInstance.loginPopup({scopes:["User.Read"]});const credential=window.firebase.auth.OAuthProvider.credential("microsoft.com",{accessToken:res.accessToken});const cred=await signInWithCredential(auth,credential);currentUser=cred.user;currentProfile=await loadProfile(currentUser);configureNav();showView("home");setupActivity()}catch(e){showMsg("Microsoft Sign-In failed",friendly(e),"error")}
+};
+
+$("loginForm").onsubmit=async e=>{
+  e.preventDefault();const err=$("loginError");err.classList.add("hidden");
+  try{
+    const cred=await signInWithEmailAndPassword(auth,$("username").value.trim(),$("password").value);
+    currentUser=cred.user;currentProfile=await loadProfile(currentUser);
+    if(currentProfile.passwordExpired){
+      const np=prompt("Your password has expired (90-day policy). Enter a new password (min 8 chars):");
+      if(!np||np.length<8)throw Error("Password change required. Minimum 8 characters.");
+      await updatePassword(currentUser,np);await updateDoc(docRef("users",currentUser.uid),{passwordChangedAt:serverTimestamp()});
+      showMsg("Password updated","Your password has been successfully renewed.","success");
+    }
+    configureNav();showView("home");setupActivity();
+  }catch(e){err.textContent=friendly(e);err.classList.remove("hidden")}
+};
+
+onAuthStateChanged(auth,async u=>{
+  if(u){
+    try{currentUser=u;currentProfile=await loadProfile(u);configureNav();showView(currentView);setupActivity()}
+    catch(e){resetUI();showMsg("Access Error",friendly(e),"error");signOut(auth)}
+  }else{currentUser=null;currentProfile=null;resetUI()}
+});
+</script>
 </body>
 </html>
