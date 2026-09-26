@@ -199,7 +199,6 @@ import {initializeApp,deleteApp} from "https://www.gstatic.com/firebasejs/11.6.1
 import {getAuth,onAuthStateChanged,signInWithEmailAndPassword,signOut,createUserWithEmailAndPassword,sendPasswordResetEmail} from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 import {getFirestore,collection,doc,getDoc,getDocs,setDoc,addDoc,updateDoc,deleteDoc,query,where,orderBy,limit,serverTimestamp} from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-// ⚠️ REPLACE WITH YOUR ACTUAL FIREBASE CONFIG FROM THE FIREBASE CONSOLE
 const MY_FIREBASE_CONFIG={apiKey:"AIzaSyDEV8rEluViDZiA5nnv7BiIU78rgq5en8A",authDomain:"validapp-db.firebaseapp.com",projectId:"validapp-db",storageBucket:"validapp-db.firebasestorage.app",messagingSenderId:"702664233017",appId:"1:702664233017:web:25fbede2f3c7244cdbfde8",measurementId:"G-7FTDYP0XWS"};
 const SUPABASE_URL="https://lnyignnyhihrkjauhzsk.supabase.co";
 const SUPABASE_ANON_KEY="sb_publishable__0Xw5joGtNrlh38qYOhrpw_vMALXzrV";
@@ -562,7 +561,8 @@ async function moduleReview(id){const r=moduleRecords.find(x=>x.id===id);if(!r)r
 async function updateModuleWorkflow(id,target,comment,actionName){const c=currentModule===MODULES.CAL?"calibration":"qualification",r=moduleRecords.find(x=>x.id===id);const old=r.status;await updateDoc(docRef(c,id),{status:target,updatedAt:serverTimestamp(),lastActionByUid:currentUser.uid,lastActionByName:currentProfile.displayName||currentUser.email,approvedByUid:target===STATUS.APPROVED?currentUser.uid:null,approvedAsDelegate:target===STATUS.APPROVED&&isDelegatedDeputy()});await audit(actionName,id,r.name||r.instrument||r.certificateNo,comment||"",old,target,{delegatedApproval:isDelegatedDeputy()});await notifyEmails(actionName,r.name||r.instrument||r.certificateNo,target,comment||"");await loadModule()}
 async function moduleApprove(id){const r=moduleRecords.find(x=>x.id===id);confirmAction(isDelegatedDeputy()?"Approve as QA Manager Delegate":"Approve",`Approve ${r.name||r.instrument||r.certificateNo}?`,async()=>{try{await updateModuleWorkflow(id,STATUS.APPROVED,isDelegatedDeputy()?"Approved under active delegation":"Approved","Module Approved");showMsg("Approved","Record approved.","success")}catch(e){showMsg("Approval failed",friendly(e),"error")}})}
 async function moduleReturn(id){const r=moduleRecords.find(x=>x.id===id);confirmAction("Return for Revision",`Return ${r.name||r.instrument||r.certificateNo}?`,async c=>{try{await updateModuleWorkflow(id,STATUS.RETURNED,c,"Module Returned");showMsg("Returned","Record returned.","success")}catch(e){showMsg("Return failed",friendly(e),"error")}},true)}
-async function toggleModuleExecution(id,checked){const c=currentModule===MODULES.CAL?"calibration":"qualification",r=moduleRecords.find(x=>x.id===id);if(!r)return;try{await updateDoc(docRef(c,id),{executedTracker:checked,executedAt:checked?serverTimestamp():null,updatedAt:serverTimestamp(),lastActionByUid:currentUser.uid,lastActionByName:currentProfile.displayName||currentUser.email});await audit(`${currentModule} ${checked?"Executed":"Returned to Plan"}`,id,r.name||r.instrument||r.certificateNo,`Execution status: ${checked?"Executed":"In Plan"}`,r.status,r.status);await notifyEmails(`${currentModule} Execution Status`,r.name||r.instrument||r.certificateNo,r.status,`Execution status changed to ${checked?"Executed":"In Plan"}.`);await loadModule();showMsg("Execution updated",checked?"Item is now Executed.":"Item is now In Plan.","success")}catch(e){showMsg("Execution failed",friendly(e),"error")}}
+async function toggleModuleExecution(id,checked){const c=currentModule===MODULES.CAL?"calibration":"qualification",r=moduleRecords.find(x=>x.id===id);if(!r)return;try{await updateDoc(docRef(c,id),{executedTracker:checked,executedAt:checked?serverTimestamp():null,updatedAt:serverTimestamp(),lastActionByUid:currentUser.uid,lastActionByName:currentProfile.displayName||currentUser.email});await audit(`${currentModule} ${checked?"Executed":"Returned to Plan"}`,id,r.name||r.instrument||r.certificateNo,`Execution status: ${checked?"Executed":"In Plan"}`,r.status,r.status);await notifyEmails(`${currentModule} Execution Status`,r.name||r.instrument||r.certificateNo,r.status,`Execution status changed to ${checked?"Executed":"In Plan"}.`);await loadModule();showMsg("Execution updated",checked?"Item is now Executed.":"Item is now In Plan.","success")}catch(e){showMsg("Execution failed",friendly(e),"error")}
+}
 async function importModuleExcel(ev){
   const file=ev.target.files[0];if(!file)return;try{const wb=XLSX.read(new Uint8Array(await file.arrayBuffer()),{type:"array"});let rows=[];wb.SheetNames.forEach(s=>rows.push(...XLSX.utils.sheet_to_json(wb.Sheets[s])));const c=currentModule===MODULES.CAL?"calibration":"qualification";let count=0;
   for(const row of rows){const x={};Object.keys(row).forEach(k=>x[k.toLowerCase().replace(/[^a-z0-9]/g,"")]=row[k]);let p;
@@ -625,129 +625,113 @@ async function loadDashboard(){
     `;
 
     const pending=rs.docs.map(d=>({id:d.id,...d.data()})).filter(x=>!["Approved","Rejected","Completed","Draft"].includes(x.status));
-    $("pendingList").innerHTML=pending.slice(0,5).map(x=>`<div class="p-2 border rounded-lg text-xs flex justify-between items-center"><div><b>${esc(x.productName)}</b><div class="text-slate-500">${esc(x.status)}</div></div><button data-goto-study="${x.id}" class="text-primary font-bold">View</button></div>`).join("")||`<div class="text-sm text-slate-500">No pending items requiring your immediate action.</div>`;
+    $("pendingList").innerHTML=pending.slice(0,5).map(x=>`<div class="p-2 border rounded-lg text-xs flex justify-between items-center"><div><b>${esc(x.productName)}</b><div class="text-slate-500">${esc(x.status)}</div></div><button data-goto-study="${x.id}" class="text-primary font-bold">View</button></div>`).join("")||`<div class="text-xs text-slate-500">No pending actions.</div>`;
 
-    $("recentActivity").innerHTML=as.docs.map(d=>{const x=d.data();return`<div class="text-xs border-b pb-1.5 mb-1.5"><b>${esc(x.action)}</b> — <span class="text-slate-600">${esc(x.targetName||x.studyName||"—")}</span><div class="text-[10px] text-slate-400">${esc(x.userName)} • ${esc(nowLabel(x.createdAt))}</div></div>`}).join("")||`<div class="text-sm text-slate-500">No recent activity.</div>`;
+    $("recentActivity").innerHTML=as.docs.map(d=>{const x=d.data();return`<div class="border-l-2 border-primary pl-2 py-1 text-xs"><b>${esc(x.action)}</b> — ${esc(x.targetName||x.studyName||"—")}<div class="text-slate-500">${esc(x.userName)} (${esc(x.userRole)}) • ${esc(nowLabel(x.createdAt))}</div></div>`}).join("")||`<div class="text-xs text-slate-500">No recent activity.</div>`;
 
     $("quickAccess").innerHTML=`
-      <button onclick="showView('studies')" class="p-3 border rounded-xl text-left hover:bg-slate-50 font-bold text-sm text-primary"><i class="fas fa-flask mr-2"></i>Studies Module</button>
-      <button onclick="showView('cal')" class="p-3 border rounded-xl text-left hover:bg-slate-50 font-bold text-sm text-indigo-700"><i class="fas fa-gauge-high mr-2"></i>Calibration</button>
-      <button onclick="showView('qual')" class="p-3 border rounded-xl text-left hover:bg-slate-50 font-bold text-sm text-purple-700"><i class="fas fa-certificate mr-2"></i>Qualification</button>
-      <button onclick="showView('prpo')" class="p-3 border rounded-xl text-left hover:bg-slate-50 font-bold text-sm text-amber-700"><i class="fas fa-file-invoice-dollar mr-2"></i>PR / PO Tracking</button>
+      <button data-quick="studies" class="p-3 border rounded-xl text-left hover:bg-slate-50 font-bold text-xs"><i class="fas fa-flask mr-1 text-primary"></i>Studies Module</button>
+      <button data-quick="cal" class="p-3 border rounded-xl text-left hover:bg-slate-50 font-bold text-xs"><i class="fas fa-gauge-high mr-1 text-indigo-600"></i>Calibration Module</button>
+      <button data-quick="qual" class="p-3 border rounded-xl text-left hover:bg-slate-50 font-bold text-xs"><i class="fas fa-certificate mr-1 text-purple-600"></i>Qualification Module</button>
+      <button data-quick="prpo" class="p-3 border rounded-xl text-left hover:bg-slate-50 font-bold text-xs"><i class="fas fa-file-invoice-dollar mr-1 text-amber-600"></i>PR / PO Module</button>
     `;
-  }catch(e){console.error("Dashboard load error:",e)}
+    document.querySelectorAll("[data-quick]").forEach(b=>b.onclick=()=>showView(b.dataset.quick));
+    document.querySelectorAll("[data-goto-study]").forEach(b=>b.onclick=()=>{showView("studies");setTimeout(()=>{$("searchInput").value=pending.find(x=>x.id===b.dataset.gotoStudy)?.productName||"";renderStudies()},200)});
+  }catch(e){console.warn("Dashboard load warning:",e)}
 }
 
-function updateClock(){const el=$("dashboardClock");if(el)el.textContent=new Date().toLocaleTimeString()}
-setInterval(updateClock,1000);
-
-// Global event listeners
 document.addEventListener("DOMContentLoaded",()=>{
-  if(msalInstance)msalInstance.initialize().catch(e=>console.warn("MSAL:",e));
-  
-  $("#loginForm").onsubmit=async e=>{
-    e.preventDefault();const err=$("loginError");err.classList.add("hidden");
+  setupActivity();
+  $("logoutBtn").onclick=()=>signOut(auth);
+  $("homeNav").onclick=()=>showView("home");
+  $("studiesNav").onclick=()=>showView("studies");
+  $("calibrationNav").onclick=()=>showView("cal");
+  $("qualificationNav").onclick=()=>showView("qual");
+  $("sopNav").onclick=()=>showView("sop");
+  $("prpoNav").onclick=()=>showView("prpo");
+  $("userManagementBtn").onclick=loadUsers;
+  $("auditTrailBtn").onclick=loadAudit;
+
+  $("azureSsoBtn").onclick=async()=>{
+    if(!msalInstance)return showMsg("MSAL unavailable","Microsoft login wrapper not loaded.","error");
     try{
-      const email=await resolveLoginEmail($("username").value);
-      const cred=await signInWithEmailAndPassword(auth,email,$("password").value);
-      currentUser=cred.user;
-      currentProfile=await loadProfile(currentUser);
-      if(currentProfile.passwordExpired)passwordExpired=true;
-      $("loginSection").classList.add("hidden");
-      $("dashboardSection").classList.remove("hidden");
-      configureNav();showView("home");setupActivity();
-    }catch(ex){err.textContent=friendly(ex);err.classList.remove("hidden")}
-  };
-
-  $("#logoutBtn").onclick=()=>signOut(auth);
-  $("#homeNav").onclick=()=>showView("home");
-  $("#studiesNav").onclick=()=>showView("studies");
-  $("#calibrationNav").onclick=()=>showView("cal");
-  $("#qualificationNav").onclick=()=>showView("qual");
-  $("#sopNav").onclick=()=>showView("sop");
-  $("#prpoNav").onclick=()=>showView("prpo");
-  $("#userManagementBtn").onclick=loadUsers;
-  $("#auditTrailBtn").onclick=loadAudit;
-
-  // Study sub-tabs & category switching
-  $("#tabProcess").onclick=()=>{currentCategory=CATS.PROCESS;currentStudySubtab="all";document.querySelectorAll("#studiesView .tab").forEach(t=>t.classList.remove("active"));$("#tabProcess").classList.add("active");renderStudies()};
-  $("#tabHoldTime").onclick=()=>{currentCategory=CATS.HOLD;currentStudySubtab="all";document.querySelectorAll("#studiesView .tab").forEach(t=>t.classList.remove("active"));$("#tabHoldTime").classList.add("active");renderStudies()};
-  $("#tabCleaning").onclick=()=>{currentCategory=CATS.CLEANING;currentStudySubtab="all";document.querySelectorAll("#studiesView .tab").forEach(t=>t.classList.remove("active"));$("#tabCleaning").classList.add("active");renderStudies()};
-  $("#studySubtabs").onclick=e=>{const btn=e.target.closest("[data-study-sub]");if(btn){currentStudySubtab=btn.dataset.studySub;renderStudies()}};
-  $("#addRecordBtn").onclick=()=>openStudy();
-  $("#searchInput").oninput=renderStudies;
-  $("#filterStage").onchange=renderStudies;
-  $("#filterStatus").onchange=renderStudies;
-  $("#filterScale").onchange=renderStudies;
-  $("#clearFiltersBtn").onclick=()=>{[$("searchInput"),$("filterStage"),$("filterStatus"),$("filterScale")].forEach(i=>i.value="All"||(i.value=""));renderStudies()};
-
-  // Module actions
-  $("#addModuleBtn").onclick=()=>openModule();
-  $("#excelImportInput").onchange=importModuleExcel;
-  $("#modSearchInput").oninput=renderModuleTable;
-  $("#modFilter1").onchange=renderModuleTable;
-  $("#modFilter2").onchange=renderModuleTable;
-  $("#modFilterStatus").onchange=renderModuleTable;
-  $("#modClearFiltersBtn").onclick=()=>{[$("modSearchInput"),$("modFilter1"),$("modFilter2"),$("modFilterStatus")].forEach(i=>i.value="All"||(i.value=""));renderModuleTable()};
-
-  document.querySelectorAll("[data-cal-tab]").forEach(b=>b.onclick=()=>{document.querySelectorAll("[data-cal-tab]").forEach(x=>x.classList.remove("active"));b.classList.add("active");currentModuleTab=b.dataset.calTab;renderModuleTable()});
-  document.querySelectorAll("[data-qual-tab]").forEach(b=>b.onclick=()=>{document.querySelectorAll("[data-qual-tab]").forEach(x=>x.classList.remove("active"));b.classList.add("active");currentModuleTab=b.dataset.qualTab;renderModuleTable()});
-
-  // SOP & PRPO actions
-  $("#sopInput").onchange=uploadSop;
-  $("#sopSearch").oninput=renderSops;
-  $("#sopTypeFilter").onchange=renderSops;
-  $("#addPrpoBtn").onclick=()=>openPrpo();
-  $("#prpoSearch").oninput=renderPrpo;
-  $("#prpoType").onchange=renderPrpo;
-  $("#prpoStatus").onchange=renderPrpo;
-
-  // Global delegation on click actions for dynamic buttons
-  document.body.onclick=e=>{
-    const edStudy=e.target.closest("[data-edit-study]");if(edStudy)openStudy(records.find(x=>x.id===edStudy.dataset.editStudy));
-    const subStudy=e.target.closest("[data-submit-study]");if(subStudy)submitStudy(subStudy.dataset.submitStudy);
-    const revStudy=e.target.closest("[data-review-study]");if(revStudy)reviewStudy(revStudy.dataset.reviewStudy);
-    const appStudy=e.target.closest("[data-approve-study]");if(appStudy)approveStudy(appStudy.dataset.approveStudy);
-    const retStudy=e.target.closest("[data-return-study]");if(retStudy)returnStudy(retStudy.dataset.returnStudy);
-    const rejStudy=e.target.closest("[data-reject-study]");if(rejStudy)rejectStudy(rejStudy.dataset.rejectStudy);
-    const actStudy=e.target.closest("[data-study-action]");if(actStudy)setStudyAction(actStudy.dataset.studyAction,actStudy.dataset.action);
-    const fileStudy=e.target.closest("[data-files-study]");if(fileStudy)filesFor(fileStudy.dataset.filesStudy,"studies");
-    const histStudy=e.target.closest("[data-history-study]");if(histStudy)showHistory(histStudy.dataset.historyStudy);
-
-    const modEdit=e.target.closest("[data-module-edit]");if(modEdit)openModule(moduleRecords.find(x=>x.id===modEdit.dataset.moduleEdit));
-    const modSub=e.target.closest("[data-module-submit]");if(modSub)submitModule(modSub.dataset.moduleSubmit);
-    const modRev=e.target.closest("[data-module-review]");if(modRev)moduleReview(modRev.dataset.moduleReview);
-    const modApp=e.target.closest("[data-module-approve]");if(modApp)moduleApprove(modApp.dataset.moduleApprove);
-    const modRet=e.target.closest("[data-module-return]");if(modRet)moduleReturn(modRet.dataset.moduleReturn);
-    const modExec=e.target.closest("[data-module-exec]");if(modExec)toggleModuleExecution(modExec.dataset.moduleExec,modExec.dataset.exec==="1");
-    const printCal=e.target.closest("[data-print-cal]");if(printCal)printCalibration(printCal.dataset.printCal);
-    const modFiles=e.target.closest("[data-module-files]");if(modFiles)filesFor(modFiles.dataset.moduleFiles,currentModule===MODULES.CAL?"calibration":"qualification");
-
-    const sopFile=e.target.closest("[data-sop-file]");if(sopFile)openSop(sopFile.dataset.sopFile);
-    const sopDel=e.target.closest("[data-sop-delete]");if(sopDel)deleteSop(sopDel.dataset.sopDel);
-
-    const prpoEdit=e.target.closest("[data-prpo-edit]");if(prpoEdit)openPrpo(prpos.find(x=>x.id===prpoEdit.dataset.prpoEdit));
-    const prpoSub=e.target.closest("[data-prpo-submit]");if(prpoSub)submitPrpo(prpoSub.dataset.prpoSub);
-
-    const usrEdit=e.target.closest("[data-user-edit]");if(usrEdit)editUser(usrEdit.dataset.userEdit);
-    const usrTog=e.target.closest("[data-user-toggle]");if(usrTog)toggleUser(usrTog.dataset.userTog);
-    const gotoStudy=e.target.closest("[data-goto-study]");if(gotoStudy){showView("studies");}
-  };
-
-  onAuthStateChanged(auth,async u=>{
-    if(u){
-      currentUser=u;
-      try{
-        currentProfile=await loadProfile(u);
-        $("loginSection").classList.add("hidden");
-        $("dashboardSection").classList.remove("hidden");
-        configureNav();showView("home");setupActivity();
-      }catch(e){
-        signOut(auth);resetUI();showMsg("Access Error",friendly(e),"error");
+      await msalInstance.initialize();const res=await msalInstance.loginPopup({scopes:["User.Read"]});
+      if(res?.account?.username){
+        const email=res.account.username.toLowerCase();
+        try{
+          const profile=await loadProfile({email,uid:res.account.homeAccountId});
+          currentUser={uid:res.account.homeAccountId,email};currentProfile=profile;
+          if(profile.passwordExpired)return showMsg("Password Expired","Your account password has expired (>90 days). Contact admin to reset.","error");
+          configureNav();showView("home");
+        }catch(err){showMsg("SSO profile error",friendly(err),"error")}
       }
-    }else{
-      currentUser=null;currentProfile=null;resetUI();
-    }
+    }catch(e){showMsg("Microsoft Login failed",friendly(e),"error")}
+  };
+
+  $("loginForm").onsubmit=async e=>{
+    e.preventDefault();const raw=$("username").value.trim(),password=$("password").value;const errDiv=$("loginError");errDiv.classList.add("hidden");
+    try{
+      const email=await resolveLoginEmail(raw);
+      const cred=await signInWithEmailAndPassword(auth,email,password);
+      const profile=await loadProfile(cred.user);
+      currentUser=cred.user;currentProfile=profile;
+      if(profile.passwordExpired){await signOut(auth);return showMsg("Password Expired","Your password has expired (exceeds 90 days). Please use the password reset option to update it.","error")}
+      configureNav();showView("home");
+    }catch(err){errDiv.textContent=friendly(err);errDiv.classList.remove("hidden")}
+  };
+
+  [CATS.PROCESS,CATS.HOLD,CATS.CLEANING].forEach((cat,i)=>{const ids=["tabProcess","tabHoldTime","tabCleaning"];$(ids[i]).onclick=()=>{document.querySelectorAll("#studiesView .tab").forEach(t=>t.classList.remove("active"));$(ids[i]).classList.add("active");currentCategory=cat;currentStudySubtab="all";loadStudies()}});
+  $("studySubtabs").onclick=e=>{const btn=e.target.closest("[data-study-sub]");if(btn){currentStudySubtab=btn.dataset.studySub;renderStudies()}};
+  $("addRecordBtn").onclick=()=>openStudy();
+  ["searchInput","filterStage","filterStatus","filterScale"].forEach(id=>$(id).oninput=renderStudies);$("clearFiltersBtn").onclick=()=>{["searchInput","filterStage","filterStatus","filterScale"].forEach(id=>$(id).value="All");$("searchInput").value="";renderStudies()};
+
+  $("dataTableBody").onclick=e=>{
+    const ed=e.target.closest("[data-edit-study]"),sub=e.target.closest("[data-submit-study]"),rev=e.target.closest("[data-review-study]"),app=e.target.closest("[data-approve-study]"),rej=e.target.closest("[data-reject-study]"),ret=e.target.closest("[data-return-study]"),act=e.target.closest("[data-study-action]"),files=e.target.closest("[data-files-study]"),hist=e.target.closest("[data-history-study]");
+    if(ed)openStudy(records.find(x=>x.id===ed.dataset.editStudy));
+    if(sub)submitStudy(sub.dataset.submitStudy);
+    if(rev)reviewStudy(rev.dataset.reviewStudy);
+    if(app)approveStudy(app.dataset.approveStudy);
+    if(rej)rejectStudy(rej.dataset.rejectStudy);
+    if(ret)returnStudy(ret.dataset.returnStudy);
+    if(act)setStudyAction(act.dataset.studyAction,act.dataset.action);
+    if(files)filesFor(files.dataset.filesStudy,"studies");
+    if(hist)showHistory(hist.dataset.historyStudy);
+  };
+
+  document.querySelectorAll("[data-cal-tab]").forEach(b=>b.onclick=()=>{document.querySelectorAll("[data-cal-tab]").forEach(x=>x.classList.remove("active","subtab"));b.classList.add("active","subtab");currentModuleTab=b.dataset.calTab;renderModuleTable()});
+  document.querySelectorAll("[data-qual-tab]").forEach(b=>b.onclick=()=>{document.querySelectorAll("[data-qual-tab]").forEach(x=>x.classList.remove("active","subtab"));b.classList.add("active","subtab");currentModuleTab=b.dataset.qualTab;renderModuleTable()});
+  $("addModuleBtn").onclick=()=>openModule();
+  $("excelImportInput").onchange=importModuleExcel;
+  ["modSearchInput","modFilter1","modFilter2","modFilterStatus"].forEach(id=>$(id).oninput=renderModuleTable);$("modClearFiltersBtn").onclick=()=>{["modSearchInput","modFilter1","modFilter2","modFilterStatus"].forEach(id=>$(id).value="All");$("modSearchInput").value="";renderModuleTable()};
+
+  $("moduleTableBody").onclick=e=>{
+    const ed=e.target.closest("[data-module-edit]"),sub=e.target.closest("[data-module-submit]"),rev=e.target.closest("[data-module-review]"),app=e.target.closest("[data-module-approve]"),ret=e.target.closest("[data-module-return]"),exec=e.target.closest("[data-module-exec]"),print=e.target.closest("[data-print-cal]"),files=e.target.closest("[data-module-files]");
+    if(ed)openModule(moduleRecords.find(x=>x.id===ed.dataset.moduleEdit));
+    if(sub)submitModule(sub.dataset.moduleSubmit);
+    if(rev)moduleReview(rev.dataset.moduleReview);
+    if(app)moduleApprove(app.dataset.moduleApprove);
+    if(ret)moduleReturn(ret.dataset.moduleReturn);
+    if(exec)toggleModuleExecution(exec.dataset.moduleExec,exec.dataset.exec==="1");
+    if(print)printCalibration(print.dataset.printCal);
+    if(files)filesFor(files.dataset.moduleFiles,currentModule.toLowerCase());
+  };
+
+  $("sopInput").onchange=uploadSop;
+  $("sopSearch").oninput=renderSops;
+  $("sopTypeFilter").onchange=renderSops;
+  $("sopList").onclick=e=>{const op=e.target.closest("[data-sop-file]"),del=e.target.closest("[data-sop-delete]");if(op)openSop(op.dataset.sopFile);if(del)deleteSop(del.dataset.sopDelete)};
+
+  $("addPrpoBtn").onclick=()=>openPrpo();
+  ["prpoSearch","prpoType","prpoStatus"].forEach(id=>$(id).oninput=renderPrpo);$("prpoBody").onclick=e=>{const ed=e.target.closest("[data-prpo-edit]"),sub=e.target.closest("[data-prpo-submit]"),rev=e.target.closest("[data-prpo-review]"),app=e.target.closest("[data-prpo-approve]"),ret=e.target.closest("[data-prpo-return]");if(ed)openPrpo(prpos.find(x=>x.id===ed.dataset.prpoEdit));if(sub)submitPrpo(sub.dataset.prpoSubmit);if(rev)prpoWorkflow(rev.dataset.prpoReview,STATUS.PENDING_QA,"Review completed","PR/PO Reviewed");if(app)prpoWorkflow(app.dataset.prpoApprove,STATUS.APPROVED,"Approved","PR/PO Approved");if(ret)prpoWorkflow(ret.dataset.prpoReturn,STATUS.RETURNED,"Returned for revision","PR/PO Returned")};
+
+  onAuthStateChanged(auth,async user=>{
+    if(user){
+      try{
+        const profile=await loadProfile(user);currentUser=user;currentProfile=profile;
+        if(profile.passwordExpired){await signOut(auth);return showMsg("Password Expired","Account password has expired. Contact system administrator.","error")}
+        configureNav();showView("home");
+      }catch(err){resetUI();showMsg("Authentication error",friendly(err),"error")}
+    }else{resetUI()}
   });
 });
 </script>
