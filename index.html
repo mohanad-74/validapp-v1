@@ -199,8 +199,8 @@ import {initializeApp,deleteApp} from "https://www.gstatic.com/firebasejs/11.6.1
 import {getAuth,onAuthStateChanged,signInWithEmailAndPassword,signOut,createUserWithEmailAndPassword,sendPasswordResetEmail} from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 import {getFirestore,collection,doc,getDoc,getDocs,setDoc,addDoc,updateDoc,deleteDoc,query,where,orderBy,limit,serverTimestamp} from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-// REPLACE WITH YOUR ACTUAL FIREBASE CONFIG FROM FIREBASE CONSOLE
-const MY_FIREBASE_CONFIG={apiKey:"YOUR_VALID_FIREBASE_API_KEY",authDomain:"validapp-db.firebaseapp.com",projectId:"validapp-db",storageBucket:"validapp-db.firebasestorage.app",messagingSenderId:"702664233017",appId:"1:702664233017:web:25fbede2f3c7244cdbfde8",measurementId:"G-7FTDYP0XWS"};
+// ⚠️ REPLACE WITH YOUR ACTUAL FIREBASE CONFIG FROM THE FIREBASE CONSOLE
+const MY_FIREBASE_CONFIG={apiKey:"AIzaSyDEV8rEluViDZiA5nnv7BiIU78rgq5en8A",authDomain:"validapp-db.firebaseapp.com",projectId:"validapp-db",storageBucket:"validapp-db.firebasestorage.app",messagingSenderId:"702664233017",appId:"1:702664233017:web:25fbede2f3c7244cdbfde8",measurementId:"G-7FTDYP0XWS"};
 const SUPABASE_URL="https://lnyignnyhihrkjauhzsk.supabase.co";
 const SUPABASE_ANON_KEY="sb_publishable__0Xw5joGtNrlh38qYOhrpw_vMALXzrV";
 const EMAILJS_PUBLIC_KEY="tx8P6mYyi6C6APSXn",EMAILJS_SERVICE_ID="service_nyq8c6p",EMAILJS_TEMPLATE_ID="template_008bbdj";
@@ -346,7 +346,7 @@ async function resolveLoginEmail(identifier){
   throw Error("Enter the Firebase account email address, or a valid existing ValidApp username.");
 }
 
-async function updateActivity(){lastActivity=Date.now();if(inactivityTimer)clearTimeout(inactivityTimer);inactivityTimer=setTimeout(()=>{if(currentUser){showMsg("Session expired","You were automatically logged out after 15 minutes without activity.","error");setTimeout(()=>signOut(auth),700)}},15*60*1000)}
+async function updateActivity(){lastActivity=Date.now();if(inactivityTimer)clearTimeout(inactivityTimer);inactivityTimer=setTimeout(()=>{if(currentUser){showMsg("Session expired","You were automatically logged out after 15 minutes without activity.","error");setTimeout(()=>signOut(auth),700)}} ,15*60*1000)}
 function setupActivity(){["click","keydown","mousemove","scroll","touchstart"].forEach(e=>document.addEventListener(e,updateActivity,{passive:true}));updateActivity()}
 function resetUI(){if(inactivityTimer){clearTimeout(inactivityTimer);inactivityTimer=null}$("loginSection").classList.remove("hidden");$("dashboardSection").classList.add("hidden");$("userInfo").classList.add("hidden");$("userInfo").classList.remove("flex");if($("password"))$("password").value="";passwordExpired=false;}
 function nav(id){document.querySelectorAll(".nav-btn").forEach(x=>x.classList.remove("active"));if($(id))$(id).classList.add("active")}
@@ -606,112 +606,133 @@ async function toggleUser(id){const u=users.find(x=>x.id===id);if(!u||id===curre
 async function loadDashboard(){
   try{
     const [rs,cs,qs,ps,ss,as]=await Promise.all([getDocs(colRef("records")),getDocs(colRef("calibration")),getDocs(colRef("qualification")),getDocs(colRef("prpo")),isSopUser()?getDocs(colRef("sops")):Promise.resolve({docs:[]}),getDocs(query(colRef("audit"),orderBy("createdAt","desc"),limit(20)))]);
-    const r=rs.docs.map(d=>d.data()),c=cs.docs.map(d=>d.data()),q=qs.docs.map(d=>d.data()),p=ps.docs.map(d=>d.data()),s=ss.docs.map(d=>d.data()),a=as.docs.map(d=>d.data());
-    const pending=r.filter(x=>x.status===STATUS.PENDING_SECTION_HEAD&&can(ROLES.SECTION_HEAD)).length+r.filter(x=>x.status===STATUS.PENDING_REVIEWER&&can(ROLES.REVIEWER)).length+r.filter(x=>x.status===STATUS.PENDING_DEPUTY&&can(ROLES.DEPUTY)).length+r.filter(x=>x.status===STATUS.PENDING_QA&&isQAApprover()).length;
-    const k=[["Studies",r.length,"fa-flask","studies"],["Study Pending",r.filter(x=>x.status?.startsWith("Pending")).length,"fa-hourglass-half","studies"],["Approved Studies",r.filter(x=>x.status===STATUS.APPROVED).length,"fa-check-circle","studies"],["Calibration",c.length,"fa-gauge-high","cal"],["Calibration Due",c.filter(x=>x.dueDate&&new Date(x.dueDate)<new Date(Date.now()+30*86400000)).length,"fa-calendar-day","cal"],["Qualification",q.length,"fa-certificate","qual"],["PR / PO",p.length,"fa-file-invoice","prpo"],["SOPs",s.length,"fa-file-shield","sop"]];
-    $("kpiGrid").innerHTML=k.map(x=>`<button data-kpi="${x[3]}" class="kpi card p-4 text-left"><i class="fas ${x[2]} text-primary text-xl"></i><div class="text-2xl font-extrabold mt-2">${x[1]}</div><div class="text-xs text-slate-500 font-bold">${x[0]}</div></button>`).join("");
-    $("moduleOverview").innerHTML=[["Studies",r.length,r.filter(x=>x.status===STATUS.APPROVED).length,"studies"],["Calibration",c.length,c.filter(x=>x.executedTracker).length,"cal"],["Qualification",q.length,q.filter(x=>x.executedTracker).length,"qual"],["PR / PO",p.length,p.filter(x=>x.status===STATUS.COMPLETED||x.status===STATUS.APPROVED).length,"prpo"],["Module SOPs",s.length,0,"sop"]].map(x=>`<button data-kpi="${x[3]}" class="border rounded-xl p-4 text-left hover:bg-slate-50"><b>${x[0]}</b><div class="text-2xl font-extrabold">${x[1]}</div><div class="text-xs text-slate-500">${x[2]} completed / approved</div></button>`).join("");
-    $("pendingList").innerHTML=`<div class="p-3 bg-blue-50 rounded-lg font-bold">${pending} action(s) currently pending your review or approval.</div>`;
-    $("recentActivity").innerHTML=a.map(x=>`<div class="border-l-4 border-primary pl-3 py-1"><b>${esc(x.action)}</b><div class="text-xs text-slate-500">${esc(x.userName)} • ${esc(nowLabel(x.createdAt))}</div><div class="text-xs text-slate-600 mt-1">${esc(x.details||"—")}</div></div>`).join("")||"<div class='text-sm text-slate-500'>No recent activity.</div>";
-    $("quickAccess").innerHTML=[["Studies","fa-flask","studies"],["Calibration","fa-gauge-high","cal"],["Qualification","fa-certificate","qual"],["PR / PO","fa-file-invoice","prpo"]].map(x=>`<button data-kpi="${x[2]}" class="border rounded-xl p-3 text-left hover:bg-slate-50 font-bold text-sm"><i class="fas ${x[1]} text-primary mr-2"></i>${x[0]}</button>`).join("");
-    document.querySelectorAll("[data-kpi]").forEach(b=>b.onclick=()=>showView(b.dataset.kpi));
-  }catch(e){showMsg("Dashboard load failed",friendly(e),"error")}
+    const r=rs.docs.map(d=>d.data()), c=cs.docs.map(d=>d.data()), q=qs.docs.map(d=>d.data()), p=ps.docs.map(d=>d.data());
+    const totalStudies=r.length, approvedStudies=r.filter(x=>x.status===STATUS.APPROVED||x.status===STATUS.COMPLETED).length;
+    const totalCal=c.length, totalQual=q.length, totalPrpo=p.length;
+    
+    $("kpiGrid").innerHTML=`
+      <div class="card p-3 kpi"><div class="text-xs text-slate-500 font-bold">Total Studies</div><div class="text-2xl font-extrabold text-blue-800 mt-1">${totalStudies}</div></div>
+      <div class="card p-3 kpi"><div class="text-xs text-slate-500 font-bold">Approved Studies</div><div class="text-2xl font-extrabold text-emerald-700 mt-1">${approvedStudies}</div></div>
+      <div class="card p-3 kpi"><div class="text-xs text-slate-500 font-bold">Calibration Items</div><div class="text-2xl font-extrabold text-indigo-700 mt-1">${totalCal}</div></div>
+      <div class="card p-3 kpi"><div class="text-xs text-slate-500 font-bold">Qualification Items</div><div class="text-2xl font-extrabold text-purple-700 mt-1">${totalQual}</div></div>
+      <div class="card p-3 kpi"><div class="text-xs text-slate-500 font-bold">PR / PO Records</div><div class="text-2xl font-extrabold text-amber-700 mt-1">${totalPrpo}</div></div>
+    `;
+
+    $("moduleOverview").innerHTML=`
+      <div class="border rounded-xl p-3 bg-slate-50"><b>Validation Studies</b><div class="text-xs text-slate-600 mt-1">${totalStudies} tracked records (${approvedStudies} approved).</div></div>
+      <div class="border rounded-xl p-3 bg-slate-50"><b>Calibration Module</b><div class="text-xs text-slate-600 mt-1">${totalCal} active instruments.</div></div>
+      <div class="border rounded-xl p-3 bg-slate-50"><b>Qualification Module</b><div class="text-xs text-slate-600 mt-1">${totalQual} utilities/systems.</div></div>
+    `;
+
+    const pending=rs.docs.map(d=>({id:d.id,...d.data()})).filter(x=>!["Approved","Rejected","Completed","Draft"].includes(x.status));
+    $("pendingList").innerHTML=pending.slice(0,5).map(x=>`<div class="p-2 border rounded-lg text-xs flex justify-between items-center"><div><b>${esc(x.productName)}</b><div class="text-slate-500">${esc(x.status)}</div></div><button data-goto-study="${x.id}" class="text-primary font-bold">View</button></div>`).join("")||`<div class="text-sm text-slate-500">No pending items requiring your immediate action.</div>`;
+
+    $("recentActivity").innerHTML=as.docs.map(d=>{const x=d.data();return`<div class="text-xs border-b pb-1.5 mb-1.5"><b>${esc(x.action)}</b> — <span class="text-slate-600">${esc(x.targetName||x.studyName||"—")}</span><div class="text-[10px] text-slate-400">${esc(x.userName)} • ${esc(nowLabel(x.createdAt))}</div></div>`}).join("")||`<div class="text-sm text-slate-500">No recent activity.</div>`;
+
+    $("quickAccess").innerHTML=`
+      <button onclick="showView('studies')" class="p-3 border rounded-xl text-left hover:bg-slate-50 font-bold text-sm text-primary"><i class="fas fa-flask mr-2"></i>Studies Module</button>
+      <button onclick="showView('cal')" class="p-3 border rounded-xl text-left hover:bg-slate-50 font-bold text-sm text-indigo-700"><i class="fas fa-gauge-high mr-2"></i>Calibration</button>
+      <button onclick="showView('qual')" class="p-3 border rounded-xl text-left hover:bg-slate-50 font-bold text-sm text-purple-700"><i class="fas fa-certificate mr-2"></i>Qualification</button>
+      <button onclick="showView('prpo')" class="p-3 border rounded-xl text-left hover:bg-slate-50 font-bold text-sm text-amber-700"><i class="fas fa-file-invoice-dollar mr-2"></i>PR / PO Tracking</button>
+    `;
+  }catch(e){console.error("Dashboard load error:",e)}
 }
 
+function updateClock(){const el=$("dashboardClock");if(el)el.textContent=new Date().toLocaleTimeString()}
+setInterval(updateClock,1000);
+
+// Global event listeners
 document.addEventListener("DOMContentLoaded",()=>{
-  setupActivity();
-  $("azureSsoBtn")?.addEventListener("click",async()=>{
-    if(!msalInstance)return showMsg("MSAL unavailable","Microsoft authentication is not configured.","error");
-    try{const res=await msalInstance.loginPopup({scopes:["User.Read"]});if(res?.account){const email=res.account.username.toLowerCase();const cred=await signInWithEmailAndPassword(auth,email,email+"ValidApp@2026!");currentUser=cred.user;currentProfile=await loadProfile(currentUser);resetUI();showView("home");setupActivity();}}catch(e){showMsg("Microsoft SSO failed",friendly(e),"error")}
-  });
-  $("loginForm")?.addEventListener("submit",async e=>{
-    e.preventDefault();const id=$("username").value.trim(),pass=$("password").value;
-    try{const email=await resolveLoginEmail(id),cred=await signInWithEmailAndPassword(auth,email,pass);currentUser=cred.user;currentProfile=await loadProfile(currentUser);if(currentProfile.passwordExpired&&!passwordExpired){passwordExpired=true;return showMsg("Password expired","Your password is older than 90 days. Please update your password immediately.","error")}resetUI();showView("home");setupActivity();loadDashboard();document.getElementById("loginSection").classList.add("hidden");document.getElementById("dashboardSection").classList.remove("hidden");}catch(err){showMsg("Login failed",friendly(err),"error")}
-  });
-  $("logoutBtn")?.addEventListener("click",()=>signOut(auth).then(()=>{currentUser=null;currentProfile=null;resetUI();document.getElementById("loginSection").classList.remove("hidden");document.getElementById("dashboardSection").classList.add("hidden")}));
+  if(msalInstance)msalInstance.initialize().catch(e=>console.warn("MSAL:",e));
   
-  $("homeNav")?.addEventListener("click",()=>showView("home"));
-  $("studiesNav")?.addEventListener("click",()=>showView("studies"));
-  $("calibrationNav")?.addEventListener("click",()=>showView("cal"));
-  $("qualificationNav")?.addEventListener("click",()=>showView("qual"));
-  $("sopNav")?.addEventListener("click",()=>showView("sop"));
-  $("prpoNav")?.addEventListener("click",()=>showView("prpo"));
-  $("userManagementBtn")?.addEventListener("click",loadUsers);
-  $("auditTrailBtn")?.addEventListener("click",loadAudit);
+  $("#loginForm").onsubmit=async e=>{
+    e.preventDefault();const err=$("loginError");err.classList.add("hidden");
+    try{
+      const email=await resolveLoginEmail($("username").value);
+      const cred=await signInWithEmailAndPassword(auth,email,$("password").value);
+      currentUser=cred.user;
+      currentProfile=await loadProfile(currentUser);
+      if(currentProfile.passwordExpired)passwordExpired=true;
+      $("loginSection").classList.add("hidden");
+      $("dashboardSection").classList.remove("hidden");
+      configureNav();showView("home");setupActivity();
+    }catch(ex){err.textContent=friendly(ex);err.classList.remove("hidden")}
+  };
 
-  ["tabProcess","tabHoldTime","tabCleaning"].forEach(id=>{
-    $(id)?.addEventListener("click",()=>{
-      document.querySelectorAll("#studiesView .tab").forEach(t=>t.classList.remove("active"));
-      $(id).classList.add("active");
-      currentCategory=id==="tabProcess"?CATS.PROCESS:id==="tabHoldTime"?CATS.HOLD:CATS.CLEANING;
-      currentStudySubtab="all";
-      renderStudies();
-    });
-  });
-  $("studySubtabs")?.addEventListener("click",e=>{const b=e.target.closest("[data-study-sub]");if(b){currentStudySubtab=b.dataset.studySub;renderStudies()}});
-  $("addRecordBtn")?.addEventListener("click",()=>openStudy());
-  $("searchInput")?.addEventListener("input",renderStudies);
-  ["filterStage","filterStatus","filterScale"].forEach(id=>$(id)?.addEventListener("change",renderStudies));
-  $("clearFiltersBtn")?.addEventListener("click",()=>{
-    $("searchInput").value="";$("filterStage").value="All";$("filterStatus").value="All";$("filterScale").value="All";renderStudies();
-  });
+  $("#logoutBtn").onclick=()=>signOut(auth);
+  $("#homeNav").onclick=()=>showView("home");
+  $("#studiesNav").onclick=()=>showView("studies");
+  $("#calibrationNav").onclick=()=>showView("cal");
+  $("#qualificationNav").onclick=()=>showView("qual");
+  $("#sopNav").onclick=()=>showView("sop");
+  $("#prpoNav").onclick=()=>showView("prpo");
+  $("#userManagementBtn").onclick=loadUsers;
+  $("#auditTrailBtn").onclick=loadAudit;
 
-  $("addModuleBtn")?.addEventListener("click",()=>openModule());
-  $("excelImportInput")?.addEventListener("change",importModuleExcel);
-  document.querySelectorAll("[data-cal-tab]").forEach(b=>b.onclick=()=>{document.querySelectorAll("[data-cal-tab]").forEach(x=>x.classList.remove("active","subtab"));b.classList.add("active","subtab");currentModuleTab=b.dataset.calTab;renderModuleTable()});
-  document.querySelectorAll("[data-qual-tab]").forEach(b=>b.onclick=()=>{document.querySelectorAll("[data-qual-tab]").forEach(x=>x.classList.remove("active","subtab"));b.classList.add("active","subtab");currentModuleTab=b.dataset.qualTab;renderModuleTable()});
-  $("#modSearchInput")?.addEventListener("input",renderModuleTable);
-  ["modFilter1","modFilter2","modFilterStatus"].forEach(id=>$(id)?.addEventListener("change",renderModuleTable));
-  $("modClearFiltersBtn")?.addEventListener("click",()=>{$("#modSearchInput").value="";$("#modFilter1").value="All";$("#modFilter2").value="All";$("#modFilterStatus").value="All";renderModuleTable()});
+  // Study sub-tabs & category switching
+  $("#tabProcess").onclick=()=>{currentCategory=CATS.PROCESS;currentStudySubtab="all";document.querySelectorAll("#studiesView .tab").forEach(t=>t.classList.remove("active"));$("#tabProcess").classList.add("active");renderStudies()};
+  $("#tabHoldTime").onclick=()=>{currentCategory=CATS.HOLD;currentStudySubtab="all";document.querySelectorAll("#studiesView .tab").forEach(t=>t.classList.remove("active"));$("#tabHoldTime").classList.add("active");renderStudies()};
+  $("#tabCleaning").onclick=()=>{currentCategory=CATS.CLEANING;currentStudySubtab="all";document.querySelectorAll("#studiesView .tab").forEach(t=>t.classList.remove("active"));$("#tabCleaning").classList.add("active");renderStudies()};
+  $("#studySubtabs").onclick=e=>{const btn=e.target.closest("[data-study-sub]");if(btn){currentStudySubtab=btn.dataset.studySub;renderStudies()}};
+  $("#addRecordBtn").onclick=()=>openStudy();
+  $("#searchInput").oninput=renderStudies;
+  $("#filterStage").onchange=renderStudies;
+  $("#filterStatus").onchange=renderStudies;
+  $("#filterScale").onchange=renderStudies;
+  $("#clearFiltersBtn").onclick=()=>{[$("searchInput"),$("filterStage"),$("filterStatus"),$("filterScale")].forEach(i=>i.value="All"||(i.value=""));renderStudies()};
 
-  $("sopInput")?.addEventListener("change",uploadSop);
-  $("sopSearch")?.addEventListener("input",renderSops);
-  $("sopTypeFilter")?.addEventListener("change",renderSops);
-  $("addPrpoBtn")?.addEventListener("click",()=>openPrpo());
-  ["prpoSearch","prpoType","prpoStatus"].forEach(id=>$(id)?.addEventListener("input",renderPrpo));
+  // Module actions
+  $("#addModuleBtn").onclick=()=>openModule();
+  $("#excelImportInput").onchange=importModuleExcel;
+  $("#modSearchInput").oninput=renderModuleTable;
+  $("#modFilter1").onchange=renderModuleTable;
+  $("#modFilter2").onchange=renderModuleTable;
+  $("#modFilterStatus").onchange=renderModuleTable;
+  $("#modClearFiltersBtn").onclick=()=>{[$("modSearchInput"),$("modFilter1"),$("modFilter2"),$("modFilterStatus")].forEach(i=>i.value="All"||(i.value=""));renderModuleTable()};
 
-  $("dataTableBody")?.addEventListener("click",e=>{
-    const b=e.target.closest("button");if(!b)return;
-    const id=b.dataset.editStudy||b.dataset.submitStudy||b.dataset.reviewStudy||b.dataset.approveStudy||b.dataset.returnStudy||b.dataset.rejectStudy||b.dataset.studyAction||b.dataset.filesStudy||b.dataset.historyStudy;
-    if(!id)return;
-    if(b.dataset.editStudy)openStudy(records.find(x=>x.id===id));
-    else if(b.dataset.submitStudy)submitStudy(id);
-    else if(b.dataset.reviewStudy)reviewStudy(id);
-    else if(b.dataset.approveStudy)approveStudy(id);
-    else if(b.dataset.returnStudy)returnStudy(id);
-    else if(b.dataset.rejectStudy)rejectStudy(id);
-    else if(b.dataset.studyAction)setStudyAction(id,b.dataset.action);
-    else if(b.dataset.filesStudy)filesFor(id,"studies");
-    else if(b.dataset.historyStudy)showHistory(id);
-  });
+  document.querySelectorAll("[data-cal-tab]").forEach(b=>b.onclick=()=>{document.querySelectorAll("[data-cal-tab]").forEach(x=>x.classList.remove("active"));b.classList.add("active");currentModuleTab=b.dataset.calTab;renderModuleTable()});
+  document.querySelectorAll("[data-qual-tab]").forEach(b=>b.onclick=()=>{document.querySelectorAll("[data-qual-tab]").forEach(x=>x.classList.remove("active"));b.classList.add("active");currentModuleTab=b.dataset.qualTab;renderModuleTable()});
 
-  $("moduleTableBody")?.addEventListener("click",e=>{
-    const b=e.target.closest("button");if(!b)return;
-    const id=b.dataset.moduleEdit||b.dataset.moduleSubmit||b.dataset.moduleReview||b.dataset.moduleApprove||b.dataset.moduleReturn||b.dataset.moduleExec||b.dataset.printCal||b.dataset.moduleFiles;
-    if(!id)return;
-    if(b.dataset.moduleEdit)openModule(moduleRecords.find(x=>x.id===id));
-    else if(b.dataset.moduleSubmit)submitModule(id);
-    else if(b.dataset.moduleReview)moduleReview(id);
-    else if(b.dataset.moduleApprove)moduleApprove(id);
-    else if(b.dataset.moduleReturn)moduleReturn(id);
-    else if(b.dataset.moduleExec)toggleModuleExecution(id,b.dataset.exec==="1");
-    else if(b.dataset.printCal)printCalibration(id);
-    else if(b.dataset.moduleFiles)filesFor(id,currentModule===MODULES.CAL?"calibration":"qualification");
-  });
+  // SOP & PRPO actions
+  $("#sopInput").onchange=uploadSop;
+  $("#sopSearch").oninput=renderSops;
+  $("#sopTypeFilter").onchange=renderSops;
+  $("#addPrpoBtn").onclick=()=>openPrpo();
+  $("#prpoSearch").oninput=renderPrpo;
+  $("#prpoType").onchange=renderPrpo;
+  $("#prpoStatus").onchange=renderPrpo;
 
-  $("sopList")?.addEventListener("click",e=>{
-    const b=e.target.closest("button");if(!b)return;
-    const id=b.dataset.sopFile||b.dataset.sopDelete;if(!id)return;
-    if(b.dataset.sopFile)openSop(id);
-    else if(b.dataset.sopDelete)deleteSop(id);
-  });
+  // Global delegation on click actions for dynamic buttons
+  document.body.onclick=e=>{
+    const edStudy=e.target.closest("[data-edit-study]");if(edStudy)openStudy(records.find(x=>x.id===edStudy.dataset.editStudy));
+    const subStudy=e.target.closest("[data-submit-study]");if(subStudy)submitStudy(subStudy.dataset.submitStudy);
+    const revStudy=e.target.closest("[data-review-study]");if(revStudy)reviewStudy(revStudy.dataset.reviewStudy);
+    const appStudy=e.target.closest("[data-approve-study]");if(appStudy)approveStudy(appStudy.dataset.approveStudy);
+    const retStudy=e.target.closest("[data-return-study]");if(retStudy)returnStudy(retStudy.dataset.returnStudy);
+    const rejStudy=e.target.closest("[data-reject-study]");if(rejStudy)rejectStudy(rejStudy.dataset.rejectStudy);
+    const actStudy=e.target.closest("[data-study-action]");if(actStudy)setStudyAction(actStudy.dataset.studyAction,actStudy.dataset.action);
+    const fileStudy=e.target.closest("[data-files-study]");if(fileStudy)filesFor(fileStudy.dataset.filesStudy,"studies");
+    const histStudy=e.target.closest("[data-history-study]");if(histStudy)showHistory(histStudy.dataset.historyStudy);
 
-  $("prpoBody")?.addEventListener("click",e=>{
-    const b=e.target.closest("button");if(!b)return;
-    const id=b.dataset.prpoEdit||b.dataset.prpoSubmit;if(!id)return;
-    if(b.dataset.prpoEdit)openPrpo(prpos.find(x=>x.id===id));
-    else if(b.dataset.prpoSubmit)submitPrpo(id);
-  });
+    const modEdit=e.target.closest("[data-module-edit]");if(modEdit)openModule(moduleRecords.find(x=>x.id===modEdit.dataset.moduleEdit));
+    const modSub=e.target.closest("[data-module-submit]");if(modSub)submitModule(modSub.dataset.moduleSubmit);
+    const modRev=e.target.closest("[data-module-review]");if(modRev)moduleReview(modRev.dataset.moduleReview);
+    const modApp=e.target.closest("[data-module-approve]");if(modApp)moduleApprove(modApp.dataset.moduleApprove);
+    const modRet=e.target.closest("[data-module-return]");if(modRet)moduleReturn(modRet.dataset.moduleReturn);
+    const modExec=e.target.closest("[data-module-exec]");if(modExec)toggleModuleExecution(modExec.dataset.moduleExec,modExec.dataset.exec==="1");
+    const printCal=e.target.closest("[data-print-cal]");if(printCal)printCalibration(printCal.dataset.printCal);
+    const modFiles=e.target.closest("[data-module-files]");if(modFiles)filesFor(modFiles.dataset.moduleFiles,currentModule===MODULES.CAL?"calibration":"qualification");
+
+    const sopFile=e.target.closest("[data-sop-file]");if(sopFile)openSop(sopFile.dataset.sopFile);
+    const sopDel=e.target.closest("[data-sop-delete]");if(sopDel)deleteSop(sopDel.dataset.sopDel);
+
+    const prpoEdit=e.target.closest("[data-prpo-edit]");if(prpoEdit)openPrpo(prpos.find(x=>x.id===prpoEdit.dataset.prpoEdit));
+    const prpoSub=e.target.closest("[data-prpo-submit]");if(prpoSub)submitPrpo(prpoSub.dataset.prpoSub);
+
+    const usrEdit=e.target.closest("[data-user-edit]");if(usrEdit)editUser(usrEdit.dataset.userEdit);
+    const usrTog=e.target.closest("[data-user-toggle]");if(usrTog)toggleUser(usrTog.dataset.userTog);
+    const gotoStudy=e.target.closest("[data-goto-study]");if(gotoStudy){showView("studies");}
+  };
 
   onAuthStateChanged(auth,async u=>{
     if(u){
@@ -720,15 +741,12 @@ document.addEventListener("DOMContentLoaded",()=>{
         currentProfile=await loadProfile(u);
         $("loginSection").classList.add("hidden");
         $("dashboardSection").classList.remove("hidden");
-        configureNav();
-        showView("home");
+        configureNav();showView("home");setupActivity();
       }catch(e){
-        signOut(auth);
-        showMsg("Access Error",friendly(e),"error");
+        signOut(auth);resetUI();showMsg("Access Error",friendly(e),"error");
       }
     }else{
-      currentUser=null;currentProfile=null;
-      resetUI();
+      currentUser=null;currentProfile=null;resetUI();
     }
   });
 });
