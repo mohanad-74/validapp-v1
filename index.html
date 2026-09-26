@@ -95,19 +95,70 @@
       IN_PLAN: 'In Plan'
     });
 
-    const CATEGORIES = Object.freeze({ PROCESS: 'Process Validation', HOLD_TIME: 'Hold Time Study', CLEANING: 'Cleaning Validation' });
-    const MODULES = Object.freeze({ STUDIES: 'Studies', CALIBRATION: 'Calibration', QUALIFICATION: 'Qualification', SOPS: 'SOPs', PR_PO: 'PR & PO' });
+    const MODULES = Object.freeze({
+      STUDIES: 'Studies',
+      CALIBRATION: 'Calibration',
+      QUALIFICATION: 'Qualification',
+      SOPS: 'SOPs',
+      PR_PO: 'PR & PO'
+    });
+
+    // Process Validation Sub-tabs
+    const PROCESS_TABS = Object.freeze({
+      ODF: 'Process validation of ODF products',
+      HGC: 'Process validation of HGC products',
+      VERIFICATION: 'Process verification',
+      DRAFT: 'Draft Studies'
+    });
+
+    // Hold Time Study Sub-tabs
+    const HOLD_TIME_TABS = Object.freeze({
+      ODF_BULK: 'Bulk hold time study for ODF',
+      CAPSULE_BULK: 'Bulk hold time study for Capsule',
+      DISPENSED_API: 'Dispensed API hold time',
+      DRAFT: 'Draft Studies'
+    });
+
+    // Cleaning Validation Sub-tabs
+    const CLEANING_TABS = Object.freeze({
+      ODF_EQUIP: 'Cleaning validation for ODF equipment',
+      CAPSULE_EQUIP: 'Cleaning validation for capsule equipment',
+      CHT: 'CHT',
+      DHT: 'DHT',
+      CAMPAIGN: 'Campaign length',
+      NEW_EQUIP: 'Results of new Equipment',
+      DRAFT: 'Draft Studies'
+    });
+
+    const ALLOWED_FILE_TYPES = Object.freeze({
+      'application/pdf': '.pdf',
+      'application/msword': '.doc',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+      'application/vnd.ms-excel': '.xls',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+      'application/vnd.ms-excel.sheet.macroEnabled.12': '.xlsm',
+      'image/jpeg': '.jpg/.jpeg',
+      'image/png': '.png'
+    });
+    const MAX_FILE_SIZE = 25 * 1024 * 1024;
 
     let currentUser = null;
     let currentProfile = null;
     let currentModule = MODULES.STUDIES;
-    let currentCategory = CATEGORIES.PROCESS;
-    let currentSubTab = 'all';
+    let currentCategory = 'Process Validation';
+    let currentSubTab = PROCESS_TABS.ODF;
+
+    let currentCalibrationTab = 'all'; 
+    let currentCalibrationTabDept = 'QA'; 
+    let currentCalibrationMonth = 'January'; 
+
+    let currentQualificationTab = 'all'; 
+    let currentQualificationMonth = 'January';
 
     let records = [];
     let moduleRecords = [];
-    let sopRecords = [];
     let prPoRecords = [];
+    let sopRecords = [];
     let selectedModuleIds = new Set();
     let filesByParent = [];
     let users = [];
@@ -130,7 +181,16 @@
     const isCreator = () => can(ROLES.CREATOR);
     const isReviewer = () => can(ROLES.SECTION_HEAD, ROLES.REVIEWER, ROLES.DEPUTY, ROLES.QA_MANAGER);
     const isViewer = () => can(ROLES.VIEWER);
-    const canAccessSops = () => can(ROLES.ADMIN, ROLES.CREATOR, ROLES.SECTION_HEAD, ROLES.DEPUTY, ROLES.QA_MANAGER);
+    const canSeeSOPs = () => can(ROLES.CREATOR, ROLES.SECTION_HEAD, ROLES.DEPUTY, ROLES.QA_MANAGER, ROLES.ADMIN);
+
+    function nextStatusForReview(r) {
+      if (r.status === STATUS.PENDING_SECTION_HEAD) {
+        return r.requireOtherDeptReview ? STATUS.PENDING_REVIEWER : STATUS.PENDING_DEPUTY;
+      }
+      if (r.status === STATUS.PENDING_REVIEWER) return STATUS.PENDING_DEPUTY;
+      if (r.status === STATUS.PENDING_DEPUTY) return STATUS.PENDING_QA;
+      return STATUS.PENDING_QA;
+    }
 
     async function sendEmailNotification(recipientEmail, actionTaken, username, productDetails, currentStatus, auditDetails) {
       if (!window.emailjs || !recipientEmail) return;
@@ -208,9 +268,7 @@
     function configureNavigation() {
       $('userManagementBtn').classList.toggle('hidden', !isAdmin());
       $('auditTrailBtn').classList.toggle('hidden', !can(ROLES.ADMIN, ROLES.QA_MANAGER, ROLES.DEPUTY));
-      $('sopsNav').classList.toggle('hidden', !canAccessSops());
-      $('prPoNav').classList.toggle('hidden', !(isAdmin() || isCreator() || isReviewer() || isViewer()));
-      $('addRecordBtn').classList.toggle('hidden', !(isAdmin() || isCreator()));
+      $('sopsNavBtn').classList.toggle('hidden', !canSeeSOPs());
       $('currentUserDisplay').textContent = currentProfile?.displayName || currentProfile?.username || currentUser.email;
       $('currentUserRole').textContent = currentProfile?.role || 'Unassigned';
       $('currentUserDepartment').textContent = currentProfile?.department || '—';
@@ -249,6 +307,7 @@
     function recordActionButtons(r) {
       const buttons = [];
       const owner = isAdmin() || r.createdByUid === currentUser?.uid || r.createdBy === currentProfile?.username;
+      const isDraftStudy = r.status === STATUS.DRAFT;
       
       if (isViewer()) {
         if (r.status === STATUS.APPROVED) {
@@ -263,10 +322,10 @@
         buttons.push(`<button class="text-red-600 hover:text-red-800 text-xs font-semibold" data-delete-study="${esc(r.id)}"><i class="fas fa-trash-alt mr-1"></i>Delete / Cancel</button>`);
       }
       
-      // Execution Action for approved planned items (e.g. Creator / Admin can toggle action execution status)
-      if (r.status === STATUS.APPROVED && (isAdmin() || owner)) {
+      // Execution Action for approved items (triggers audit & email, hidden for drafts)
+      if (!isDraftStudy && r.status === STATUS.APPROVED && (isAdmin() || owner)) {
         if (r.action !== ACTIONS.EXECUTED) {
-          buttons.push(`<button class="text-emerald-600 hover:text-emerald-800 font-bold text-xs bg-emerald-50 px-2 py-1 rounded border border-emerald-200" data-execute-study="${esc(r.id)}"><i class="fas fa-check-circle mr-1"></i>Take Action (Execute)</button>`);
+          buttons.push(`<button class="text-emerald-600 hover:text-emerald-800 font-bold text-xs bg-emerald-50 px-2 py-1 rounded border border-emerald-200" data-execute-study="${esc(r.id)}"><i class="fas fa-check-circle mr-1"></i>Execute</button>`);
         } else {
           buttons.push(`<button class="text-indigo-600 hover:text-indigo-800 text-xs bg-indigo-50 px-2 py-1 rounded border border-indigo-200" data-revert-study="${esc(r.id)}"><i class="fas fa-undo mr-1"></i>Mark In Plan</button>`);
         }
@@ -278,28 +337,35 @@
       if (can(ROLES.QA_MANAGER) && r.status === STATUS.PENDING_QA) buttons.push(`<button class="text-green-600 text-xs font-semibold" data-approve="${esc(r.id)}"><i class="fas fa-thumbs-up mr-1"></i>Approve</button>`);
       if (isReviewer() && ![STATUS.APPROVED, STATUS.REJECTED].includes(r.status)) buttons.push(`<button class="text-amber-600 text-xs font-semibold" data-return="${esc(r.id)}"><i class="fas fa-undo mr-1"></i>Return</button>`);
       if (can(ROLES.QA_MANAGER) && r.status === STATUS.PENDING_QA) buttons.push(`<button class="text-red-600 text-xs font-semibold" data-reject="${esc(r.id)}"><i class="fas fa-ban mr-1"></i>Reject</button>`);
+      
       buttons.push(`<button class="text-gray-600 text-xs font-semibold" data-files="${esc(r.id)}"><i class="fas fa-paperclip mr-1"></i>Files</button>`);
-      buttons.push(`<button class="text-gray-600 text-xs font-semibold" data-history="${esc(r.id)}"><i class="fas fa-history mr-1"></i>History</button>`);
+      
+      // Audit history is hidden for draft studies per requirement #2
+      if (!isDraftStudy) {
+        buttons.push(`<button class="text-gray-600 text-xs font-semibold" data-history="${esc(r.id)}"><i class="fas fa-history mr-1"></i>History</button>`);
+      }
       return buttons.join(' ');
     }
 
     async function setStudyActionStatus(id, newActionVal) {
       const r = records.find(x => x.id === id); if (!r) return;
+      if (r.status === STATUS.DRAFT) return showMessage('Draft Notice', 'Action execution tracking is disabled while the study is in Draft stage.', 'info');
       try {
+        const oldStatus = r.status;
         await updateDoc(docRef('records', id), {
           action: newActionVal,
           updatedAt: serverTimestamp(),
           lastActionByUid: currentUser.uid,
           lastActionByName: currentProfile?.displayName || currentUser.email
         });
-        await logAudit('Study Action Executed', id, r.productName, `Action updated to: ${newActionVal}`, r.status, r.status);
+        await logAudit('Study Action Executed / Updated', id, r.productName, `Action updated to: ${newActionVal}`, oldStatus, oldStatus);
         await sendEmailNotification(
           currentUser.email,
           `Action Status Updated (${newActionVal}): ${r.productName}`,
           currentProfile?.displayName || currentUser.email,
           r.productName,
-          r.status,
-          `Item action successfully updated to ${newActionVal}.`
+          oldStatus,
+          `Item action successfully updated to ${newActionVal}. Recorded in App & Audit Trail.`
         );
         showMessage('Success', `Study action status updated to "${newActionVal}".`, 'success');
         await loadData();
@@ -315,8 +381,7 @@
       confirmAction('Delete / Cancel Study', `Are you sure you want to delete the unsubmitted study "${r.productName}"?`, async () => {
         try {
           await deleteDoc(docRef('records', id));
-          await logAudit('Study Deleted / Cancelled', id, r.productName, 'Draft study deleted by creator before review submission.', STATUS.DRAFT, 'Deleted');
-          
+          // No audit trail logged for draft deletion per requirements
           await sendEmailNotification(
             currentUser.email,
             `Study Deleted / Cancelled: ${r.productName}`,
@@ -334,56 +399,26 @@
       });
     }
 
-    function renderSubTabs() {
-      const subTabsContainer = $('dynamicSubTabs');
-      subTabsContainer.innerHTML = '';
-      
-      let tabs = [];
-      if (currentCategory === CATEGORIES.PROCESS) {
-        tabs = [
-          { id: 'all', label: 'All Process' },
-          { id: 'draft', label: 'Draft Studies' },
-          { id: 'odf_products', label: 'Process Validation of ODF Products' },
-          { id: 'hgc_products', label: 'Process Validation of HGC Products' },
-          { id: 'process_verification', label: 'Process Verification' }
-        ];
-      } else if (currentCategory === CATEGORIES.HOLD_TIME) {
-        tabs = [
-          { id: 'all', label: 'All Hold Time' },
-          { id: 'draft', label: 'Draft Studies' },
-          { id: 'bulk_odf', label: 'Bulk Hold Time Study for ODF' },
-          { id: 'bulk_capsule', label: 'Bulk Hold Time Study for Capsule' },
-          { id: 'dispensed_api', label: 'Dispensed API Hold Time' }
-        ];
-      } else if (currentCategory === CATEGORIES.CLEANING) {
-        tabs = [
-          { id: 'all', label: 'All Cleaning' },
-          { id: 'draft', label: 'Draft Studies' },
-          { id: 'odf_equip', label: 'Cleaning Validation for ODF Equipment' },
-          { id: 'capsule_equip', label: 'Cleaning Validation for Capsule Equipment' },
-          { id: 'cht', label: 'CHT' },
-          { id: 'dht', label: 'DHT' },
-          { id: 'campaign_length', label: 'Campaign Length' },
-          { id: 'new_equip_results', label: 'Results of New Equipment' }
-        ];
+    function renderSubTabsForCategory() {
+      const processSubTabs = $('processSubTabs');
+      const holdTimeSubTabs = $('holdTimeSubTabs');
+      const cleaningSubTabs = $('cleaningSubTabs');
+
+      processSubTabs.classList.add('hidden');
+      holdTimeSubTabs.classList.add('hidden');
+      cleaningSubTabs.classList.add('hidden');
+
+      if (currentCategory === 'Process Validation') {
+        processSubTabs.classList.remove('hidden');
+      } else if (currentCategory === 'Hold Time Study') {
+        holdTimeSubTabs.classList.remove('hidden');
+      } else if (currentCategory === 'Cleaning Validation') {
+        cleaningSubTabs.classList.remove('hidden');
       }
-
-      subTabsContainer.innerHTML = tabs.map(t => `
-        <button data-subtab="${t.id}" class="sub-tab px-3 py-1.5 rounded-md text-xs font-semibold ${currentSubTab === t.id ? 'bg-white text-primary shadow-sm' : 'text-gray-600 hover:bg-gray-100'}">
-          ${esc(t.label)}
-        </button>
-      `).join('');
-
-      document.querySelectorAll('.sub-tab').forEach(btn => {
-        btn.addEventListener('click', e => {
-          currentSubTab = e.currentTarget.dataset.subtab;
-          renderSubTabs();
-          renderStudies();
-        });
-      });
     }
 
     function renderStudies() {
+      renderSubTabsForCategory();
       const q = $('searchInput').value.trim().toLowerCase();
       const stage = $('filterStage').value;
       const status = $('filterStatus').value;
@@ -392,35 +427,30 @@
       
       let filtered = records.filter(r => r.studyCategory === category && (!q || `${r.productName||''} ${r.productType||''}`.toLowerCase().includes(q)) && (stage === 'All' || r.stage === stage) && (status === 'All' || r.status === status) && (scale === 'All' || r.scale === scale));
       
-      // Sub-tab filtering
-      if (currentSubTab === 'draft') {
+      // Sub-tab filtering logic
+      if (currentSubTab === PROCESS_TABS.DRAFT || currentSubTab === HOLD_TIME_TABS.DRAFT || currentSubTab === CLEANING_TABS.DRAFT) {
         filtered = filtered.filter(r => r.status === STATUS.DRAFT);
-      } else if (currentSubTab === 'odf_products') {
-        filtered = filtered.filter(r => (r.productType || '').toLowerCase().includes('odf'));
-      } else if (currentSubTab === 'hgc_products') {
-        filtered = filtered.filter(r => (r.productType || '').toLowerCase().includes('hgc') || (r.productType || '').toLowerCase().includes('capsule'));
-      } else if (currentSubTab === 'process_verification') {
-        filtered = filtered.filter(r => (r.stage || '').toLowerCase().includes('verification'));
-      } else if (currentSubTab === 'bulk_odf') {
-        filtered = filtered.filter(r => (r.productType || '').toLowerCase().includes('odf') && (r.stage || '').toLowerCase().includes('bulk'));
-      } else if (currentSubTab === 'bulk_capsule') {
-        filtered = filtered.filter(r => ((r.productType || '').toLowerCase().includes('capsule') || (r.productType || '').toLowerCase().includes('hgc')) && (r.stage || '').toLowerCase().includes('bulk'));
-      } else if (currentSubTab === 'dispensed_api') {
-        filtered = filtered.filter(r => (r.stage || '').toLowerCase().includes('dispensed') || (r.productType || '').toLowerCase().includes('api'));
-      } else if (currentSubTab === 'odf_equip') {
-        filtered = filtered.filter(r => (r.stage || '').toLowerCase().includes('odf') || (r.notes || '').toLowerCase().includes('odf equipment'));
-      } else if (currentSubTab === 'capsule_equip') {
-        filtered = filtered.filter(r => (r.stage || '').toLowerCase().includes('capsule') || (r.notes || '').toLowerCase().includes('capsule equipment'));
-      } else if (currentSubTab === 'cht') {
-        filtered = filtered.filter(r => (r.stage || '').toUpperCase() === 'CHT' || (r.productName || '').toUpperCase().includes('CHT'));
-      } else if (currentSubTab === 'dht') {
-        filtered = filtered.filter(r => (r.stage || '').toUpperCase() === 'DHT' || (r.productName || '').toUpperCase().includes('DHT'));
-      } else if (currentSubTab === 'campaign_length') {
-        filtered = filtered.filter(r => (r.stage || '').toLowerCase().includes('campaign') || (r.notes || '').toLowerCase().includes('campaign'));
-      } else if (currentSubTab === 'new_equip_results') {
-        filtered = filtered.filter(r => (r.stage || '').toLowerCase().includes('new equipment') || (r.notes || '').toLowerCase().includes('new equipment'));
+      } else {
+        // Exclude drafts when viewing specific sub-tabs unless explicitly looking at Drafts
+        filtered = filtered.filter(r => r.status !== STATUS.DRAFT);
+        if (currentCategory === 'Process Validation') {
+          if (currentSubTab === PROCESS_TABS.ODF) filtered = filtered.filter(r => (r.productType || '').toLowerCase().includes('odf'));
+          if (currentSubTab === PROCESS_TABS.HGC) filtered = filtered.filter(r => (r.productType || '').toLowerCase().includes('hgc') || (r.productType || '').toLowerCase().includes('capsule'));
+          if (currentSubTab === PROCESS_TABS.VERIFICATION) filtered = filtered.filter(r => (r.stage || '').toLowerCase().includes('verification'));
+        } else if (currentCategory === 'Hold Time Study') {
+          if (currentSubTab === HOLD_TIME_TABS.ODF_BULK) filtered = filtered.filter(r => (r.stage || '').toLowerCase().includes('odf') || (r.productType || '').toLowerCase().includes('odf'));
+          if (currentSubTab === HOLD_TIME_TABS.CAPSULE_BULK) filtered = filtered.filter(r => (r.stage || '').toLowerCase().includes('capsule') || (r.productType || '').toLowerCase().includes('capsule'));
+          if (currentSubTab === HOLD_TIME_TABS.DISPENSED_API) filtered = filtered.filter(r => (r.stage || '').toLowerCase().includes('dispensed') || (r.productType || '').toLowerCase().includes('api'));
+        } else if (currentCategory === 'Cleaning Validation') {
+          if (currentSubTab === CLEANING_TABS.ODF_EQUIP) filtered = filtered.filter(r => (r.stage || '').toLowerCase().includes('odf') || (r.notes || '').toLowerCase().includes('odf'));
+          if (currentSubTab === CLEANING_TABS.CAPSULE_EQUIP) filtered = filtered.filter(r => (r.stage || '').toLowerCase().includes('capsule') || (r.notes || '').toLowerCase().includes('capsule'));
+          if (currentSubTab === CLEANING_TABS.CHT) filtered = filtered.filter(r => (r.stage || '').toUpperCase() === 'CHT');
+          if (currentSubTab === CLEANING_TABS.DHT) filtered = filtered.filter(r => (r.stage || '').toUpperCase() === 'DHT');
+          if (currentSubTab === CLEANING_TABS.CAMPAIGN) filtered = filtered.filter(r => (r.stage || '').toLowerCase().includes('campaign'));
+          if (currentSubTab === CLEANING_TABS.NEW_EQUIP) filtered = filtered.filter(r => (r.stage || '').toLowerCase().includes('new equipment'));
+        }
       }
-
+      
       if (isViewer()) {
         filtered = filtered.filter(r => r.status === STATUS.APPROVED);
       }
@@ -478,7 +508,7 @@
         } else {
           const payload = {...data, status: STATUS.DRAFT, createdByUid: currentUser.uid, createdByName: currentProfile.displayName || currentUser.email, createdAt: serverTimestamp()};
           const refDoc = await addDoc(colRef('records'), payload);
-          await logAudit('Study Created', refDoc.id, data.productName, 'Created as Draft.', '', STATUS.DRAFT);
+          // No audit log created for initial draft creation
           showMessage('Success', 'New study created as Draft.', 'success');
         }
         closeModals(); await loadData();
@@ -535,7 +565,7 @@
       const r = records.find(x=>x.id===id); if (!r) return;
       try { 
         await updateDoc(docRef('records',id),{status:STATUS.PENDING_SECTION_HEAD,submittedAt:serverTimestamp(),updatedAt:serverTimestamp()}); 
-        await logAudit('Study Submitted',id,r.productName,'Submitted for review.',r.status,STATUS.PENDING_SECTION_HEAD); 
+        await logAudit('Study Submitted',id,r.productName,'Submitted for review.',STATUS.DRAFT,STATUS.PENDING_SECTION_HEAD); 
         
         await sendEmailNotification(
           currentUser.email,
@@ -566,7 +596,7 @@
     }
 
     function fileTypeAllowed(file) {
-      return file.size <= 25 * 1024 * 1024;
+      return !!ALLOWED_FILE_TYPES[file.type] || file.name.endsWith('.xlsx') || file.name.endsWith('.xls') || file.name.endsWith('.xlsm') && file.size <= MAX_FILE_SIZE;
     }
 
     async function uploadFiles(parentId, input, module='study') {
@@ -579,7 +609,7 @@
 
       for (const file of files) {
         if (!fileTypeAllowed(file)) {
-          showMessage('Invalid file', `${file.name}: size exceeds 25MB.`, 'error');
+          showMessage('Invalid file', `${file.name}: invalid type or size exceeds 25MB.`, 'error');
           continue;
         }
 
@@ -811,13 +841,68 @@
       }); 
     }
 
+    // SOPs & PR/PO Module Handlers
+    async function loadSOPs() {
+      if (!canSeeSOPs()) return;
+      try {
+        const snap = await getDocs(query(colRef('sops'), orderBy('createdAt', 'desc')));
+        sopRecords = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        renderSOPTable();
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    function renderSOPTable() {
+      $('sopTableBody').innerHTML = sopRecords.map(s => `
+        <tr class="hover:bg-gray-50">
+          <td class="px-4 py-3 font-medium">${esc(s.sopNo)}</td>
+          <td class="px-4 py-3">${esc(s.title)}</td>
+          <td class="px-4 py-3 text-xs">${esc(s.version)}</td>
+          <td class="px-4 py-3 text-xs">${esc(s.effectiveDate)}</td>
+          <td class="px-4 py-3 text-xs">${esc(s.createdByName || '—')}</td>
+          <td class="px-4 py-3 text-center">
+            <button data-sop-files="${esc(s.id)}" class="text-blue-600 text-xs font-semibold hover:underline mr-2"><i class="fas fa-paperclip"></i> Documents</button>
+            ${isAdmin() || s.createdByUid === currentUser?.uid ? `<button data-sop-delete="${esc(s.id)}" class="text-red-600 text-xs font-semibold hover:underline">Delete</button>` : ''}
+          </td>
+        </tr>
+      `).join('') || '<tr><td colspan="6" class="p-6 text-center text-gray-500 text-sm">No Validation SOPs uploaded.</td></tr>';
+    }
+
+    async function loadPRPO() {
+      try {
+        const snap = await getDocs(query(colRef('prpo'), orderBy('createdAt', 'desc')));
+        prPoRecords = prPoRecords = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        renderPRPOTable();
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    function renderPRPOTable() {
+      $('prpoTableBody').innerHTML = prPoRecords.map(p => `
+        <tr class="hover:bg-gray-50">
+          <td class="px-4 py-3 font-medium">${esc(p.prNo)}</td>
+          <td class="px-4 py-3">${esc(p.poNo || '—')}</td>
+          <td class="px-4 py-3 text-xs">${esc(p.itemDescription)}</td>
+          <td class="px-4 py-3 text-xs font-semibold text-primary">${esc(p.supplier || '—')}</td>
+          <td class="px-4 py-3 text-xs">${esc(p.status)}</td>
+          <td class="px-4 py-3 text-xs">${esc(p.requestDate)}</td>
+          <td class="px-4 py-3 text-center">
+            ${!isViewer() ? `<button data-prpo-edit="${esc(p.id)}" class="text-purple-600 text-xs font-semibold mr-2 hover:underline">Edit</button>` : ''}
+            <button data-prpo-files="${esc(p.id)}" class="text-gray-600 text-xs font-semibold hover:underline">Files</button>
+          </td>
+        </tr>
+      `).join('') || '<tr><td colspan="7" class="p-6 text-center text-gray-500 text-sm">No PR/PO tracking records found.</td></tr>';
+    }
+
     async function addModuleRecord(e) {
       e.preventDefault(); 
       if (!(isAdmin() || isCreator())) return showMessage('Unauthorized', 'Cannot create record.', 'error');
       
       const module = currentModule;
       const editId = $('moduleEditId').value;
-      const collectionName = module === MODULES.CALIBRATION ? 'calibration' : module === MODULES.QUALIFICATION ? 'qualification' : module === MODULES.SOPS ? 'sops' : 'pr_po'; 
+      const collectionName = module === MODULES.CALIBRATION ? 'calibration' : 'qualification'; 
 
       let data = {};
       if (module === MODULES.CALIBRATION) {
@@ -848,35 +933,20 @@
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp()
         };
-      } else if (module === MODULES.SOPS) {
-        data = {
-          sopNo: $('sopNo').value.trim(),
-          title: $('sopTitle').value.trim(),
-          version: $('sopVersion').value.trim(),
-          effectiveDate: $('sopEffectiveDate').value,
-          status: STATUS.APPROVED,
-          createdByUid: currentUser.uid,
-          createdByName: currentProfile.displayName || currentUser.email,
-          createdAt: serverTimestamp()
-        };
-      } else if (module === MODULES.PR_PO) {
-        data = {
-          prNo: $('prNo').value.trim(),
-          poNo: $('poNo').value.trim(),
-          itemDescription: $('prItemDescription').value.trim(),
-          vendor: $('prVendor').value.trim(),
-          status: $('prStatus').value,
-          value: $('prValue').value.trim(),
-          createdByUid: currentUser.uid,
-          createdByName: currentProfile.displayName || currentUser.email,
-          createdAt: serverTimestamp()
-        };
+        if (!data.certificateNo || !data.instrument || !data.code) {
+          return showMessage('Missing fields', 'Certificate No., Instrument, and Code are required.', 'error');
+        }
       } else {
         const qualType = $('qualType').value;
+        const subUtility = qualType === 'utilities' ? $('qualUtilityType').value : '';
+        const eqInfo = qualType === 'equipment' ? $('qualEquipmentInfo').value.trim() : (qualType === 'system' ? $('qualSystemInfo').value.trim() : '');
+
         data = {
           name: $('qualName').value.trim(),
           reference: $('qualReference').value.trim(),
           qualificationType: qualType,
+          utilitySubtype: subUtility,
+          equipmentSystemInfo: eqInfo,
           stage: $('qualStage').value,
           plannedDate: $('qualDate').value,
           dueDate: $('qualDueDate').value,
@@ -889,146 +959,433 @@
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp()
         };
+        if (!data.name || !data.reference) {
+          return showMessage('Missing fields', 'Name and Reference ID are required.', 'error');
+        }
       }
 
       try { 
         if (editId) { 
           await updateDoc(docRef(collectionName, editId), {...data, updatedAt: serverTimestamp()}); 
-          await logAudit(`${module} Record Modified`, editId, 'Updated.'); 
+          await logAudit(`${module} Record Modified`, editId, data.name, 'Updated.'); 
           showMessage('Updated', `${module} record updated.`, 'success'); 
         } else { 
           const refDoc = await addDoc(colRef(collectionName), data); 
-          await logAudit(`${module} Record Created`, refDoc.id, 'Created.'); 
+          await logAudit(`${module} Record Created`, refDoc.id, data.name, 'Created as Draft.', '', STATUS.DRAFT); 
           showMessage('Created', `${module} record created successfully.`, 'success'); 
         } 
         $('moduleForm').reset(); closeModals(); await loadModule(module);
       } catch(e) { showMessage('Save failed', friendlyError(e), 'error'); }
     }
 
+    async function handleModuleExcelImport(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      
+      reader.onload = async function(e) {
+        try {
+          const data = new Uint8Array(e.target.result);
+          const workbook = XLSX.read(data, { type: 'array' });
+          
+          let rows = [];
+          workbook.SheetNames.forEach(sheetName => {
+            const worksheet = workbook.Sheets[sheetName];
+            const sheetRows = XLSX.utils.sheet_to_json(worksheet);
+            if (sheetRows && sheetRows.length > 0) {
+              rows = rows.concat(sheetRows);
+            }
+          });
+
+          if (!rows.length) return showMessage('Empty File', 'No records found in the uploaded spreadsheet across all sheets.', 'error');
+
+          let importedCount = 0;
+          const isCalibration = currentModule === MODULES.CALIBRATION;
+          const collectionName = isCalibration ? 'calibration' : 'qualification';
+
+          for (const row of rows) {
+            const cleanRow = {};
+            Object.keys(row).forEach(k => {
+              cleanRow[k.trim().toLowerCase().replace(/[^a-z0-9]/g, '')] = row[k];
+            });
+
+            if (isCalibration) {
+              const certNo = String(cleanRow['certificateno'] || cleanRow['certno'] || cleanRow['reference'] || '');
+              const instrument = String(cleanRow['instrument'] || cleanRow['name'] || '');
+              const code = String(cleanRow['code'] || cleanRow['instrumentcode'] || '');
+              const isAdd = String(cleanRow['isaddendum'] || cleanRow['addendum'] || '').toLowerCase();
+              const isOut = String(cleanRow['isoutofcalibration'] || cleanRow['outofcal'] || cleanRow['out'] || '').toLowerCase();
+              const actionInput = String(cleanRow['action'] || '').toLowerCase();
+              const parsedAction = actionInput.includes('plan') ? ACTIONS.IN_PLAN : ACTIONS.EXECUTED;
+
+              const payload = {
+                certificateNo: certNo,
+                department: String(cleanRow['dept'] || cleanRow['department'] || ''),
+                instrument: instrument,
+                manufacturer: String(cleanRow['manuf'] || cleanRow['manufacturer'] || ''),
+                model: String(cleanRow['model'] || ''),
+                serialNumber: String(cleanRow['sn'] || cleanRow['serialno'] || ''),
+                code: code,
+                location: String(cleanRow['location'] || ''),
+                calRange: String(cleanRow['calrange'] || cleanRow['range'] || ''),
+                acceptanceLimits: String(cleanRow['acceptancelimits'] || cleanRow['limits'] || ''),
+                interval: String(cleanRow['interval'] || ''),
+                calDate: String(cleanRow['caldate'] || cleanRow['date'] || ''),
+                dueDate: String(cleanRow['duedate'] || ''),
+                monthYear: String(cleanRow['monthyear'] || ''),
+                isAddendum: isAdd === 'true' || isAdd === 'yes' || isAdd === '1',
+                isOutOfCalibration: isOut === 'true' || isOut === 'yes' || isOut === '1',
+                action: parsedAction,
+                executedTracker: false,
+                name: instrument || 'Imported Instrument',
+                reference: certNo || 'IMP-' + Date.now(),
+                status: STATUS.DRAFT,
+                createdByUid: currentUser.uid,
+                createdByName: currentProfile.displayName || currentUser.email,
+                createdAt: serverTimestamp(),
+                updatedAt: serverTimestamp()
+              };
+
+              if (payload.instrument || payload.code) {
+                await addDoc(colRef(collectionName), payload);
+                importedCount++;
+              }
+            } else {
+              const name = String(cleanRow['name'] || cleanRow['equipmentname'] || cleanRow['systemname'] || '');
+              const reference = String(cleanRow['reference'] || cleanRow['refid'] || cleanRow['protocol'] || '');
+              const typeVal = String(cleanRow['qualificationtype'] || cleanRow['type'] || 'equipment').toLowerCase();
+              const stageVal = String(cleanRow['stage'] || cleanRow['qualificationstage'] || 'IQ').toUpperCase();
+              const actionInput = String(cleanRow['action'] || '').toLowerCase();
+              const parsedAction = actionInput.includes('plan') ? ACTIONS.IN_PLAN : ACTIONS.EXECUTED;
+
+              const payload = {
+                name: name,
+                reference: reference,
+                qualificationType: ['equipment', 'utilities', 'system'].includes(typeVal) ? typeVal : 'equipment',
+                utilitySubtype: String(cleanRow['utilitysubtype'] || cleanRow['utility'] || 'HVAC'),
+                equipmentSystemInfo: String(cleanRow['equipmentsysteminfo'] || cleanRow['info'] || cleanRow['details'] || ''),
+                stage: ['DQ', 'IQ', 'OQ', 'PQ', 'PERIODIC PQ'].includes(stageVal) ? stageVal : 'IQ',
+                plannedDate: String(cleanRow['planneddate'] || cleanRow['date'] || ''),
+                dueDate: String(cleanRow['duedate'] || ''),
+                action: parsedAction,
+                executedTracker: false,
+                description: String(cleanRow['description'] || cleanRow['scope'] || ''),
+                status: STATUS.DRAFT,
+                createdByUid: currentUser.uid,
+                createdByName: currentProfile.displayName || currentUser.email,
+                createdAt: serverTimestamp(),
+                updatedAt: serverTimestamp()
+              };
+
+              if (payload.name && payload.reference) {
+                await addDoc(colRef(collectionName), payload);
+                importedCount++;
+              }
+            }
+          }
+
+          await logAudit(`${currentModule} Excel/Macro Imported`, '', '', `Imported ${importedCount} records via multi-sheet spreadsheet file.`);
+          showMessage('Success', `Successfully imported ${importedCount} ${currentModule.toLowerCase()} entries from all sheets!`, 'success');
+          await loadModule(currentModule);
+        } catch (err) {
+          console.error(err);
+          showMessage('Import Error', 'Failed to parse Excel sheet. Ensure columns match header specifications.', 'error');
+        }
+      };
+      
+      reader.readAsArrayBuffer(file);
+      event.target.value = '';
+    }
+
     async function loadModule(module) { 
       currentModule = module; 
       selectedModuleIds.clear();
-      const collectionName = module === MODULES.CALIBRATION ? 'calibration' : module === MODULES.QUALIFICATION ? 'qualification' : module === MODULES.SOPS ? 'sops' : 'pr_po'; 
+      const collectionName = module === MODULES.CALIBRATION ? 'calibration' : 'qualification'; 
       try {
         let q = query(colRef(collectionName), orderBy('createdAt', 'desc')); 
         const snap = await getDocs(q); 
         moduleRecords = snap.docs.map(d => ({id:d.id, ...d.data()})); 
+        populateModuleFilters();
         renderModuleTable();
       } catch(e) { showMessage('Module access error', friendlyError(e), 'error'); }
     }
 
+    function populateModuleFilters() {
+      const isCal = currentModule === MODULES.CALIBRATION;
+      $('modSearchLabel').textContent = isCal ? 'Search Cert / Instrument / Code' : 'Search Name / Reference';
+      $('modFilterLabel1').textContent = isCal ? 'Department' : 'Type';
+      $('modFilterLabel2').textContent = isCal ? 'Location' : 'Stage';
+
+      const filter1El = $('modFilter1');
+      const filter2El = $('modFilter2');
+
+      if (isCal) {
+        const depts = [...new Set(moduleRecords.map(r => r.department).filter(Boolean))].sort();
+        const locations = [...new Set(moduleRecords.map(r => r.location).filter(Boolean))].sort();
+        
+        filter1El.innerHTML = `<option value="All">All Departments</option>` + depts.map(d => `<option value="${esc(d)}">${esc(d)}</option>`).join('');
+        filter2El.innerHTML = `<option value="All">All Locations</option>` + locations.map(l => `<option value="${esc(l)}">${esc(l)}</option>`).join('');
+      } else {
+        const types = [...new Set(moduleRecords.map(r => r.qualificationType).filter(Boolean))].sort();
+        const stages = [...new Set(moduleRecords.map(r => r.stage).filter(Boolean))].sort();
+
+        filter1El.innerHTML = `<option value="All">All Types</option>` + types.map(t => `<option value="${esc(t)}">${esc(t.toUpperCase())}</option>`).join('');
+        filter2El.innerHTML = `<option value="All">All Stages</option>` + stages.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
+      }
+    }
+
     function renderModuleTable() { 
       $('moduleTitle').textContent = currentModule; 
+      $('moduleDescription').textContent = currentModule === MODULES.CALIBRATION ? 'Calibration records & plans' : 'Qualification lifecycle & plans';
       
       const isCalibration = currentModule === MODULES.CALIBRATION;
       const isQualification = currentModule === MODULES.QUALIFICATION;
-      const isSops = currentModule === MODULES.SOPS;
-      const isPrPo = currentModule === MODULES.PR_PO;
 
       $('calibrationSubTabs').classList.toggle('hidden', !isCalibration);
+      $('deptSubTabs').classList.toggle('hidden', !isCalibration || currentCalibrationTab !== 'dept');
+      $('monthlySubTabs').classList.toggle('hidden', !isCalibration || currentCalibrationTab !== 'monthly');
+
       $('qualificationSubTabs').classList.toggle('hidden', !isQualification);
+      $('qualMonthlySubTabs').classList.toggle('hidden', !isQualification || currentQualificationTab !== 'monthly');
+
+      if ($('excelImportBtnText')) {
+        $('excelImportBtnText').textContent = isCalibration ? 'Import Calibration Excel/Macro' : 'Import Qualification Excel/Macro';
+      }
 
       let displayRecords = moduleRecords;
+      if (isViewer()) {
+        displayRecords = displayRecords.filter(r => r.status === STATUS.APPROVED || r.status === STATUS.COMPLETED);
+      }
+
       const q = $('modSearchInput').value.trim().toLowerCase();
+      const f1 = $('modFilter1').value;
+      const f2 = $('modFilter2').value;
+      const st = $('modFilterStatus').value;
 
       displayRecords = displayRecords.filter(r => {
-        if (!q) return true;
-        return JSON.stringify(r).toLowerCase().includes(q);
+        const matchQ = !q || (isCalibration ? 
+          `${r.certificateNo||''} ${r.instrument||''} ${r.code||''} ${r.serialNumber||''}`.toLowerCase().includes(q) : 
+          `${r.name||''} ${r.reference||''} ${r.equipmentSystemInfo||''}`.toLowerCase().includes(q));
+        
+        let matchF1 = true;
+        let matchF2 = true;
+        if (isCalibration) {
+          if (f1 !== 'All' && r.department !== f1) matchF1 = false;
+          if (f2 !== 'All' && r.location !== f2) matchF2 = false;
+
+          if (currentCalibrationTab === 'dept') {
+            if (!r.department || r.department.toLowerCase() !== currentCalibrationTabDept.toLowerCase()) return false;
+          } else if (currentCalibrationTab === 'monthly') {
+            const dateStr = (r.monthYear || r.dueDate || r.calDate || '').toLowerCase();
+            const monthMatch = dateStr.includes(currentCalibrationMonth.toLowerCase()) || dateStr.includes(currentCalibrationMonth.slice(0, 3).toLowerCase());
+            if (!monthMatch) return false;
+          } else if (currentCalibrationTab === 'addendum') {
+            if (!r.isAddendum) return false;
+          } else if (currentCalibrationTab === 'out') {
+            if (!r.isOutOfCalibration) return false;
+          }
+        } else if (isQualification) {
+          if (f1 !== 'All' && r.qualificationType !== f1) matchF1 = false;
+          if (f2 !== 'All' && r.stage !== f2) matchF2 = false;
+
+          if (currentQualificationTab === 'monthly') {
+            const dateStr = (r.plannedDate || r.dueDate || '').toLowerCase();
+            const monthMatch = dateStr.includes(currentQualificationMonth.toLowerCase()) || dateStr.includes(currentQualificationMonth.slice(0, 3).toLowerCase());
+            if (!monthMatch) return false;
+          } else if (currentQualificationTab === 'utilities') {
+            if (r.qualificationType !== 'utilities') return false;
+          } else if (currentQualificationTab === 'system') {
+            if (r.qualificationType !== 'system') return false;
+          } else if (currentQualificationTab === 'machine') {
+            if (r.qualificationType !== 'equipment') return false;
+          }
+        }
+
+        const matchStatus = st === 'All' || r.status === st;
+        return matchQ && matchF1 && matchF2 && matchStatus;
       });
 
       const headerEl = $('moduleTableHead');
+      const allSelected = displayRecords.length > 0 && displayRecords.every(r => selectedModuleIds.has(r.id));
 
       if (isCalibration) {
         headerEl.innerHTML = `
           <tr>
+            <th class="px-4 py-3 text-left text-xs w-10"><input type="checkbox" id="selectAllModule" ${allSelected && displayRecords.length > 0 ? 'checked' : ''}></th>
             <th class="px-4 py-3 text-left text-xs">Cert. No & Instrument</th>
             <th class="px-4 py-3 text-left text-xs">Code / S.N</th>
             <th class="px-4 py-3 text-left text-xs">Dept / Location</th>
             <th class="px-4 py-3 text-left text-xs">Cal / Due Date</th>
-            <th class="px-4 py-3 text-left text-xs">Status</th>
-            <th class="px-4 py-3 text-center text-xs">Actions</th>
-          </tr>
-        `;
-      } else if (isSops) {
-        headerEl.innerHTML = `
-          <tr>
-            <th class="px-4 py-3 text-left text-xs">SOP No.</th>
-            <th class="px-4 py-3 text-left text-xs">Title</th>
-            <th class="px-4 py-3 text-left text-xs">Version</th>
-            <th class="px-4 py-3 text-left text-xs">Effective Date</th>
-            <th class="px-4 py-3 text-center text-xs">Files & Actions</th>
-          </tr>
-        `;
-      } else if (isPrPo) {
-        headerEl.innerHTML = `
-          <tr>
-            <th class="px-4 py-3 text-left text-xs">PR No.</th>
-            <th class="px-4 py-3 text-left text-xs">PO No.</th>
-            <th class="px-4 py-3 text-left text-xs">Description & Vendor</th>
-            <th class="px-4 py-3 text-left text-xs">Value & Status</th>
+            <th class="px-4 py-3 text-left text-xs">Action & Status</th>
+            <th class="px-4 py-3 text-center text-xs">Execution Tracker</th>
             <th class="px-4 py-3 text-center text-xs">Actions</th>
           </tr>
         `;
       } else {
         headerEl.innerHTML = `
           <tr>
+            <th class="px-4 py-3 text-left text-xs w-10"><input type="checkbox" id="selectAllModule" ${allSelected && displayRecords.length > 0 ? 'checked' : ''}></th>
             <th class="px-4 py-3 text-left text-xs">Name / Reference</th>
-            <th class="px-4 py-3 text-left text-xs">Type</th>
-            <th class="px-4 py-3 text-left text-xs">Stage</th>
-            <th class="px-4 py-3 text-left text-xs">Status</th>
+            <th class="px-4 py-3 text-left text-xs">Type & Subtype</th>
+            <th class="px-4 py-3 text-left text-xs">Stage / Info</th>
+            <th class="px-4 py-3 text-left text-xs">Action & Status</th>
+            <th class="px-4 py-3 text-center text-xs">Execution Tracker</th>
             <th class="px-4 py-3 text-center text-xs">Actions</th>
           </tr>
         `;
       }
 
       $('moduleTableBody').innerHTML = displayRecords.map(r => {
-        const owner = isAdmin() || r.createdByUid === currentUser?.uid; 
+        const owner = isAdmin() || r.createdByUid === currentUser?.uid || r.createdByName === currentProfile?.displayName; 
+        const review = (can(ROLES.SECTION_HEAD) && r.status === STATUS.PENDING_SECTION_HEAD) || (can(ROLES.QA_MANAGER) && r.status === STATUS.PENDING_QA); 
+        const isChecked = selectedModuleIds.has(r.id);
         
+        const canCheckExecution = isAdmin() || isCreator() || owner;
+        const trackerCheckbox = `<input type="checkbox" data-tracker-id="${esc(r.id)}" ${r.executedTracker ? 'checked' : ''} ${!canCheckExecution || isViewer() ? 'disabled' : ''} class="w-4 h-4 text-primary rounded cursor-pointer">`;
+
         if (isCalibration) {
+          const flags = [];
+          if (r.isAddendum) flags.push(`<span class="bg-purple-100 text-purple-800 px-1.5 py-0.5 rounded text-[10px] font-semibold">Addendum</span>`);
+          if (r.isOutOfCalibration) flags.push(`<span class="bg-red-100 text-red-800 px-1.5 py-0.5 rounded text-[10px] font-semibold">Out of Cal</span>`);
+          
           return `<tr class="hover:bg-gray-50">
-            <td class="px-4 py-3 font-medium">${esc(r.certificateNo)}<div class="text-xs text-gray-500">${esc(r.instrument)}</div></td>
+            <td class="px-4 py-3"><input type="checkbox" data-select-id="${esc(r.id)}" ${isChecked ? 'checked' : ''}></td>
+            <td class="px-4 py-3 font-medium">${esc(r.certificateNo || r.reference)}<div class="text-xs text-gray-500">${esc(r.instrument || r.name)}</div></td>
             <td class="px-4 py-3 text-xs">${esc(r.code)}<div class="text-gray-400">S/N: ${esc(r.serialNumber || '—')}</div></td>
             <td class="px-4 py-3 text-xs"><span class="font-semibold text-primary">${esc(r.department || '—')}</span><div class="text-gray-400">${esc(r.location || '—')}</div></td>
-            <td class="px-4 py-3 text-xs">Cal: ${esc(r.calDate || '—')}<div class="text-red-500">Due: ${esc(r.dueDate || '—')}</div></td>
-            <td class="px-4 py-3">${statusBadge(r.status)}</td>
+            <td class="px-4 py-3 text-xs">Cal: ${esc(r.calDate || r.monthYear || '—')}<div class="text-red-500">Due: ${esc(r.dueDate || '—')}</div></td>
+            <td class="px-4 py-3 space-y-1">${statusBadge(r.status)}<div class="flex flex-wrap gap-1 mt-1">${actionBadge(r.action)} ${flags.join('')}</div></td>
+            <td class="px-4 py-3 text-center">${trackerCheckbox}</td>
             <td class="px-4 py-3 text-center">
               <button data-module-files="${esc(r.id)}" class="text-gray-600 text-xs font-semibold mr-2 hover:underline">Files</button>
-            </td>
-          </tr>`;
-        } else if (isSops) {
-          return `<tr class="hover:bg-gray-50">
-            <td class="px-4 py-3 font-medium">${esc(r.sopNo)}</td>
-            <td class="px-4 py-3 text-xs font-semibold">${esc(r.title)}</td>
-            <td class="px-4 py-3 text-xs">${esc(r.version)}</td>
-            <td class="px-4 py-3 text-xs">${esc(r.effectiveDate)}</td>
-            <td class="px-4 py-3 text-center">
-              <button data-module-files="${esc(r.id)}" class="text-blue-600 text-xs font-semibold mr-2 hover:underline"><i class="fas fa-paperclip mr-1"></i>SOP Files / View</button>
-            </td>
-          </tr>`;
-        } else if (isPrPo) {
-          return `<tr class="hover:bg-gray-50">
-            <td class="px-4 py-3 font-medium">${esc(r.prNo)}</td>
-            <td class="px-4 py-3 text-xs font-semibold">${esc(r.poNo || 'Pending PO')}</td>
-            <td class="px-4 py-3 text-xs">${esc(r.itemDescription)}<div class="text-gray-400">Vendor: ${esc(r.vendor || '—')}</div></td>
-            <td class="px-4 py-3 text-xs">${esc(r.value)}<div class="mt-1">${statusBadge(r.status)}</div></td>
-            <td class="px-4 py-3 text-center">
-              <button data-module-files="${esc(r.id)}" class="text-gray-600 text-xs font-semibold hover:underline">Files</button>
+              ${owner && [STATUS.DRAFT, STATUS.RETURNED].includes(r.status) ? `<button data-module-edit="${esc(r.id)}" class="text-purple-600 text-xs font-semibold mr-2 hover:underline">Edit</button>` : ''}
+              ${owner && r.status === STATUS.DRAFT ? `<button data-module-submit="${esc(r.id)}" class="text-purple-600 text-xs font-semibold mr-2 hover:underline">Submit</button>` : ''}
+              ${owner && r.status === STATUS.DRAFT ? `<button data-module-delete="${esc(r.id)}" class="text-red-600 text-xs font-semibold mr-2 hover:underline">Delete</button>` : ''}
+              ${review ? `<button data-module-review="${esc(r.id)}" class="text-blue-600 text-xs font-semibold mr-2 hover:underline">Review</button>` : ''}
             </td>
           </tr>`;
         } else {
           return `<tr class="hover:bg-gray-50">
+            <td class="px-4 py-3"><input type="checkbox" data-select-id="${esc(r.id)}" ${isChecked ? 'checked' : ''}></td>
             <td class="px-4 py-3 font-medium">${esc(r.name)}<div class="text-xs text-gray-500">${esc(r.reference)}</div></td>
-            <td class="px-4 py-3 text-xs uppercase font-semibold text-blue-600">${esc(r.qualificationType)}</td>
-            <td class="px-4 py-3 text-xs"><span class="bg-gray-100 font-semibold px-1 py-0.5 rounded">${esc(r.stage)}</span></td>
-            <td class="px-4 py-3">${statusBadge(r.status)}</td>
+            <td class="px-4 py-3 text-xs uppercase font-semibold text-blue-600">${esc(r.qualificationType)}<div class="text-gray-500 normal-case font-normal">${esc(r.utilitySubtype || '—')}</div></td>
+            <td class="px-4 py-3 text-xs"><span class="bg-gray-100 font-semibold px-1 py-0.5 rounded">${esc(r.stage)}</span><div class="text-gray-500 truncate max-w-[150px]">${esc(r.equipmentSystemInfo || '')}</div></td>
+            <td class="px-4 py-3 space-y-1">${statusBadge(r.status)}<div class="mt-1">${actionBadge(r.action)}</div></td>
+            <td class="px-4 py-3 text-center">${trackerCheckbox}</td>
             <td class="px-4 py-3 text-center">
               <button data-module-files="${esc(r.id)}" class="text-gray-600 text-xs font-semibold mr-2 hover:underline">Files</button>
+              ${owner && [STATUS.DRAFT, STATUS.RETURNED].includes(r.status) ? `<button data-module-edit="${esc(r.id)}" class="text-purple-600 text-xs font-semibold mr-2 hover:underline">Edit</button>` : ''}
+              ${owner && r.status === STATUS.DRAFT ? `<button data-module-submit="${esc(r.id)}" class="text-purple-600 text-xs font-semibold mr-2 hover:underline">Submit</button>` : ''}
+              ${owner && r.status === STATUS.DRAFT ? `<button data-module-delete="${esc(r.id)}" class="text-red-600 text-xs font-semibold mr-2 hover:underline">Delete</button>` : ''}
+              ${review ? `<button data-module-review="${esc(r.id)}" class="text-blue-600 text-xs font-semibold mr-2 hover:underline">Review</button>` : ''}
             </td>
           </tr>`;
         }
       }).join(''); 
 
       $('moduleEmptyState').classList.toggle('hidden', displayRecords.length !== 0);
+      updateModuleBulkBar();
+    }
+
+    async function toggleExecutionTracker(recordId, isChecked) {
+      const collectionName = currentModule === MODULES.CALIBRATION ? 'calibration' : 'qualification';
+      try {
+        await updateDoc(docRef(collectionName, recordId), {
+          executedTracker: isChecked,
+          updatedAt: serverTimestamp()
+        });
+        const r = moduleRecords.find(x => x.id === recordId);
+        if (r) r.executedTracker = isChecked;
+        await logAudit(`${currentModule} Tracker Updated`, recordId, r?.name || r?.certificateNo, `Execution tracker set to: ${isChecked}`);
+      } catch (e) {
+        showMessage('Update Failed', friendlyError(e), 'error');
+        await loadModule(currentModule);
+      }
+    }
+
+    function updateModuleBulkBar() {
+      const count = selectedModuleIds.size;
+      $('moduleSelectedCount').textContent = count;
+      $('moduleBulkBar').classList.toggle('hidden', count === 0);
+    }
+
+    async function bulkSubmitModuleRecords() {
+      if (selectedModuleIds.size === 0) return;
+      confirmAction('Bulk Submit', `Are you sure you want to submit ${selectedModuleIds.size} selected record(s) for review?`, async () => {
+        try {
+          const collectionName = currentModule === MODULES.CALIBRATION ? 'calibration' : 'qualification';
+          let count = 0;
+          for (const id of selectedModuleIds) {
+            const r = moduleRecords.find(x => x.id === id);
+            if (r && r.status === STATUS.DRAFT && (isAdmin() || r.createdByUid === currentUser?.uid)) {
+              await updateDoc(docRef(collectionName, id), {
+                status: STATUS.PENDING_SECTION_HEAD,
+                submittedAt: serverTimestamp(),
+                updatedAt: serverTimestamp()
+              });
+              await logAudit(`${currentModule} Bulk Submitted`, id, r.name || r.certificateNo, 'Submitted via bulk action.');
+              count++;
+            }
+          }
+          selectedModuleIds.clear();
+          await loadModule(currentModule);
+          showMessage('Success', `Successfully submitted ${count} record(s).`, 'success');
+        } catch (e) {
+          showMessage('Bulk action failed', friendlyError(e), 'error');
+        }
+      });
+    }
+
+    async function bulkDeleteModuleRecords() {
+      if (selectedModuleIds.size === 0) return;
+      confirmAction('Bulk Delete', `Are you sure you want to delete ${selectedModuleIds.size} selected draft record(s)?`, async () => {
+        try {
+          const collectionName = currentModule === MODULES.CALIBRATION ? 'calibration' : 'qualification';
+          let count = 0;
+          const idsToDelete = Array.from(selectedModuleIds);
+          for (const id of idsToDelete) {
+            const r = moduleRecords.find(x => x.id === id);
+            if (r && r.status === STATUS.DRAFT && (isAdmin() || r.createdByUid === currentUser?.uid || r.createdByName === currentProfile?.displayName)) {
+              await deleteDoc(docRef(collectionName, id));
+              await logAudit(`${currentModule} Bulk Deleted`, id, r.name || r.certificateNo || r.reference, 'Deleted via bulk action.');
+              count++;
+            }
+          }
+          selectedModuleIds.clear();
+          await loadModule(currentModule);
+          showMessage('Success', `Successfully deleted ${count} draft record(s).`, 'success');
+        } catch (e) {
+          console.error(e);
+          showMessage('Bulk action failed', friendlyError(e), 'error');
+        }
+      });
+    }
+
+    async function moduleReview(id) {
+      const r = moduleRecords.find(x => x.id === id); if (!r) return; 
+      const target = r.status === STATUS.PENDING_SECTION_HEAD ? STATUS.PENDING_QA : STATUS.COMPLETED; 
+      confirmAction('Complete Review', `Complete review of ${r.name || r.certificateNo}?`, async comment => {
+        try {
+          const c = currentModule === MODULES.CALIBRATION ? 'calibration' : 'qualification';
+          await updateDoc(docRef(c, id), {status: target, updatedAt: serverTimestamp()});
+          await logAudit(`${currentModule} Review Completed`, id, r.name || r.certificateNo, comment || '', r.status, target);
+          
+          await sendEmailNotification(currentUser.email, `${currentModule} Review Completed: ${r.name || r.certificateNo}`, currentProfile?.displayName || currentUser.email, r.name || r.certificateNo, target, comment || `Advanced to ${target}.`);
+          closeModals(); await loadModule(currentModule); showMessage('Review completed', `Advanced to ${target}.`, 'success');
+        } catch(e) { showMessage('Review failed', friendlyError(e), 'error'); }
+      }, false, 'Review comment');
+    }
+
+    async function moduleSubmit(id) {
+      const r = moduleRecords.find(x => x.id === id); if (!r) return;
+      const c = currentModule === MODULES.CALIBRATION ? 'calibration' : 'qualification';
+      try {
+        await updateDoc(docRef(c, id), {status: STATUS.PENDING_SECTION_HEAD, submittedAt: serverTimestamp(), updatedAt: serverTimestamp()});
+        await logAudit(`${currentModule} Submitted`, id, r.name || r.certificateNo, 'Submitted for review.', r.status, STATUS.PENDING_SECTION_HEAD);
+        
+        await sendEmailNotification(currentUser.email, `${currentModule} Submitted: ${r.name || r.certificateNo}`, currentProfile?.displayName || currentUser.email, r.name || r.certificateNo, STATUS.PENDING_SECTION_HEAD, 'Record submitted for review.');
+        await loadModule(currentModule); showMessage('Submitted', 'Record submitted to Section Head.', 'success');
+      } catch(e) { showMessage('Submission failed', friendlyError(e), 'error'); }
     }
 
     function openModuleModal(record = null) { 
@@ -1037,33 +1394,75 @@
       $('moduleEditId').value = record?.id || ''; 
       $('moduleType').value = currentModule; 
 
-      $('calibrationFields').classList.toggle('hidden', currentModule !== MODULES.CALIBRATION);
-      $('qualificationFields').classList.toggle('hidden', currentModule !== MODULES.QUALIFICATION);
-      $('sopsFields').classList.toggle('hidden', currentModule !== MODULES.SOPS);
-      $('prPoFields').classList.toggle('hidden', currentModule !== MODULES.PR_PO);
+      const isCal = currentModule === MODULES.CALIBRATION;
+      $('calibrationFields').classList.toggle('hidden', !isCal);
+      $('qualificationFields').classList.toggle('hidden', isCal);
+
+      if (isCal) {
+        $('calCertificateNo').value = record?.certificateNo || '';
+        $('calDept').value = record?.department || '';
+        $('calInstrument').value = record?.instrument || '';
+        $('calManuf').value = record?.manufacturer || '';
+        $('calModel').value = record?.model || '';
+        $('calSN').value = record?.serialNumber || '';
+        $('calCode').value = record?.code || '';
+        $('calLocation').value = record?.location || '';
+        $('calRange').value = record?.calRange || '';
+        $('calAcceptanceLimits').value = record?.acceptanceLimits || '';
+        $('calInterval').value = record?.interval || '';
+        $('calDate').value = record?.calDate || '';
+        $('calDueDate').value = record?.dueDate || '';
+        $('calMonthYear').value = record?.monthYear || '';
+        $('calIsAddendum').checked = !!record?.isAddendum;
+        $('calIsOutOfCalibration').checked = !!record?.isOutOfCalibration;
+        $('calAction').value = record?.action || ACTIONS.IN_PLAN;
+      } else {
+        $('qualName').value = record?.name || '';
+        $('qualReference').value = record?.reference || '';
+        $('qualType').value = record?.qualificationType || 'equipment';
+        $('qualStage').value = record?.stage || 'IQ';
+        $('qualDate').value = record?.plannedDate || '';
+        $('qualDueDate').value = record?.dueDate || '';
+        $('qualAction').value = record?.action || ACTIONS.IN_PLAN;
+        $('qualDescription').value = record?.description || '';
+        
+        const qType = $('qualType').value;
+        $('utilitySubtypeGroup').classList.toggle('hidden', qType !== 'utilities');
+        $('equipmentGroup').classList.toggle('hidden', qType !== 'equipment');
+        $('systemGroup').classList.toggle('hidden', qType !== 'system');
+
+        if (qType === 'utilities') $('qualUtilityType').value = record?.utilitySubtype || 'HVAC';
+        if (qType === 'equipment') $('qualEquipmentInfo').value = record?.equipmentSystemInfo || '';
+        if (qType === 'system') $('qualSystemInfo').value = record?.equipmentSystemInfo || '';
+      }
 
       $('moduleModalTitle').textContent = record ? `Edit ${currentModule} Record` : `Add ${currentModule} Record`; 
       $('moduleModal').classList.add('active'); 
     }
 
     function setCategoryTabs() {
-      document.querySelectorAll('.study-tab').forEach(x => x.classList.remove('bg-white', 'text-primary', 'shadow-sm'));
-      const id = currentCategory === CATEGORIES.PROCESS ? 'tabProcess' : currentCategory === CATEGORIES.HOLD_TIME ? 'tabHoldTime' : 'tabCleaning';
-      if ($(id)) $(id).classList.add('bg-white', 'text-primary', 'shadow-sm');
-      
-      document.querySelectorAll('.main-nav-tab').forEach(x => x.classList.remove('bg-blue-700', 'font-bold'));
-      $('studiesNav').classList.add('bg-blue-700', 'font-bold');
+      document.querySelectorAll('.study-tab').forEach(x => x.classList.remove('bg-white', 'text-primary', 'shadow-sm', 'font-bold'));
+      const id = currentCategory === 'Process Validation' ? 'tabProcess' : currentCategory === 'Hold Time Study' ? 'tabHoldTime' : 'tabCleaning';
+      if ($(id)) $(id).classList.add('bg-white', 'text-primary', 'shadow-sm', 'font-bold');
     }
 
     function setActiveMainNavLink(navId) {
       document.querySelectorAll('.main-nav-tab').forEach(x => x.classList.remove('bg-blue-700', 'font-bold'));
-      $(navId).classList.add('bg-blue-700', 'font-bold');
+      const el = $(navId);
+      if (el) el.classList.add('bg-blue-700', 'font-bold');
     }
 
-    function showStudies() {
-      currentModule = MODULES.STUDIES;
-      $('studiesView').classList.remove('hidden');
+    function hideAllViews() {
+      $('studiesView').classList.add('hidden');
       $('moduleView').classList.add('hidden');
+      $('sopsView').classList.add('hidden');
+      $('prPoView').classList.add('hidden');
+    }
+
+    async function showStudies() {
+      currentModule = MODULES.STUDIES;
+      hideAllViews();
+      $('studiesView').classList.remove('hidden');
       setCategoryTabs();
       setActiveMainNavLink('studiesNav');
       configureNavigation();
@@ -1072,11 +1471,30 @@
 
     async function showModule(modName) {
       currentModule = modName;
-      $('studiesView').classList.add('hidden');
+      hideAllViews();
       $('moduleView').classList.remove('hidden');
-      setActiveMainNavLink(modName === MODULES.CALIBRATION ? 'calibrationNav' : modName === MODULES.QUALIFICATION ? 'qualificationNav' : modName === MODULES.SOPS ? 'sopsNav' : 'prPoNav');
+      setActiveMainNavLink(modName === MODULES.CALIBRATION ? 'calibrationNav' : 'qualificationNav');
       configureNavigation();
       await loadModule(currentModule);
+    }
+
+    async function showSOPsModule() {
+      if (!canSeeSOPs()) return showMessage('Access Denied', 'SOPs module is restricted to Creators, Section Heads, Deputy QA Managers, and QA Managers.', 'error');
+      currentModule = MODULES.SOPS;
+      hideAllViews();
+      $('sopsView').classList.remove('hidden');
+      setActiveMainNavLink('sopsNavBtn');
+      configureNavigation();
+      await loadSOPs();
+    }
+
+    async function showPRPOModule() {
+      currentModule = MODULES.PR_PO;
+      hideAllViews();
+      $('prPoView').classList.remove('hidden');
+      setActiveMainNavLink('prPoNavBtn');
+      configureNavigation();
+      await loadPRPO();
     }
 
     async function handleAzureSSO() {
@@ -1127,15 +1545,107 @@
       $('userManagementBtn').addEventListener('click', loadUsers);
       $('auditTrailBtn').addEventListener('click', loadAudit);
       
+      // Main Module Nav Tabs
       $('studiesNav').addEventListener('click', () => showStudies());
       $('calibrationNav').addEventListener('click', () => showModule(MODULES.CALIBRATION));
       $('qualificationNav').addEventListener('click', () => showModule(MODULES.QUALIFICATION));
-      $('sopsNav').addEventListener('click', () => showModule(MODULES.SOPS));
-      $('prPoNav').addEventListener('click', () => showModule(MODULES.PR_PO));
+      $('sopsNavBtn').addEventListener('click', () => showSOPsModule());
+      $('prPoNavBtn').addEventListener('click', () => showPRPOModule());
       
-      $('tabProcess').addEventListener('click', () => { currentCategory = CATEGORIES.PROCESS; currentSubTab = 'all'; setCategoryTabs(); renderSubTabs(); renderStudies(); });
-      $('tabHoldTime').addEventListener('click', () => { currentCategory = CATEGORIES.HOLD_TIME; currentSubTab = 'all'; setCategoryTabs(); renderSubTabs(); renderStudies(); });
-      $('tabCleaning').addEventListener('click', () => { currentCategory = CATEGORIES.CLEANING; currentSubTab = 'all'; setCategoryTabs(); renderSubTabs(); renderStudies(); });
+      // Study Categories
+      $('tabProcess').addEventListener('click', () => { currentCategory = 'Process Validation'; currentSubTab = PROCESS_TABS.ODF; setCategoryTabs(); renderStudies(); });
+      $('tabHoldTime').addEventListener('click', () => { currentCategory = 'Hold Time Study'; currentSubTab = HOLD_TIME_TABS.ODF_BULK; setCategoryTabs(); renderStudies(); });
+      $('tabCleaning').addEventListener('click', () => { currentCategory = 'Cleaning Validation'; currentSubTab = CLEANING_TABS.ODF_EQUIP; setCategoryTabs(); renderStudies(); });
+
+      // Sub-tab button event handlers
+      document.querySelectorAll('.sub-tab-btn').forEach(btn => {
+        btn.addEventListener('click', e => {
+          const parentWrap = e.currentTarget.parentElement;
+          parentWrap.querySelectorAll('.sub-tab-btn').forEach(b => b.classList.remove('bg-white', 'text-primary', 'shadow-sm', 'font-bold'));
+          e.currentTarget.classList.add('bg-white', 'text-primary', 'shadow-sm', 'font-bold');
+          currentSubTab = e.currentTarget.dataset.subtab;
+          renderStudies();
+        });
+      });
+
+      document.querySelectorAll('.cal-sub-tab').forEach(btn => {
+        btn.addEventListener('click', e => {
+          document.querySelectorAll('.cal-sub-tab').forEach(b => {
+            b.classList.remove('bg-white', 'text-primary', 'shadow-sm');
+            b.classList.add('text-gray-600');
+          });
+          const target = e.currentTarget;
+          target.classList.add('bg-white', 'text-primary', 'shadow-sm');
+          target.classList.remove('text-gray-600');
+          currentCalibrationTab = target.dataset.calTab;
+          renderModuleTable();
+        });
+      });
+
+      document.querySelectorAll('.dept-sub-tab').forEach(btn => {
+        btn.addEventListener('click', e => {
+          document.querySelectorAll('.dept-sub-tab').forEach(b => {
+            b.classList.remove('bg-white', 'text-blue-800', 'shadow-sm');
+            b.classList.add('text-blue-100');
+          });
+          const target = e.currentTarget;
+          target.classList.add('bg-white', 'text-blue-800', 'shadow-sm');
+          target.classList.remove('text-blue-100');
+          currentCalibrationTabDept = target.dataset.deptTab;
+          renderModuleTable();
+        });
+      });
+
+      document.querySelectorAll('.monthly-sub-tab').forEach(btn => {
+        btn.addEventListener('click', e => {
+          document.querySelectorAll('.monthly-sub-tab').forEach(b => {
+            b.classList.remove('bg-white', 'text-indigo-800', 'shadow-sm');
+            b.classList.add('text-indigo-100');
+          });
+          const target = e.currentTarget;
+          target.classList.add('bg-white', 'text-indigo-800', 'shadow-sm');
+          target.classList.remove('text-indigo-100');
+          currentCalibrationMonth = target.dataset.monthTab;
+          renderModuleTable();
+        });
+      });
+
+      document.querySelectorAll('.qual-sub-tab').forEach(btn => {
+        btn.addEventListener('click', e => {
+          document.querySelectorAll('.qual-sub-tab').forEach(b => {
+            b.classList.remove('bg-white', 'text-primary', 'shadow-sm');
+            b.classList.add('text-gray-600');
+          });
+          const target = e.currentTarget;
+          target.classList.add('bg-white', 'text-primary', 'shadow-sm');
+          target.classList.remove('text-gray-600');
+          currentQualificationTab = target.dataset.qualTab;
+          renderModuleTable();
+        });
+      });
+
+      document.querySelectorAll('.qual-monthly-sub-tab').forEach(btn => {
+        btn.addEventListener('click', e => {
+          document.querySelectorAll('.qual-monthly-sub-tab').forEach(b => {
+            b.classList.remove('bg-white', 'text-purple-800', 'shadow-sm');
+            b.classList.add('text-purple-100');
+          });
+          const target = e.currentTarget;
+          target.classList.add('bg-white', 'text-purple-800', 'shadow-sm');
+          target.classList.remove('text-purple-100');
+          currentQualificationMonth = target.dataset.qualMonthTab;
+          renderModuleTable();
+        });
+      });
+
+      $('qualType').addEventListener('change', e => {
+        const val = e.target.value;
+        $('utilitySubtypeGroup').classList.toggle('hidden', val !== 'utilities');
+        $('equipmentGroup').classList.toggle('hidden', val !== 'equipment');
+        $('systemGroup').classList.toggle('hidden', val !== 'system');
+      });
+
+      $('excelImportInput').addEventListener('change', handleModuleExcelImport);
 
       ['searchInput', 'filterStage', 'filterStatus', 'filterScale'].forEach(id => {
         if ($(id)) $(id).addEventListener('input', renderStudies);
@@ -1146,9 +1656,71 @@
         renderStudies();
       });
 
-      if ($('modSearchInput')) {
-        $('modSearchInput').addEventListener('input', renderModuleTable);
+      ['modSearchInput', 'modFilter1', 'modFilter2', 'modFilterStatus'].forEach(id => {
+        if ($(id)) $(id).addEventListener('input', renderModuleTable);
+        if ($(id)) $(id).addEventListener('change', renderModuleTable);
+      });
+
+      if ($('modClearFiltersBtn')) {
+        $('modClearFiltersBtn').addEventListener('click', () => {
+          $('modSearchInput').value = '';
+          $('modFilter1').value = 'All';
+          $('modFilter2').value = 'All';
+          $('modFilterStatus').value = 'All';
+          renderModuleTable();
+        });
       }
+
+      document.addEventListener('change', e => {
+        if (e.target && e.target.dataset.trackerId) {
+          const recordId = e.target.dataset.trackerId;
+          const isChecked = e.target.checked;
+          toggleExecutionTracker(recordId, isChecked);
+        }
+
+        if (e.target && e.target.id === 'selectAllModule') {
+          const checked = e.target.checked;
+          const q = $('modSearchInput').value.trim().toLowerCase();
+          const f1 = $('modFilter1').value;
+          const f2 = $('modFilter2').value;
+          const st = $('modFilterStatus').value;
+
+          let displayRecords = moduleRecords;
+          if (isViewer()) {
+            displayRecords = displayRecords.filter(r => r.status === STATUS.APPROVED || r.status === STATUS.COMPLETED);
+          }
+
+          displayRecords = displayRecords.filter(r => {
+            const matchQ = !q || (currentModule === MODULES.CALIBRATION ? 
+              `${r.certificateNo||''} ${r.instrument||''} ${r.code||''} ${r.serialNumber||''}`.toLowerCase().includes(q) : 
+              `${r.name||''} ${r.reference||''} ${r.equipmentSystemInfo||''}`.toLowerCase().includes(q));
+            let matchF1 = true; let matchF2 = true;
+            if (currentModule === MODULES.CALIBRATION) {
+              if (f1 !== 'All' && r.department !== f1) matchF1 = false;
+              if (f2 !== 'All' && r.location !== f2) matchF2 = false;
+            } else {
+              if (f1 !== 'All' && r.qualificationType !== f1) matchF1 = false;
+              if (f2 !== 'All' && r.stage !== f2) matchF2 = false;
+            }
+            const matchStatus = st === 'All' || r.status === st;
+            return matchQ && matchF1 && matchF2 && matchStatus;
+          });
+
+          if (checked) displayRecords.forEach(r => selectedModuleIds.add(r.id));
+          else displayRecords.forEach(r => selectedModuleIds.delete(r.id));
+          renderModuleTable();
+        }
+
+        if (e.target && e.target.dataset.selectId) {
+          const id = e.target.dataset.selectId;
+          if (e.target.checked) selectedModuleIds.add(id);
+          else selectedModuleIds.delete(id);
+          updateModuleBulkBar();
+        }
+      });
+
+      if ($('bulkModuleSubmitBtn')) $('bulkModuleSubmitBtn').addEventListener('click', bulkSubmitModuleRecords);
+      if ($('bulkModuleDeleteBtn')) $('bulkModuleDeleteBtn').addEventListener('click', bulkDeleteModuleRecords);
 
       $('acceptConfirmBtn').addEventListener('click', async () => {
         const cb = pendingAction;
@@ -1198,6 +1770,12 @@
         if (t.dataset.editUser) await editUser(t.dataset.editUser);
         if (t.dataset.toggleUser) await toggleUser(t.dataset.toggleUser);
         if (t.dataset.moduleFiles) await openFiles(t.dataset.moduleFiles, currentModule);
+        if (t.dataset.moduleReview) await moduleReview(t.dataset.moduleReview);
+        if (t.dataset.moduleEdit) { const r = moduleRecords.find(x => x.id === t.dataset.moduleEdit); if (r) openModuleModal(r); }
+        if (t.dataset.moduleSubmit) await moduleSubmit(t.dataset.moduleSubmit);
+        if (t.dataset.moduleDelete) await deleteModuleRecord(t.dataset.moduleDelete);
+        if (t.dataset.sopFiles) await openFiles(t.dataset.sopFiles, 'sops');
+        if (t.dataset.prpoFiles) await openFiles(t.dataset.prpoFiles, 'prpo');
       });
 
       $('fileInput').addEventListener('change', e => {
@@ -1217,7 +1795,6 @@
           configureNavigation();
           await logAudit('Login', '', '', 'Session established.');
           showStudies();
-          renderSubTabs();
         } catch (e) {
           console.error(e);
           await signOut(auth);
@@ -1241,33 +1818,37 @@
     * { scrollbar-width: thin; scrollbar-color: #cbd5e1 transparent; }
   </style>
 </head>
-<body class="text-gray-800 h-screen flex flex-col overflow-auto">
-  <nav class="bg-primary text-white shadow-lg p-4 flex-shrink-0">
-    <div class="container mx-auto flex flex-wrap justify-between items-center gap-4">
+<body class="text-gray-800 h-screen flex flex-col overflow-auto scrollbar">
+  <!-- Top Navigation Bar with Logo and Modules side-by-side -->
+  <nav class="bg-primary text-white shadow-lg p-3 flex-shrink-0">
+    <div class="container mx-auto flex flex-wrap justify-between items-center gap-3">
       <div class="flex items-center gap-3">
-        <!-- ODF dosage form & capsule representation icons beside ValidApp -->
-        <div class="flex items-center gap-1.5 bg-blue-900 px-2.5 py-1.5 rounded-lg border border-blue-700">
-          <i class="fas fa-tablets text-accent text-lg" title="Capsule Dosage Form"></i>
-          <i class="fas fa-film text-sky-300 text-lg" title="Oral Dispersible Film (ODF)"></i>
+        <!-- Logo representing ODF dosage form and capsule -->
+        <div class="bg-white/10 p-2 rounded-xl flex items-center gap-1 border border-white/20">
+          <i class="fas fa-capsules text-xl text-yellow-300" title="Capsule Dosage Form"></i>
+          <i class="fas fa-tablets text-lg text-emerald-300" title="ODF Oral Dispersible Film"></i>
         </div>
-        <h1 class="text-2xl font-bold tracking-wider">ValidApp</h1>
-        <span class="hidden md:inline text-blue-100 text-sm">Validation & Qualification Nerhadou</span>
+        <h1 class="text-xl font-bold tracking-wider">ValidApp</h1>
+        <span class="hidden lg:inline text-blue-100 text-xs">Validation & Qualification Nerhadou</span>
       </div>
-      <div id="userInfo" class="hidden items-center gap-2 flex-wrap">
-        <span class="bg-blue-800 px-3 py-1 rounded-full text-xs font-semibold">
+
+      <!-- Arranged modules side by side as interactive tabs -->
+      <div class="flex flex-wrap items-center gap-2">
+        <button id="studiesNav" class="main-nav-tab bg-blue-700 font-bold hover:bg-blue-800 px-3 py-1.5 rounded text-xs transition"><i class="fas fa-clipboard-list mr-1"></i>Studies</button>
+        <button id="calibrationNav" class="main-nav-tab hover:bg-blue-700 px-3 py-1.5 rounded text-xs transition"><i class="fas fa-sliders-h mr-1"></i>Calibration</button>
+        <button id="qualificationNav" class="main-nav-tab hover:bg-blue-700 px-3 py-1.5 rounded text-xs transition"><i class="fas fa-check-double mr-1"></i>Qualification</button>
+        <button id="sopsNavBtn" class="main-nav-tab hidden hover:bg-blue-700 px-3 py-1.5 rounded text-xs transition"><i class="fas fa-book mr-1"></i>SOPs</button>
+        <button id="prPoNavBtn" class="main-nav-tab hover:bg-blue-700 px-3 py-1.5 rounded text-xs transition"><i class="fas fa-shopping-cart mr-1"></i>PR & PO</button>
+      </div>
+
+      <div id="userInfo" class="hidden items-center gap-2">
+        <span class="bg-blue-900 px-3 py-1 rounded-full text-xs font-semibold">
           <i class="fas fa-user-circle mr-1"></i>
           <span id="currentUserDisplay"></span> · <span id="currentUserRole"></span> · <span id="currentUserDepartment"></span>
         </span>
-        <div class="flex items-center gap-1 bg-blue-900 p-1 rounded-lg">
-          <button id="studiesNav" class="main-nav-tab hover:bg-blue-700 px-2 py-1 rounded text-xs">Studies</button>
-          <button id="calibrationNav" class="main-nav-tab hover:bg-blue-700 px-2 py-1 rounded text-xs">Calibration</button>
-          <button id="qualificationNav" class="main-nav-tab hover:bg-blue-700 px-2 py-1 rounded text-xs">Qualification</button>
-          <button id="sopsNav" class="main-nav-tab hover:bg-blue-700 px-2 py-1 rounded text-xs">SOPs</button>
-          <button id="prPoNav" class="main-nav-tab hover:bg-blue-700 px-2 py-1 rounded text-xs">PR & PO</button>
-        </div>
-        <button id="userManagementBtn" class="hidden hover:bg-blue-700 px-2 py-1 rounded text-xs"><i class="fas fa-users-cog mr-1"></i>Users</button>
-        <button id="auditTrailBtn" class="hidden hover:bg-blue-700 px-2 py-1 rounded text-xs"><i class="fas fa-history mr-1"></i>Audit</button>
-        <button id="logoutBtn" class="bg-red-500 hover:bg-red-600 px-3 py-1 rounded font-semibold text-xs"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
+        <button id="userManagementBtn" class="hidden hover:bg-blue-700 px-2 py-1 rounded text-xs"><i class="fas fa-users-cog"></i></button>
+        <button id="auditTrailBtn" class="hidden hover:bg-blue-700 px-2 py-1 rounded text-xs"><i class="fas fa-history"></i></button>
+        <button id="logoutBtn" class="bg-red-500 hover:bg-red-600 px-2.5 py-1 rounded text-xs font-semibold"><i class="fas fa-sign-out-alt"></i></button>
       </div>
     </div>
   </nav>
@@ -1304,249 +1885,434 @@
       </form>
     </section>
 
+    <!-- Dashboard Section with Multi-Directional Scrolling -->
     <section id="dashboardSection" class="hidden flex-col h-full overflow-auto flex-grow">
+      <!-- STUDIES VIEW -->
       <div id="studiesView" class="flex flex-col h-full overflow-auto">
         <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4">
           <div class="flex bg-gray-200 p-1 rounded-lg overflow-x-auto">
-            <button id="tabProcess" class="study-tab bg-white text-primary shadow-sm px-4 py-2 rounded-md font-semibold">Process Validation</button>
-            <button id="tabHoldTime" class="study-tab text-gray-600 px-4 py-2 rounded-md font-semibold">Hold Time Studies</button>
-            <button id="tabCleaning" class="study-tab text-gray-600 px-4 py-2 rounded-md font-semibold">Cleaning Validation</button>
+            <button id="tabProcess" class="study-tab bg-white text-primary shadow-sm px-4 py-2 rounded-md font-semibold text-xs">Process Validation</button>
+            <button id="tabHoldTime" class="study-tab text-gray-600 px-4 py-2 rounded-md font-semibold text-xs">Hold Time Studies</button>
+            <button id="tabCleaning" class="study-tab text-gray-600 px-4 py-2 rounded-md font-semibold text-xs">Cleaning Validation</button>
           </div>
-          <button id="addRecordBtn" class="hidden bg-accent hover:bg-green-600 text-white px-5 py-2 rounded-lg font-semibold"><i class="fas fa-plus mr-2"></i>Add Study</button>
+          <button id="addRecordBtn" class="hidden bg-accent hover:bg-green-600 text-white px-5 py-2 rounded-lg font-semibold text-xs"><i class="fas fa-plus mr-2"></i>Add Study</button>
         </div>
 
-        <!-- Dynamic Category Sub-tabs -->
-        <div id="dynamicSubTabs" class="flex bg-gray-100 p-1 rounded-lg overflow-x-auto gap-2 mb-4 border"></div>
+        <!-- Dynamic Sub-Tabs for Studies -->
+        <div class="mb-3">
+          <!-- Process Validation Sub-Tabs -->
+          <div id="processSubTabs" class="flex bg-blue-100 p-1.5 rounded-lg overflow-x-auto gap-1">
+            <button data-subtab="Process validation of ODF products" class="sub-tab-btn bg-white text-primary px-3 py-1.5 rounded text-xs font-bold shadow-sm">ODF Products</button>
+            <button data-subtab="Process validation of HGC products" class="sub-tab-btn text-gray-700 px-3 py-1.5 rounded text-xs font-semibold hover:bg-white/50">HGC Products</button>
+            <button data-subtab="Process verification" class="sub-tab-btn text-gray-700 px-3 py-1.5 rounded text-xs font-semibold hover:bg-white/50">Process Verification</button>
+            <button data-subtab="Draft Studies" class="sub-tab-btn text-amber-800 px-3 py-1.5 rounded text-xs font-semibold hover:bg-white/50"><i class="fas fa-file-alt mr-1"></i>Draft Studies</button>
+          </div>
+
+          <!-- Hold Time Studies Sub-Tabs -->
+          <div id="holdTimeSubTabs" class="hidden flex bg-indigo-100 p-1.5 rounded-lg overflow-x-auto gap-1">
+            <button data-subtab="Bulk hold time study for ODF" class="sub-tab-btn bg-white text-primary px-3 py-1.5 rounded text-xs font-bold shadow-sm">ODF Bulk Hold</button>
+            <button data-subtab="Bulk hold time study for Capsule" class="sub-tab-btn text-gray-700 px-3 py-1.5 rounded text-xs font-semibold hover:bg-white/50">Capsule Bulk Hold</button>
+            <button data-subtab="Dispensed API hold time" class="sub-tab-btn text-gray-700 px-3 py-1.5 rounded text-xs font-semibold hover:bg-white/50">Dispensed API Hold</button>
+            <button data-subtab="Draft Studies" class="sub-tab-btn text-amber-800 px-3 py-1.5 rounded text-xs font-semibold hover:bg-white/50"><i class="fas fa-file-alt mr-1"></i>Draft Studies</button>
+          </div>
+
+          <!-- Cleaning Validation Sub-Tabs -->
+          <div id="cleaningSubTabs" class="hidden flex bg-emerald-100 p-1.5 rounded-lg overflow-x-auto gap-1">
+            <button data-subtab="Cleaning validation for ODF equipment" class="sub-tab-btn bg-white text-primary px-3 py-1.5 rounded text-xs font-bold shadow-sm">ODF Equip</button>
+            <button data-subtab="Cleaning validation for capsule equipment" class="sub-tab-btn text-gray-700 px-3 py-1.5 rounded text-xs font-semibold hover:bg-white/50">Capsule Equip</button>
+            <button data-subtab="CHT" class="sub-tab-btn text-gray-700 px-3 py-1.5 rounded text-xs font-semibold hover:bg-white/50">CHT</button>
+            <button data-subtab="DHT" class="sub-tab-btn text-gray-700 px-3 py-1.5 rounded text-xs font-semibold hover:bg-white/50">DHT</button>
+            <button data-subtab="Campaign length" class="sub-tab-btn text-gray-700 px-3 py-1.5 rounded text-xs font-semibold hover:bg-white/50">Campaign Length</button>
+            <button data-subtab="Results of new Equipment" class="sub-tab-btn text-gray-700 px-3 py-1.5 rounded text-xs font-semibold hover:bg-white/50">New Equipment</button>
+            <button data-subtab="Draft Studies" class="sub-tab-btn text-amber-800 px-3 py-1.5 rounded text-xs font-semibold hover:bg-white/50"><i class="fas fa-file-alt mr-1"></i>Draft Studies</button>
+          </div>
+        </div>
 
         <div class="bg-white p-4 rounded-t-xl shadow-sm border flex flex-wrap gap-4 items-end">
-          <div class="flex-grow min-w-[200px]"><label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Search Product / API</label><input id="searchInput" class="w-full p-2 border rounded-md" placeholder="Search by name..."></div>
-          <div><label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Stage</label><select id="filterStage" class="p-2 border rounded-md"><option>All</option><option>Raw</option><option>Bulk</option><option>Finished Product</option><option>Cleaning Validation</option><option>CHT</option><option>DHT</option><option>Campaign Length</option></select></div>
-          <div><label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Status</label><select id="filterStatus" class="p-2 border rounded-md"><option>All</option><option>Draft</option><option>Pending Section Head</option><option>Pending Reviewer</option><option>Pending Deputy QA</option><option>Pending QA Manager</option><option>Returned for Revision</option><option>Approved</option><option>Rejected</option></select></div>
-          <div><label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Scale</label><select id="filterScale" class="p-2 border rounded-md"><option>All</option><option>Lab Scale</option><option>Pilot Scale</option><option>Commercial Scale</option></select></div>
-          <button id="clearFiltersBtn" class="px-4 py-2 text-gray-500 hover:bg-gray-100 rounded">Clear Filters</button>
+          <div class="flex-grow min-w-[200px]"><label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Search Product / API</label><input id="searchInput" class="w-full p-2 border rounded-md text-xs" placeholder="Search by name..."></div>
+          <div><label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Stage</label><select id="filterStage" class="p-2 border rounded-md text-xs"><option>All</option><option>Raw</option><option>Bulk</option><option>Finished Product</option><option>Cleaning Validation</option><option>CHT</option><option>DHT</option><option>Campaign Length</option></select></div>
+          <div><label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Status</label><select id="filterStatus" class="p-2 border rounded-md text-xs"><option>All</option><option>Draft</option><option>Pending Section Head</option><option>Pending Reviewer</option><option>Pending Deputy QA</option><option>Pending QA Manager</option><option>Returned for Revision</option><option>Approved</option><option>Rejected</option></select></div>
+          <div><label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Scale</label><select id="filterScale" class="p-2 border rounded-md text-xs"><option>All</option><option>Lab Scale</option><option>Pilot Scale</option><option>Commercial Scale</option></select></div>
+          <button id="clearFiltersBtn" class="px-4 py-2 text-gray-500 hover:bg-gray-100 rounded text-xs">Clear Filters</button>
         </div>
-        <div class="bg-white rounded-b-xl shadow-md border flex-grow overflow-auto flex flex-col">
-          <div class="overflow-auto scrollbar flex-grow max-h-[calc(100vh-320px)]">
-            <table class="min-w-full divide-y divide-gray-200">
-              <thead class="bg-gray-50 sticky top-0 z-10">
-                <tr>
-                  <th class="px-4 py-3 text-left text-xs">Product / API</th>
-                  <th class="px-4 py-3 text-left text-xs">Category</th>
-                  <th class="px-4 py-3 text-left text-xs">Date & Stage</th>
-                  <th class="px-4 py-3 text-left text-xs">Scale & Version</th>
-                  <th class="px-4 py-3 text-left text-xs">Reason / Notes</th>
-                  <th class="px-4 py-3 text-left text-xs">Status</th>
-                  <th class="px-4 py-3 text-center text-xs">Actions</th>
-                </tr>
-              </thead>
-              <tbody id="dataTableBody" class="divide-y text-sm"></tbody>
-            </table>
-          </div>
+
+        <div class="bg-white rounded-b-xl shadow-md border flex-grow overflow-auto scrollbar">
+          <table class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-gray-50 sticky top-0 z-10">
+              <tr>
+                <th class="px-4 py-3 text-left text-xs">Product / API</th>
+                <th class="px-4 py-3 text-left text-xs">Category</th>
+                <th class="px-4 py-3 text-left text-xs">Date & Stage</th>
+                <th class="px-4 py-3 text-left text-xs">Scale & Version</th>
+                <th class="px-4 py-3 text-left text-xs">Reason / Notes</th>
+                <th class="px-4 py-3 text-left text-xs">Status</th>
+                <th class="px-4 py-3 text-center text-xs">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="dataTableBody" class="divide-y text-sm"></tbody>
+          </table>
           <div id="emptyState" class="hidden p-10 text-center text-gray-500">No records match your criteria.</div>
         </div>
       </div>
 
+      <!-- CALIBRATION & QUALIFICATION MODULE VIEW -->
       <div id="moduleView" class="hidden flex-col h-full overflow-auto">
         <div class="flex justify-between items-center mb-4 flex-wrap gap-3">
           <div>
             <h2 id="moduleTitle" class="text-2xl font-bold">Module</h2>
-            <p id="moduleDescription" class="text-gray-500 text-sm">Calibration, qualification, SOPs and PR/PO tracking</p>
+            <p id="moduleDescription" class="text-gray-500 text-sm">Calibration and qualification tracking</p>
           </div>
-          <button id="addModuleBtn" class="bg-accent hover:bg-green-600 text-white px-5 py-2 rounded-lg font-semibold text-sm"><i class="fas fa-plus mr-2"></i>Add Record</button>
+          <div class="flex items-center gap-3">
+            <div id="excelImportContainer">
+              <label class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg cursor-pointer text-xs font-semibold inline-flex items-center gap-2">
+                <i class="fas fa-file-excel"></i> <span id="excelImportBtnText">Import Excel / Macro Data</span>
+                <input id="excelImportInput" type="file" class="hidden" accept=".xlsx, .xls, .xlsm">
+              </label>
+            </div>
+            <button id="addModuleBtn" class="bg-accent hover:bg-green-600 text-white px-5 py-2 rounded-lg font-semibold text-xs"><i class="fas fa-plus mr-2"></i>Add Record</button>
+          </div>
         </div>
 
-        <div id="calibrationSubTabs" class="hidden flex bg-gray-200 p-1 rounded-lg overflow-x-auto gap-1 mb-3">
-          <button data-cal-tab="all" class="cal-sub-tab bg-white text-primary px-3 py-1.5 rounded-md text-xs font-semibold shadow-sm">All Items</button>
+        <!-- Calibration Sub-Tabs -->
+        <div id="calibrationSubTabs" class="hidden flex flex-col gap-2 mb-3">
+          <div class="flex bg-gray-200 p-1 rounded-lg overflow-x-auto gap-1">
+            <button data-cal-tab="all" class="cal-sub-tab bg-white text-primary px-3 py-1.5 rounded-md text-xs font-semibold shadow-sm"><i class="fas fa-list mr-1"></i>All Items</button>
+            <button data-cal-tab="dept" class="cal-sub-tab text-gray-600 px-3 py-1.5 rounded-md text-xs font-semibold"><i class="fas fa-building mr-1"></i>By Department</button>
+            <button data-cal-tab="monthly" class="cal-sub-tab text-gray-600 px-3 py-1.5 rounded-md text-xs font-semibold"><i class="fas fa-calendar-alt mr-1"></i>Monthly Plan</button>
+            <button data-cal-tab="addendum" class="cal-sub-tab text-gray-600 px-3 py-1.5 rounded-md text-xs font-semibold"><i class="fas fa-file-medical mr-1"></i>Addendum</button>
+            <button data-cal-tab="out" class="cal-sub-tab text-gray-600 px-3 py-1.5 rounded-md text-xs font-semibold"><i class="fas fa-exclamation-triangle mr-1"></i>Out of Calibration</button>
+          </div>
+
+          <div id="deptSubTabs" class="hidden flex bg-blue-900 p-1.5 rounded-lg overflow-x-auto gap-1">
+            <span class="text-white text-xs font-bold px-2 py-1 flex items-center">Dept:</span>
+            <button data-dept-tab="QA" class="dept-sub-tab bg-white text-blue-800 px-3 py-1 rounded text-xs font-semibold shadow-sm">QA</button>
+            <button data-dept-tab="QC" class="dept-sub-tab text-blue-100 hover:text-white px-3 py-1 rounded text-xs font-semibold">QC</button>
+            <button data-dept-tab="Production" class="dept-sub-tab text-blue-100 hover:text-white px-3 py-1 rounded text-xs font-semibold">Production</button>
+            <button data-dept-tab="Warehouse" class="dept-sub-tab text-blue-100 hover:text-white px-3 py-1 rounded text-xs font-semibold">Warehouse</button>
+          </div>
+
+          <div id="monthlySubTabs" class="hidden flex bg-indigo-900 p-1.5 rounded-lg overflow-x-auto gap-1">
+            <span class="text-white text-xs font-bold px-2 py-1 flex items-center">Month:</span>
+            <button data-month-tab="January" class="monthly-sub-tab bg-white text-indigo-800 px-2.5 py-1 rounded text-xs font-semibold shadow-sm">Jan</button>
+            <button data-month-tab="February" class="monthly-sub-tab text-indigo-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Feb</button>
+            <button data-month-tab="March" class="monthly-sub-tab text-indigo-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Mar</button>
+            <button data-month-tab="April" class="monthly-sub-tab text-indigo-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Apr</button>
+            <button data-month-tab="May" class="monthly-sub-tab text-indigo-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">May</button>
+            <button data-month-tab="June" class="monthly-sub-tab text-indigo-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Jun</button>
+            <button data-month-tab="July" class="monthly-sub-tab text-indigo-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Jul</button>
+            <button data-month-tab="August" class="monthly-sub-tab text-indigo-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Aug</button>
+            <button data-month-tab="September" class="monthly-sub-tab text-indigo-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Sep</button>
+            <button data-month-tab="October" class="monthly-sub-tab text-indigo-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Oct</button>
+            <button data-month-tab="November" class="monthly-sub-tab text-indigo-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Nov</button>
+            <button data-month-tab="December" class="monthly-sub-tab text-indigo-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Dec</button>
+          </div>
         </div>
 
-        <div id="qualificationSubTabs" class="hidden flex bg-gray-200 p-1 rounded-lg overflow-x-auto gap-1 mb-3">
-          <button data-qual-tab="all" class="qual-sub-tab bg-white text-primary px-3 py-1.5 rounded-md text-xs font-semibold shadow-sm">All Equipment/Systems</button>
+        <!-- Qualification Sub-Tabs -->
+        <div id="qualificationSubTabs" class="hidden flex flex-col gap-2 mb-3">
+          <div class="flex bg-gray-200 p-1 rounded-lg overflow-x-auto gap-1">
+            <button data-qual-tab="all" class="qual-sub-tab bg-white text-primary px-3 py-1.5 rounded-md text-xs font-semibold shadow-sm"><i class="fas fa-list mr-1"></i>All Items</button>
+            <button data-qual-tab="monthly" class="qual-sub-tab text-gray-600 px-3 py-1.5 rounded-md text-xs font-semibold"><i class="fas fa-calendar-alt mr-1"></i>Monthly Plan</button>
+            <button data-qual-tab="utilities" class="qual-sub-tab text-gray-600 px-3 py-1.5 rounded-md text-xs font-semibold"><i class="fas fa-tint mr-1"></i>Utilities</button>
+            <button data-qual-tab="system" class="qual-sub-tab text-gray-600 px-3 py-1.5 rounded-md text-xs font-semibold"><i class="fas fa-network-wired mr-1"></i>System</button>
+            <button data-qual-tab="machine" class="qual-sub-tab text-gray-600 px-3 py-1.5 rounded-md text-xs font-semibold"><i class="fas fa-cogs mr-1"></i>Machine / Equipment</button>
+          </div>
+
+          <div id="qualMonthlySubTabs" class="hidden flex bg-purple-900 p-1.5 rounded-lg overflow-x-auto gap-1">
+            <span class="text-white text-xs font-bold px-2 py-1 flex items-center">Month:</span>
+            <button data-qual-month-tab="January" class="qual-monthly-sub-tab bg-white text-purple-800 px-2.5 py-1 rounded text-xs font-semibold shadow-sm">Jan</button>
+            <button data-qual-month-tab="February" class="qual-monthly-sub-tab text-purple-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Feb</button>
+            <button data-qual-month-tab="March" class="qual-monthly-sub-tab text-purple-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Mar</button>
+            <button data-qual-month-tab="April" class="qual-monthly-sub-tab text-purple-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Apr</button>
+            <button data-qual-month-tab="May" class="qual-monthly-sub-tab text-purple-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">May</button>
+            <button data-qual-month-tab="June" class="qual-monthly-sub-tab text-purple-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Jun</button>
+            <button data-qual-month-tab="July" class="qual-monthly-sub-tab text-purple-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Jul</button>
+            <button data-qual-month-tab="August" class="qual-monthly-sub-tab text-purple-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Aug</button>
+            <button data-qual-month-tab="September" class="qual-monthly-sub-tab text-purple-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Sep</button>
+            <button data-qual-month-tab="October" class="qual-monthly-sub-tab text-purple-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Oct</button>
+            <button data-qual-month-tab="November" class="qual-monthly-sub-tab text-purple-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Nov</button>
+            <button data-qual-month-tab="December" class="qual-monthly-sub-tab text-purple-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Dec</button>
+          </div>
         </div>
 
         <div class="bg-white p-4 rounded-t-xl shadow-sm border flex flex-wrap gap-4 items-end">
-          <div class="flex-grow min-w-[200px]"><label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Search</label><input id="modSearchInput" class="w-full p-2 border rounded-md" placeholder="Search module records..."></div>
+          <div class="flex-grow min-w-[200px]"><label id="modSearchLabel" class="block text-xs font-semibold text-gray-500 uppercase mb-1">Search</label><input id="modSearchInput" class="w-full p-2 border rounded-md text-xs" placeholder="Search records..."></div>
+          <div><label id="modFilterLabel1" class="block text-xs font-semibold text-gray-500 uppercase mb-1">Filter 1</label><select id="modFilter1" class="p-2 border rounded-md text-xs"><option value="All">All</option></select></div>
+          <div><label id="modFilterLabel2" class="block text-xs font-semibold text-gray-500 uppercase mb-1">Filter 2</label><select id="modFilter2" class="p-2 border rounded-md text-xs"><option value="All">All</option></select></div>
+          <div><label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Status</label><select id="modFilterStatus" class="p-2 border rounded-md text-xs"><option value="All">All</option><option value="Draft">Draft</option><option value="Pending Section Head">Pending Section Head</option><option value="Completed">Completed</option></select></div>
+          <button id="modClearFiltersBtn" class="px-4 py-2 text-gray-500 hover:bg-gray-100 rounded text-xs">Clear</button>
         </div>
-        <div class="bg-white rounded-b-xl shadow-md border flex-grow overflow-auto flex flex-col">
-          <div class="overflow-auto scrollbar flex-grow max-h-[calc(100vh-280px)]">
-            <table class="min-w-full divide-y divide-gray-200">
-              <thead id="moduleTableHead" class="bg-gray-50 sticky top-0 z-10"></thead>
-              <tbody id="moduleTableBody" class="divide-y text-sm"></tbody>
-            </table>
+
+        <div id="moduleBulkBar" class="hidden bg-blue-50 border-x border-blue-200 px-4 py-2 flex items-center justify-between text-xs">
+          <div><span id="moduleSelectedCount" class="font-bold text-primary">0</span> record(s) selected</div>
+          <div class="flex gap-2">
+            <button id="bulkModuleSubmitBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded font-semibold">Submit Selected</button>
+            <button id="bulkModuleDeleteBtn" class="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded font-semibold">Delete Selected</button>
           </div>
+        </div>
+
+        <div class="bg-white rounded-b-xl shadow-md border flex-grow overflow-auto scrollbar">
+          <table class="min-w-full divide-y divide-gray-200">
+            <thead id="moduleTableHead" class="bg-gray-50 sticky top-0 z-10"></thead>
+            <tbody id="moduleTableBody" class="divide-y text-sm"></tbody>
+          </table>
           <div id="moduleEmptyState" class="hidden p-10 text-center text-gray-500">No records found.</div>
+        </div>
+      </div>
+
+      <!-- SOPs MODULE VIEW (Restricted) -->
+      <div id="sopsView" class="hidden flex-col h-full overflow-auto">
+        <div class="flex justify-between items-center mb-4">
+          <div>
+            <h2 class="text-2xl font-bold">Validation Department SOPs</h2>
+            <p class="text-gray-500 text-sm">Standard Operating Procedures (Restricted Access)</p>
+          </div>
+        </div>
+        <div class="bg-white rounded-xl shadow-md border flex-grow overflow-auto scrollbar">
+          <table class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-gray-50 sticky top-0 z-10">
+              <tr>
+                <th class="px-4 py-3 text-left text-xs">SOP Number</th>
+                <th class="px-4 py-3 text-left text-xs">Title</th>
+                <th class="px-4 py-3 text-left text-xs">Version</th>
+                <th class="px-4 py-3 text-left text-xs">Effective Date</th>
+                <th class="px-4 py-3 text-left text-xs">Uploaded By</th>
+                <th class="px-4 py-3 text-center text-xs">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="sopTableBody" class="divide-y text-sm"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- PR & PO TRACKING MODULE VIEW -->
+      <div id="prPoView" class="hidden flex-col h-full overflow-auto">
+        <div class="flex justify-between items-center mb-4">
+          <div>
+            <h2 class="text-2xl font-bold">PR & PO Tracking</h2>
+            <p class="text-gray-500 text-sm">Purchase Requisition & Purchase Order management</p>
+          </div>
+        </div>
+        <div class="bg-white rounded-xl shadow-md border flex-grow overflow-auto scrollbar">
+          <table class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-gray-50 sticky top-0 z-10">
+              <tr>
+                <th class="px-4 py-3 text-left text-xs">PR No</th>
+                <th class="px-4 py-3 text-left text-xs">PO No</th>
+                <th class="px-4 py-3 text-left text-xs">Description</th>
+                <th class="px-4 py-3 text-left text-xs">Supplier</th>
+                <th class="px-4 py-3 text-left text-xs">Status</th>
+                <th class="px-4 py-3 text-left text-xs">Request Date</th>
+                <th class="px-4 py-3 text-center text-xs">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="prpoTableBody" class="divide-y text-sm"></tbody>
+          </table>
         </div>
       </div>
     </section>
   </main>
 
-  <footer class="bg-white border-t py-3 text-center text-xs flex-shrink-0">
-    <span class="font-bold text-blue-600">Powered By Nerhadou Validation Team</span>
+  <!-- Footer with blue capitalized phrase -->
+  <footer class="bg-white border-t py-2 text-center text-xs flex-shrink-0">
+    <span class="text-blue-600 font-bold uppercase tracking-wide">Powered By Nerhadou Validation Team</span>
   </footer>
 
-  <!-- Modals -->
-  <div id="recordModal" class="modal fixed inset-0 bg-black/50 z-50 items-center justify-center p-4 overflow-auto">
-    <div class="bg-white rounded-xl shadow-2xl max-w-2xl w-full p-6 max-h-[90vh] overflow-auto">
-      <h3 id="modalTitle" class="text-xl font-bold mb-4">Add/Edit Validation Study</h3>
+  <!-- MODALS -->
+  <!-- Record Modal -->
+  <div id="recordModal" class="modal fixed inset-0 bg-black/50 z-50 items-center justify-center p-4">
+    <div class="bg-white rounded-xl max-w-xl w-full p-6 shadow-2xl max-h-[90vh] overflow-y-auto scrollbar">
+      <h3 id="modalTitle" class="text-xl font-bold mb-4">Add Study</h3>
       <form id="recordForm" class="space-y-4">
         <input type="hidden" id="recordId">
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div><label class="block text-xs font-semibold mb-1">Product Name / API *</label><input type="text" id="productName" class="w-full p-2 border rounded" required></div>
-          <div><label class="block text-xs font-semibold mb-1">Category</label><select id="studyCategory" class="w-full p-2 border rounded"><option>Process Validation</option><option>Hold Time Study</option><option>Cleaning Validation</option></select></div>
-          <div><label class="block text-xs font-semibold mb-1">Product Type / Dosage</label><input type="text" id="productType" class="w-full p-2 border rounded" placeholder="e.g. ODF / Capsule"></div>
-          <div><label class="block text-xs font-semibold mb-1">Study Date *</label><input type="date" id="studyDate" class="w-full p-2 border rounded" required></div>
-          <div><label class="block text-xs font-semibold mb-1">Stage</label><input type="text" id="stage" class="w-full p-2 border rounded" placeholder="Raw / Bulk / Finished / CHT"></div>
-          <div><label class="block text-xs font-semibold mb-1">Version *</label><input type="text" id="version" class="w-full p-2 border rounded" value="v1.0" required></div>
-          <div><label class="block text-xs font-semibold mb-1">Scale</label><select id="scale" class="w-full p-2 border rounded"><option>Lab Scale</option><option>Pilot Scale</option><option>Commercial Scale</option></select></div>
-          <div><label class="block text-xs font-semibold mb-1">Action</label><select id="studyAction" class="w-full p-2 border rounded"><option>In Plan</option><option>Executed</option></select></div>
+        <div class="grid grid-cols-2 gap-4">
+          <div><label class="block text-xs font-semibold mb-1">Study Category</label><select id="studyCategory" class="w-full p-2 border rounded text-xs"><option>Process Validation</option><option>Hold Time Study</option><option>Cleaning Validation</option></select></div>
+          <div><label class="block text-xs font-semibold mb-1">Status</label><select id="studyStatus" class="w-full p-2 border rounded text-xs" disabled><option>Draft</option><option>Pending Section Head</option><option>Approved</option></select></div>
         </div>
-        <div><label class="block text-xs font-semibold mb-1">Reason / Objective *</label><textarea id="reason" class="w-full p-2 border rounded" rows="2" required></textarea></div>
-        <div><label class="block text-xs font-semibold mb-1">Notes / Description</label><textarea id="notes" class="w-full p-2 border rounded" rows="2"></textarea></div>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
-          <div><label class="block text-xs font-semibold mb-1">Reviewer Department</label><input type="text" id="reviewerDepartment" class="w-full p-2 border rounded" placeholder="e.g. QC / Production"></div>
-          <div class="flex items-center gap-2 mt-4"><input type="checkbox" id="requireOtherDeptReview" class="w-4 h-4"><label for="requireOtherDeptReview" class="text-xs font-semibold">Require Other Dept Review</label></div>
+        <div class="grid grid-cols-2 gap-4">
+          <div><label class="block text-xs font-semibold mb-1">Product Name *</label><input type="text" id="productName" class="w-full p-2 border rounded text-xs" required></div>
+          <div><label class="block text-xs font-semibold mb-1">Product Type *</label><select id="productType" class="w-full p-2 border rounded text-xs"><option>Finished Product</option><option>Raw Material</option><option>Bulk ODF</option><option>Hard Gelatin Capsule (HGC)</option><option>API</option></select></div>
         </div>
-        <input type="hidden" id="studyStatus" value="Draft">
-        <div class="flex justify-end gap-3 pt-4 border-t">
-          <button type="button" data-close class="px-4 py-2 bg-gray-200 rounded text-sm">Cancel</button>
-          <button type="submit" class="px-4 py-2 bg-primary text-white rounded text-sm font-semibold">Save Study</button>
+        <div class="grid grid-cols-3 gap-3">
+          <div><label class="block text-xs font-semibold mb-1">Study Date *</label><input type="date" id="studyDate" class="w-full p-2 border rounded text-xs" required></div>
+          <div><label class="block text-xs font-semibold mb-1">Stage *</label><select id="stage" class="w-full p-2 border rounded text-xs"><option>Raw</option><option>Bulk</option><option>Finished Product</option><option>Cleaning Validation</option><option>CHT</option><option>DHT</option><option>Campaign Length</option><option>Process Verification</option></select></div>
+          <div><label class="block text-xs font-semibold mb-1">Version *</label><input type="text" id="version" class="w-full p-2 border rounded text-xs" value="v1.0" required></div>
+        </div>
+        <div class="grid grid-cols-2 gap-4">
+          <div><label class="block text-xs font-semibold mb-1">Scale *</label><select id="scale" class="w-full p-2 border rounded text-xs"><option>Lab Scale</option><option>Pilot Scale</option><option>Commercial Scale</option></select></div>
+          <div><label class="block text-xs font-semibold mb-1">Action Type *</label><select id="studyAction" class="w-full p-2 border rounded text-xs"><option>In Plan</option><option>Executed</option></select></div>
+        </div>
+        <div><label class="block text-xs font-semibold mb-1">Reason / Scope *</label><textarea id="reason" class="w-full p-2 border rounded text-xs" rows="2" required></textarea></div>
+        <div><label class="block text-xs font-semibold mb-1">Notes / Additional Info</label><textarea id="notes" class="w-full p-2 border rounded text-xs" rows="2"></textarea></div>
+        <div class="flex justify-end gap-2 pt-2">
+          <button type="button" data-close class="px-4 py-2 bg-gray-200 rounded text-xs font-semibold">Cancel</button>
+          <button type="submit" class="px-4 py-2 bg-primary text-white rounded text-xs font-semibold">Save Study</button>
         </div>
       </form>
     </div>
   </div>
 
-  <div id="moduleModal" class="modal fixed inset-0 bg-black/50 z-50 items-center justify-center p-4 overflow-auto">
-    <div class="bg-white rounded-xl shadow-2xl max-w-xl w-full p-6 max-h-[90vh] overflow-auto">
-      <h3 id="moduleModalTitle" class="text-xl font-bold mb-4">Add Module Record</h3>
+  <!-- Module Record Modal -->
+  <div id="moduleModal" class="modal fixed inset-0 bg-black/50 z-50 items-center justify-center p-4">
+    <div class="bg-white rounded-xl max-w-xl w-full p-6 shadow-2xl max-h-[90vh] overflow-y-auto scrollbar">
+      <h3 id="moduleModalTitle" class="text-xl font-bold mb-4">Add Record</h3>
       <form id="moduleForm" class="space-y-4">
         <input type="hidden" id="moduleEditId">
         <input type="hidden" id="moduleType">
-        
-        <div id="calibrationFields" class="hidden space-y-3">
-          <div><label class="block text-xs font-semibold mb-1">Certificate No *</label><input type="text" id="calCertificateNo" class="w-full p-2 border rounded"></div>
-          <div><label class="block text-xs font-semibold mb-1">Department</label><input type="text" id="calDept" class="w-full p-2 border rounded"></div>
-          <div><label class="block text-xs font-semibold mb-1">Instrument Name *</label><input type="text" id="calInstrument" class="w-full p-2 border rounded"></div>
-          <div><label class="block text-xs font-semibold mb-1">Code *</label><input type="text" id="calCode" class="w-full p-2 border rounded"></div>
-          <div><label class="block text-xs font-semibold mb-1">Serial Number</label><input type="text" id="calSN" class="w-full p-2 border rounded"></div>
-          <div><label class="block text-xs font-semibold mb-1">Location</label><input type="text" id="calLocation" class="w-full p-2 border rounded"></div>
-          <div class="grid grid-cols-2 gap-2">
-            <div><label class="block text-xs font-semibold mb-1">Cal Date</label><input type="date" id="calDate" class="w-full p-2 border rounded"></div>
-            <div><label class="block text-xs font-semibold mb-1">Due Date</label><input type="date" id="calDueDate" class="w-full p-2 border rounded"></div>
+        <div id="calibrationFields" class="space-y-3">
+          <div class="grid grid-cols-2 gap-3">
+            <div><label class="block text-xs font-semibold mb-1">Certificate No *</label><input type="text" id="calCertificateNo" class="w-full p-2 border rounded text-xs"></div>
+            <div><label class="block text-xs font-semibold mb-1">Department *</label><input type="text" id="calDept" class="w-full p-2 border rounded text-xs" placeholder="QA, QC, Production..."></div>
           </div>
-          <div><label class="block text-xs font-semibold mb-1">Action</label><select id="calAction" class="w-full p-2 border rounded"><option>In Plan</option><option>Executed</option></select></div>
-        </div>
-
-        <div id="qualificationFields" class="hidden space-y-3">
-          <div><label class="block text-xs font-semibold mb-1">Name *</label><input type="text" id="qualName" class="w-full p-2 border rounded"></div>
-          <div><label class="block text-xs font-semibold mb-1">Reference / Protocol ID *</label><input type="text" id="qualReference" class="w-full p-2 border rounded"></div>
-          <div><label class="block text-xs font-semibold mb-1">Type</label><select id="qualType" class="w-full p-2 border rounded"><option value="equipment">Equipment</option><option value="utilities">Utilities</option><option value="system">System</option></select></div>
-          <div><label class="block text-xs font-semibold mb-1">Stage</label><select id="qualStage" class="w-full p-2 border rounded"><option>DQ</option><option>IQ</option><option>OQ</option><option>PQ</option></select></div>
-          <div class="grid grid-cols-2 gap-2">
-            <div><label class="block text-xs font-semibold mb-1">Planned Date</label><input type="date" id="qualDate" class="w-full p-2 border rounded"></div>
-            <div><label class="block text-xs font-semibold mb-1">Due Date</label><input type="date" id="qualDueDate" class="w-full p-2 border rounded"></div>
+          <div class="grid grid-cols-2 gap-3">
+            <div><label class="block text-xs font-semibold mb-1">Instrument Name *</label><input type="text" id="calInstrument" class="w-full p-2 border rounded text-xs"></div>
+            <div><label class="block text-xs font-semibold mb-1">Code / ID *</label><input type="text" id="calCode" class="w-full p-2 border rounded text-xs"></div>
           </div>
-          <div><label class="block text-xs font-semibold mb-1">Action</label><select id="qualAction" class="w-full p-2 border rounded"><option>In Plan</option><option>Executed</option></select></div>
-          <div><label class="block text-xs font-semibold mb-1">Description</label><textarea id="qualDescription" class="w-full p-2 border rounded" rows="2"></textarea></div>
+          <div class="grid grid-cols-3 gap-3">
+            <div><label class="block text-xs font-semibold mb-1">Manufacturer</label><input type="text" id="calManuf" class="w-full p-2 border rounded text-xs"></div>
+            <div><label class="block text-xs font-semibold mb-1">Model</label><input type="text" id="calModel" class="w-full p-2 border rounded text-xs"></div>
+            <div><label class="block text-xs font-semibold mb-1">Serial Number</label><input type="text" id="calSN" class="w-full p-2 border rounded text-xs"></div>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div><label class="block text-xs font-semibold mb-1">Location</label><input type="text" id="calLocation" class="w-full p-2 border rounded text-xs"></div>
+            <div><label class="block text-xs font-semibold mb-1">Calibration Range</label><input type="text" id="calRange" class="w-full p-2 border rounded text-xs"></div>
+          </div>
+          <div class="grid grid-cols-3 gap-3">
+            <div><label class="block text-xs font-semibold mb-1">Acceptance Limits</label><input type="text" id="calAcceptanceLimits" class="w-full p-2 border rounded text-xs"></div>
+            <div><label class="block text-xs font-semibold mb-1">Interval</label><input type="text" id="calInterval" class="w-full p-2 border rounded text-xs" placeholder="Annual / Semi-annual"></div>
+            <div><label class="block text-xs font-semibold mb-1">Month / Year</label><input type="text" id="calMonthYear" class="w-full p-2 border rounded text-xs" placeholder="January 2026"></div>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div><label class="block text-xs font-semibold mb-1">Calibration Date</label><input type="date" id="calDate" class="w-full p-2 border rounded text-xs"></div>
+            <div><label class="block text-xs font-semibold mb-1">Due Date</label><input type="date" id="calDueDate" class="w-full p-2 border rounded text-xs"></div>
+          </div>
+          <div class="flex gap-4">
+            <label class="flex items-center gap-2 text-xs font-medium"><input type="checkbox" id="calIsAddendum" class="rounded"> Addendum of Calibration</label>
+            <label class="flex items-center gap-2 text-xs font-medium"><input type="checkbox" id="calIsOutOfCalibration" class="rounded text-red-600"> Out of Calibration</label>
+          </div>
+          <div><label class="block text-xs font-semibold mb-1">Action Type</label><select id="calAction" class="w-full p-2 border rounded text-xs"><option>In Plan</option><option>Executed</option></select></div>
         </div>
 
-        <div id="sopsFields" class="hidden space-y-3">
-          <div><label class="block text-xs font-semibold mb-1">SOP No. *</label><input type="text" id="sopNo" class="w-full p-2 border rounded"></div>
-          <div><label class="block text-xs font-semibold mb-1">Title *</label><input type="text" id="sopTitle" class="w-full p-2 border rounded"></div>
-          <div><label class="block text-xs font-semibold mb-1">Version</label><input type="text" id="sopVersion" class="w-full p-2 border rounded" value="1.0"></div>
-          <div><label class="block text-xs font-semibold mb-1">Effective Date</label><input type="date" id="sopEffectiveDate" class="w-full p-2 border rounded"></div>
+        <div id="qualificationFields" class="space-y-3 hidden">
+          <div class="grid grid-cols-2 gap-3">
+            <div><label class="block text-xs font-semibold mb-1">Name *</label><input type="text" id="qualName" class="w-full p-2 border rounded text-xs"></div>
+            <div><label class="block text-xs font-semibold mb-1">Reference ID *</label><input type="text" id="qualReference" class="w-full p-2 border rounded text-xs"></div>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-semibold mb-1">Qualification Type</label>
+              <select id="qualType" class="w-full p-2 border rounded text-xs">
+                <option value="equipment">Machine / Equipment</option>
+                <option value="utilities">Utilities</option>
+                <option value="system">System</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold mb-1">Stage</label>
+              <select id="qualStage" class="w-full p-2 border rounded text-xs">
+                <option>DQ</option>
+                <option>IQ</option>
+                <option>OQ</option>
+                <option>PQ</option>
+                <option>Periodic PQ</option>
+              </select>
+            </div>
+          </div>
+          <div id="utilitySubtypeGroup" class="hidden">
+            <label class="block text-xs font-semibold mb-1">Utility Subtype</label>
+            <select id="qualUtilityType" class="w-full p-2 border rounded text-xs">
+              <option>HVAC</option>
+              <option>WFI</option>
+              <option>Clean Steam</option>
+              <option>Compressed Air</option>
+            </select>
+          </div>
+          <div id="equipmentGroup" class="hidden">
+            <label class="block text-xs font-semibold mb-1">Equipment Info / Specifications</label>
+            <input type="text" id="qualEquipmentInfo" class="w-full p-2 border rounded text-xs">
+          </div>
+          <div id="systemGroup" class="hidden">
+            <label class="block text-xs font-semibold mb-1">System Details</label>
+            <input type="text" id="qualSystemInfo" class="w-full p-2 border rounded text-xs">
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div><label class="block text-xs font-semibold mb-1">Planned Date</label><input type="date" id="qualDate" class="w-full p-2 border rounded text-xs"></div>
+            <div><label class="block text-xs font-semibold mb-1">Due Date</label><input type="date" id="qualDueDate" class="w-full p-2 border rounded text-xs"></div>
+          </div>
+          <div><label class="block text-xs font-semibold mb-1">Action Type</label><select id="qualAction" class="w-full p-2 border rounded text-xs"><option>In Plan</option><option>Executed</option></select></div>
+          <div><label class="block text-xs font-semibold mb-1">Description / Scope</label><textarea id="qualDescription" class="w-full p-2 border rounded text-xs" rows="2"></textarea></div>
         </div>
 
-        <div id="prPoFields" class="hidden space-y-3">
-          <div><label class="block text-xs font-semibold mb-1">PR No. *</label><input type="text" id="prNo" class="w-full p-2 border rounded"></div>
-          <div><label class="block text-xs font-semibold mb-1">PO No.</label><input type="text" id="poNo" class="w-full p-2 border rounded"></div>
-          <div><label class="block text-xs font-semibold mb-1">Item Description *</label><input type="text" id="prItemDescription" class="w-full p-2 border rounded"></div>
-          <div><label class="block text-xs font-semibold mb-1">Vendor</label><input type="text" id="prVendor" class="w-full p-2 border rounded"></div>
-          <div><label class="block text-xs font-semibold mb-1">Status</label><select id="prStatus" class="w-full p-2 border rounded"><option>Pending PR</option><option>PR Approved</option><option>PO Issued</option><option>Delivered & Completed</option></select></div>
-          <div><label class="block text-xs font-semibold mb-1">Estimated Value</label><input type="text" id="prValue" class="w-full p-2 border rounded"></div>
-        </div>
-
-        <div class="flex justify-end gap-3 pt-4 border-t">
-          <button type="button" data-close class="px-4 py-2 bg-gray-200 rounded text-sm">Cancel</button>
-          <button type="submit" class="px-4 py-2 bg-primary text-white rounded text-sm font-semibold">Save Record</button>
+        <div class="flex justify-end gap-2 pt-2">
+          <button type="button" data-close class="px-4 py-2 bg-gray-200 rounded text-xs font-semibold">Cancel</button>
+          <button type="submit" class="px-4 py-2 bg-primary text-white rounded text-xs font-semibold">Save Record</button>
         </div>
       </form>
     </div>
   </div>
 
-  <div id="fileModal" class="modal fixed inset-0 bg-black/50 z-50 items-center justify-center p-4 overflow-auto">
-    <div class="bg-white rounded-xl shadow-2xl max-w-xl w-full p-6 max-h-[90vh] overflow-auto">
-      <h3 class="text-xl font-bold mb-4">Attached Documents & Files</h3>
+  <!-- File Upload & Management Modal -->
+  <div id="fileModal" class="modal fixed inset-0 bg-black/50 z-50 items-center justify-center p-4">
+    <div class="bg-white rounded-xl max-w-lg w-full p-6 shadow-2xl max-h-[90vh] overflow-y-auto scrollbar">
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="text-lg font-bold">Document Attachments</h3>
+        <button data-close class="text-gray-500 hover:text-gray-700"><i class="fas fa-times"></i></button>
+      </div>
       <input type="hidden" id="fileParentId">
       <input type="hidden" id="fileModule">
-      <div id="uploadFileContainer" class="mb-4 p-4 bg-gray-50 border rounded-lg">
-        <label class="block text-xs font-semibold mb-2">Upload New File (Max 25MB)</label>
-        <input type="file" id="fileInput" class="w-full text-xs">
-        <div id="uploadProgress" class="text-xs text-blue-600 mt-2 font-semibold"></div>
+      <div id="uploadFileContainer" class="mb-4 bg-gray-50 p-3 rounded-lg border border-dashed border-gray-300">
+        <label class="block text-xs font-semibold mb-2">Upload Files (PDF, Word, Excel, Images up to 25MB)</label>
+        <input type="file" id="fileInput" class="w-full text-xs" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.xlsm,.jpg,.png">
+        <div id="uploadProgress" class="text-xs text-primary font-semibold mt-2"></div>
       </div>
-      <div id="fileList" class="space-y-3 max-h-[50vh] overflow-auto"></div>
-      <div class="flex justify-end mt-4 pt-4 border-t">
-        <button type="button" data-close class="px-4 py-2 bg-gray-200 rounded text-sm">Close</button>
-      </div>
+      <div id="fileList" class="space-y-2"></div>
     </div>
   </div>
 
-  <div id="historyModal" class="modal fixed inset-0 bg-black/50 z-50 items-center justify-center p-4 overflow-auto">
-    <div class="bg-white rounded-xl shadow-2xl max-w-xl w-full p-6 max-h-[90vh] overflow-auto">
-      <h3 class="text-xl font-bold mb-4">Review History & Audit Trail</h3>
-      <div id="historyBody" class="space-y-4"></div>
-      <div class="flex justify-end mt-4 pt-4 border-t">
-        <button type="button" data-close class="px-4 py-2 bg-gray-200 rounded text-sm">Close</button>
+  <!-- History / Audit Trail Modal -->
+  <div id="historyModal" class="modal fixed inset-0 bg-black/50 z-50 items-center justify-center p-4">
+    <div class="bg-white rounded-xl max-w-lg w-full p-6 shadow-2xl max-h-[90vh] overflow-y-auto scrollbar">
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="text-lg font-bold">Review History</h3>
+        <button data-close class="text-gray-500 hover:text-gray-700"><i class="fas fa-times"></i></button>
       </div>
+      <div id="historyBody" class="space-y-3"></div>
     </div>
   </div>
 
-  <div id="auditModal" class="modal fixed inset-0 bg-black/50 z-50 items-center justify-center p-4 overflow-auto">
-    <div class="bg-white rounded-xl shadow-2xl max-w-4xl w-full p-6 max-h-[90vh] overflow-auto">
-      <h3 class="text-xl font-bold mb-4">System Audit Trail</h3>
-      <div class="overflow-auto max-h-[60vh]">
-        <table class="min-w-full divide-y divide-gray-200">
-          <thead class="bg-gray-50 sticky top-0">
-            <tr>
-              <th class="px-3 py-2 text-left text-xs">Timestamp</th>
-              <th class="px-3 py-2 text-left text-xs">User</th>
-              <th class="px-3 py-2 text-left text-xs">Action</th>
-              <th class="px-3 py-2 text-left text-xs">Target</th>
-              <th class="px-3 py-2 text-left text-xs">Details</th>
-            </tr>
-          </thead>
-          <tbody id="auditTableBody" class="divide-y text-xs"></tbody>
-        </table>
+  <!-- User Management Modal -->
+  <div id="userModal" class="modal fixed inset-0 bg-black/50 z-50 items-center justify-center p-4">
+    <div class="bg-white rounded-xl max-w-2xl w-full p-6 shadow-2xl max-h-[90vh] overflow-y-auto scrollbar">
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="text-lg font-bold">User Access Management</h3>
+        <button data-close class="text-gray-500 hover:text-gray-700"><i class="fas fa-times"></i></button>
       </div>
-      <div class="flex justify-end mt-4 pt-4 border-t">
-        <button type="button" data-close class="px-4 py-2 bg-gray-200 rounded text-sm">Close</button>
-      </div>
-    </div>
-  </div>
-
-  <div id="userModal" class="modal fixed inset-0 bg-black/50 z-50 items-center justify-center p-4 overflow-auto">
-    <div class="bg-white rounded-xl shadow-2xl max-w-3xl w-full p-6 max-h-[90vh] overflow-auto">
-      <h3 class="text-xl font-bold mb-4">User & Role Management</h3>
-      <form id="userForm" class="space-y-4 mb-6 p-4 bg-gray-50 border rounded-lg">
+      <form id="userForm" class="space-y-3 mb-6 bg-gray-50 p-4 rounded-lg border">
         <input type="hidden" id="editUserId">
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div><label class="block text-xs font-semibold mb-1">Email *</label><input type="email" id="newEmail" class="w-full p-2 border rounded" required></div>
-          <div><label class="block text-xs font-semibold mb-1">Display Name *</label><input type="text" id="newDisplayName" class="w-full p-2 border rounded" required></div>
-          <div><label class="block text-xs font-semibold mb-1">Role *</label><select id="newRole" class="w-full p-2 border rounded"></select></div>
-          <div><label class="block text-xs font-semibold mb-1">Department</label><input type="text" id="newDepartment" class="w-full p-2 border rounded"></div>
-          <div><label class="block text-xs font-semibold mb-1">Password (New User) *</label><input type="password" id="newPassword" class="w-full p-2 border rounded" placeholder="At least 8 chars"></div>
-          <div class="flex items-center gap-2 mt-6"><input type="checkbox" id="newDisabled" class="w-4 h-4"><label for="newDisabled" class="text-xs font-semibold">Disable Account</label></div>
+        <div class="grid grid-cols-2 gap-3">
+          <div><label class="block text-xs font-semibold mb-1">Email</label><input type="email" id="newEmail" class="w-full p-2 border rounded text-xs" required></div>
+          <div><label class="block text-xs font-semibold mb-1">Display Name</label><input type="text" id="newDisplayName" class="w-full p-2 border rounded text-xs" required></div>
         </div>
-        <div class="flex justify-end gap-2">
-          <button type="button" id="sendResetBtn" class="px-3 py-1.5 bg-amber-600 text-white rounded text-xs font-semibold">Send Reset Email</button>
-          <button type="submit" class="px-4 py-1.5 bg-primary text-white rounded text-xs font-semibold">Save User</button>
+        <div class="grid grid-cols-3 gap-3">
+          <div><label class="block text-xs font-semibold mb-1">Role</label><select id="newRole" class="w-full p-2 border rounded text-xs"></select></div>
+          <div><label class="block text-xs font-semibold mb-1">Department</label><input type="text" id="newDepartment" class="w-full p-2 border rounded text-xs"></div>
+          <div><label class="block text-xs font-semibold mb-1">Password (New User)</label><input type="password" id="newPassword" class="w-full p-2 border rounded text-xs" placeholder="Min 8 chars"></div>
+        </div>
+        <div class="flex items-center justify-between">
+          <label class="flex items-center gap-2 text-xs font-medium"><input type="checkbox" id="newDisabled"> Disable Account</label>
+          <div class="flex gap-2">
+            <button type="button" id="sendResetBtn" class="px-3 py-1.5 bg-gray-600 text-white rounded text-xs font-semibold">Send Password Reset</button>
+            <button type="submit" class="px-4 py-1.5 bg-primary text-white rounded text-xs font-semibold">Save User</button>
+          </div>
         </div>
       </form>
-      <div class="overflow-auto max-h-[40vh]">
+      <div class="overflow-x-auto">
         <table class="min-w-full divide-y divide-gray-200">
-          <thead class="bg-gray-50 sticky top-0">
+          <thead class="bg-gray-50">
             <tr>
               <th class="px-3 py-2 text-left text-xs">User</th>
               <th class="px-3 py-2 text-left text-xs">Role</th>
-              <th class="px-3 py-2 text-left text-xs">Department</th>
+              <th class="px-3 py-2 text-left text-xs">Dept</th>
               <th class="px-3 py-2 text-left text-xs">Status</th>
               <th class="px-3 py-2 text-center text-xs">Actions</th>
             </tr>
@@ -1554,33 +2320,56 @@
           <tbody id="userTableBody" class="divide-y text-xs"></tbody>
         </table>
       </div>
-      <div class="flex justify-end mt-4 pt-4 border-t">
-        <button type="button" data-close class="px-4 py-2 bg-gray-200 rounded text-sm">Close</button>
+    </div>
+  </div>
+
+  <!-- Audit Trail Modal -->
+  <div id="auditModal" class="modal fixed inset-0 bg-black/50 z-50 items-center justify-center p-4">
+    <div class="bg-white rounded-xl max-w-4xl w-full p-6 shadow-2xl max-h-[90vh] overflow-y-auto scrollbar">
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="text-lg font-bold">System Audit Trail</h3>
+        <button data-close class="text-gray-500 hover:text-gray-700"><i class="fas fa-times"></i></button>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="min-w-full divide-y divide-gray-200">
+          <thead class="bg-gray-50">
+            <tr>
+              <th class="px-3 py-2 text-left text-xs">Timestamp</th>
+              <th class="px-3 py-2 text-left text-xs">User</th>
+              <th class="px-3 py-2 text-left text-xs">Action</th>
+              <th class="px-3 py-2 text-left text-xs">Reference Item</th>
+              <th class="px-3 py-2 text-left text-xs">Details</th>
+            </tr>
+          </thead>
+          <tbody id="auditTableBody" class="divide-y text-xs"></tbody>
+        </table>
       </div>
     </div>
   </div>
 
+  <!-- Confirmation Modal -->
   <div id="confirmModal" class="modal fixed inset-0 bg-black/50 z-50 items-center justify-center p-4">
-    <div class="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
+    <div class="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl">
       <h3 id="confirmTitle" class="text-lg font-bold mb-2">Confirm Action</h3>
       <p id="confirmText" class="text-sm text-gray-600 mb-4"></p>
       <div id="reasonWrap" class="mb-4 hidden">
-        <label id="reasonLabel" class="block text-xs font-semibold mb-1">Reason / comment *</label>
-        <textarea id="reasonInput" class="w-full p-2 border rounded text-sm" rows="2"></textarea>
+        <label id="reasonLabel" class="block text-xs font-semibold mb-1">Reason / Comment *</label>
+        <textarea id="reasonInput" class="w-full p-2 border rounded text-xs" rows="3" placeholder="Provide details..."></textarea>
       </div>
-      <div class="flex justify-end gap-3">
-        <button type="button" data-close class="px-4 py-2 bg-gray-200 rounded text-sm">Cancel</button>
-        <button type="button" id="acceptConfirmBtn" class="px-4 py-2 bg-primary text-white rounded text-sm font-semibold">Confirm</button>
+      <div class="flex justify-end gap-2">
+        <button type="button" data-close class="px-4 py-2 bg-gray-200 rounded text-xs font-semibold">Cancel</button>
+        <button type="button" id="acceptConfirmBtn" class="px-4 py-2 bg-primary text-white rounded text-xs font-semibold">Confirm</button>
       </div>
     </div>
   </div>
 
+  <!-- Message Modal -->
   <div id="messageModal" class="modal fixed inset-0 bg-black/50 z-50 items-center justify-center p-4">
-    <div class="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 text-center">
+    <div class="bg-white rounded-xl max-w-sm w-full p-6 shadow-2xl text-center">
       <div id="messageIcon" class="mb-3"></div>
-      <h3 id="messageTitle" class="text-lg font-bold mb-1">Notification</h3>
-      <p id="messageText" class="text-sm text-gray-600 mb-4"></p>
-      <button type="button" data-close class="w-full py-2 bg-primary text-white rounded font-semibold text-sm">OK</button>
+      <h3 id="messageTitle" class="text-lg font-bold mb-2">Notification</h3>
+      <p id="messageText" class="text-sm text-gray-600 mb-5"></p>
+      <button type="button" data-close class="w-full py-2 bg-primary text-white rounded text-xs font-semibold">OK</button>
     </div>
   </div>
 </body>
