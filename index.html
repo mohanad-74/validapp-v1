@@ -90,6 +90,11 @@
       COMPLETED: 'Completed'
     });
 
+    const ACTIONS = Object.freeze({
+      EXECUTED: 'Executed',
+      IN_PLAN: 'In Plan'
+    });
+
     const CATEGORIES = Object.freeze({ PROCESS: 'Process Validation', HOLD_TIME: 'Hold Time Study', CLEANING: 'Cleaning Validation' });
     const MODULES = Object.freeze({ STUDIES: 'Studies', CALIBRATION: 'Calibration', QUALIFICATION: 'Qualification' });
 
@@ -137,7 +142,6 @@
     const isReviewer = () => can(ROLES.SECTION_HEAD, ROLES.REVIEWER, ROLES.DEPUTY, ROLES.QA_MANAGER);
     const isViewer = () => can(ROLES.VIEWER);
 
-    // Workflow helper for determining next stage based on current status
     function nextStatusForReview(r) {
       if (r.status === STATUS.PENDING_SECTION_HEAD) {
         return r.requireOtherDeptReview ? STATUS.PENDING_REVIEWER : STATUS.PENDING_DEPUTY;
@@ -207,6 +211,12 @@
     function statusBadge(status) {
       const cls = status === STATUS.APPROVED || status === STATUS.COMPLETED ? 'bg-green-100 text-green-800 border-green-200' : status === STATUS.REJECTED ? 'bg-red-100 text-red-800 border-red-200' : status === STATUS.RETURNED ? 'bg-amber-100 text-amber-800 border-amber-200' : 'bg-blue-50 text-blue-800 border-blue-200';
       return `<span class="px-2 py-1 inline-flex text-xs font-semibold rounded-full border ${cls}">${esc(status || '—')}</span>`;
+    }
+
+    function actionBadge(actionVal) {
+      const isExecuted = actionVal === ACTIONS.EXECUTED;
+      const cls = isExecuted ? 'bg-emerald-100 text-emerald-800 border-emerald-200' : 'bg-indigo-100 text-indigo-800 border-indigo-200';
+      return `<span class="px-2 py-0.5 inline-flex text-[10px] font-bold rounded border ${cls}">${esc(actionVal || ACTIONS.IN_PLAN)}</span>`;
     }
 
     function resetAppUI() {
@@ -347,7 +357,7 @@
         <td class="px-4 py-3 font-medium text-gray-900">${esc(r.productName)}<div class="text-xs text-gray-500">${esc(r.productType)}</div></td>
         <td class="px-4 py-3 text-xs">${esc(r.studyCategory)}</td>
         <td class="px-4 py-3 text-xs">${esc(r.date || r.studyDate)}<div class="font-semibold mt-1">${esc(r.stage)}</div></td>
-        <td class="px-4 py-3 text-xs">${esc(r.scale)}<div class="mt-1"><span class="bg-blue-100 text-blue-800 px-1 rounded">${esc(r.version)}</span></div></td>
+        <td class="px-4 py-3 text-xs">${esc(r.scale)}<div class="mt-1 flex items-center gap-1"><span class="bg-blue-100 text-blue-800 px-1 rounded">${esc(r.version)}</span> ${actionBadge(r.action)}</div></td>
         <td class="px-4 py-3 text-xs max-w-[220px] truncate" title="${esc(r.reason)}">${esc(r.reason)}<div class="text-gray-400 truncate">${esc(r.notes || '')}</div></td>
         <td class="px-4 py-3 whitespace-nowrap">${statusBadge(r.status)}<div class="text-[10px] text-gray-500 mt-1">Created: ${esc(r.createdByName || r.createdBy || '—')}</div></td>
         <td class="px-4 py-3 text-center"><div class="flex flex-wrap justify-center gap-2">${recordActionButtons(r)}</div></td>
@@ -368,6 +378,7 @@
       $('stage').value = record?.stage || 'Raw';
       $('version').value = record?.version || 'v1.0';
       $('scale').value = record?.scale || 'Lab Scale';
+      $('studyAction').value = record?.action || ACTIONS.EXECUTED;
       $('reason').value = record?.reason || '';
       $('notes').value = record?.notes || '';
       $('reviewerDepartment').value = record?.reviewerDepartment || '';
@@ -382,6 +393,7 @@
       const data = {
         productName: $('productName').value.trim(), studyCategory: $('studyCategory').value, productType: $('productType').value,
         date: $('studyDate').value, stage: $('stage').value, version: $('version').value.trim(), scale: $('scale').value,
+        action: $('studyAction').value,
         reason: $('reason').value.trim(), notes: $('notes').value.trim(), reviewerDepartment: $('reviewerDepartment').value.trim(),
         requireOtherDeptReview: $('requireOtherDeptReview').checked, updatedAt: serverTimestamp()
       };
@@ -756,6 +768,7 @@
           monthYear: $('calMonthYear').value.trim(),
           isAddendum: $('calIsAddendum').checked,
           isOutOfCalibration: $('calIsOutOfCalibration').checked,
+          action: $('calAction').value,
           name: $('calInstrument').value.trim(),
           reference: $('calCertificateNo').value.trim(),
           status: STATUS.DRAFT,
@@ -781,6 +794,7 @@
           stage: $('qualStage').value,
           plannedDate: $('qualDate').value,
           dueDate: $('qualDueDate').value,
+          action: $('qualAction').value,
           description: $('qualDescription').value.trim(),
           status: STATUS.DRAFT,
           createdByUid: currentUser.uid,
@@ -844,6 +858,8 @@
               const code = String(cleanRow['code'] || cleanRow['instrumentcode'] || '');
               const isAdd = String(cleanRow['isaddendum'] || cleanRow['addendum'] || '').toLowerCase();
               const isOut = String(cleanRow['isoutofcalibration'] || cleanRow['outofcal'] || cleanRow['out'] || '').toLowerCase();
+              const actionInput = String(cleanRow['action'] || '').toLowerCase();
+              const parsedAction = actionInput.includes('plan') ? ACTIONS.IN_PLAN : ACTIONS.EXECUTED;
 
               const payload = {
                 certificateNo: certNo,
@@ -862,6 +878,7 @@
                 monthYear: String(cleanRow['monthyear'] || ''),
                 isAddendum: isAdd === 'true' || isAdd === 'yes' || isAdd === '1',
                 isOutOfCalibration: isOut === 'true' || isOut === 'yes' || isOut === '1',
+                action: parsedAction,
                 name: instrument || 'Imported Instrument',
                 reference: certNo || 'IMP-' + Date.now(),
                 status: STATUS.DRAFT,
@@ -880,6 +897,8 @@
               const reference = String(cleanRow['reference'] || cleanRow['refid'] || cleanRow['protocol'] || '');
               const typeVal = String(cleanRow['qualificationtype'] || cleanRow['type'] || 'equipment').toLowerCase();
               const stageVal = String(cleanRow['stage'] || cleanRow['qualificationstage'] || 'IQ').toUpperCase();
+              const actionInput = String(cleanRow['action'] || '').toLowerCase();
+              const parsedAction = actionInput.includes('plan') ? ACTIONS.IN_PLAN : ACTIONS.EXECUTED;
 
               const payload = {
                 name: name,
@@ -890,6 +909,7 @@
                 stage: ['DQ', 'IQ', 'OQ', 'PQ', 'PERIODIC PQ'].includes(stageVal) ? stageVal : 'IQ',
                 plannedDate: String(cleanRow['planneddate'] || cleanRow['date'] || ''),
                 dueDate: String(cleanRow['duedate'] || ''),
+                action: parsedAction,
                 description: String(cleanRow['description'] || cleanRow['scope'] || ''),
                 status: STATUS.DRAFT,
                 createdByUid: currentUser.uid,
@@ -1020,7 +1040,7 @@
             <th class="px-4 py-3 text-left text-xs">Code / S.N</th>
             <th class="px-4 py-3 text-left text-xs">Dept / Location</th>
             <th class="px-4 py-3 text-left text-xs">Cal / Due Date</th>
-            <th class="px-4 py-3 text-left text-xs">Flags / Status</th>
+            <th class="px-4 py-3 text-left text-xs">Action & Status</th>
             <th class="px-4 py-3 text-center text-xs">Actions</th>
           </tr>
         `;
@@ -1031,7 +1051,7 @@
             <th class="px-4 py-3 text-left text-xs">Name / Reference</th>
             <th class="px-4 py-3 text-left text-xs">Type & Subtype</th>
             <th class="px-4 py-3 text-left text-xs">Stage / Info</th>
-            <th class="px-4 py-3 text-left text-xs">Status</th>
+            <th class="px-4 py-3 text-left text-xs">Action & Status</th>
             <th class="px-4 py-3 text-center text-xs">Actions</th>
           </tr>
         `;
@@ -1053,7 +1073,7 @@
             <td class="px-4 py-3 text-xs">${esc(r.code)}<div class="text-gray-400">S/N: ${esc(r.serialNumber || '—')}</div></td>
             <td class="px-4 py-3 text-xs"><span class="font-semibold text-primary">${esc(r.department || '—')}</span><div class="text-gray-400">${esc(r.location || '—')}</div></td>
             <td class="px-4 py-3 text-xs">Cal: ${esc(r.calDate || r.monthYear || '—')}<div class="text-red-500">Due: ${esc(r.dueDate || '—')}</div></td>
-            <td class="px-4 py-3 space-y-1">${statusBadge(r.status)}<div class="flex flex-wrap gap-1 mt-1">${flags.join('')}</div></td>
+            <td class="px-4 py-3 space-y-1">${statusBadge(r.status)}<div class="flex flex-wrap gap-1 mt-1">${actionBadge(r.action)} ${flags.join('')}</div></td>
             <td class="px-4 py-3 text-center">
               <button data-module-files="${esc(r.id)}" class="text-gray-600 text-xs font-semibold mr-2 hover:underline">Files</button>
               ${owner && [STATUS.DRAFT, STATUS.RETURNED].includes(r.status) ? `<button data-module-edit="${esc(r.id)}" class="text-purple-600 text-xs font-semibold mr-2 hover:underline">Edit</button>` : ''}
@@ -1068,7 +1088,7 @@
             <td class="px-4 py-3 font-medium">${esc(r.name)}<div class="text-xs text-gray-500">${esc(r.reference)}</div></td>
             <td class="px-4 py-3 text-xs uppercase font-semibold text-blue-600">${esc(r.qualificationType)}<div class="text-gray-500 normal-case font-normal">${esc(r.utilitySubtype || '—')}</div></td>
             <td class="px-4 py-3 text-xs"><span class="bg-gray-100 font-semibold px-1 py-0.5 rounded">${esc(r.stage)}</span><div class="text-gray-500 truncate max-w-[150px]">${esc(r.equipmentSystemInfo || '')}</div></td>
-            <td class="px-4 py-3">${statusBadge(r.status)}</td>
+            <td class="px-4 py-3 space-y-1">${statusBadge(r.status)}<div class="mt-1">${actionBadge(r.action)}</div></td>
             <td class="px-4 py-3 text-center">
               <button data-module-files="${esc(r.id)}" class="text-gray-600 text-xs font-semibold mr-2 hover:underline">Files</button>
               ${owner && [STATUS.DRAFT, STATUS.RETURNED].includes(r.status) ? `<button data-module-edit="${esc(r.id)}" class="text-purple-600 text-xs font-semibold mr-2 hover:underline">Edit</button>` : ''}
@@ -1194,6 +1214,7 @@
         $('calMonthYear').value = record?.monthYear || '';
         $('calIsAddendum').checked = !!record?.isAddendum;
         $('calIsOutOfCalibration').checked = !!record?.isOutOfCalibration;
+        $('calAction').value = record?.action || ACTIONS.EXECUTED;
       } else {
         $('qualName').value = record?.name || '';
         $('qualReference').value = record?.reference || '';
@@ -1201,6 +1222,7 @@
         $('qualStage').value = record?.stage || 'IQ';
         $('qualDate').value = record?.plannedDate || '';
         $('qualDueDate').value = record?.dueDate || '';
+        $('qualAction').value = record?.action || ACTIONS.EXECUTED;
         $('qualDescription').value = record?.description || '';
         
         const qType = $('qualType').value;
@@ -1266,7 +1288,6 @@
       }
     }
 
-    // Event Listeners
     document.addEventListener('DOMContentLoaded', () => {
       $('loginForm').addEventListener('submit', async e => {
         e.preventDefault();
@@ -1754,6 +1775,137 @@
     </div>
   </div>
 
+  <!-- Record Modal (Studies) -->
+  <div id="recordModal" class="modal fixed inset-0 bg-gray-900/60 z-50 items-center justify-center p-4">
+    <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 space-y-4">
+      <div class="flex justify-between items-center"><h3 id="modalTitle" class="text-lg font-bold">Add New Validation Study</h3><button data-close><i class="fas fa-times"></i></button></div>
+      <form id="recordForm" class="space-y-4">
+        <input type="hidden" id="recordId">
+        <input type="hidden" id="studyStatus">
+        <div class="grid md:grid-cols-2 gap-4">
+          <div><label class="block text-xs font-semibold mb-1">Product Name / API *</label><input type="text" id="productName" class="w-full p-2 border rounded text-sm" required></div>
+          <div><label class="block text-xs font-semibold mb-1">Category *</label><select id="studyCategory" class="w-full p-2 border rounded text-sm"><option value="Process Validation">Process Validation</option><option value="Hold Time Study">Hold Time Study</option><option value="Cleaning Validation">Cleaning Validation</option></select></div>
+          <div><label class="block text-xs font-semibold mb-1">Product Type *</label><select id="productType" class="w-full p-2 border rounded text-sm"><option value="Finished Product">Finished Product</option><option value="Raw Material">Raw Material</option><option value="Intermediate">Intermediate</option></select></div>
+          <div><label class="block text-xs font-semibold mb-1">Study Date *</label><input type="date" id="studyDate" class="w-full p-2 border rounded text-sm" required></div>
+          <div><label class="block text-xs font-semibold mb-1">Stage *</label><select id="stage" class="p-2 border rounded text-sm"><option value="Raw">Raw</option><option value="Bulk">Bulk</option><option value="Finished Product">Finished Product</option><option value="Cleaning Validation">Cleaning Validation</option><option value="CHT">CHT</option><option value="DHT">DHT</option><option value="Campaign Length">Campaign Length</option></select></div>
+          <div><label class="block text-xs font-semibold mb-1">Version *</label><input type="text" id="version" class="w-full p-2 border rounded text-sm" value="v1.0" required></div>
+          <div><label class="block text-xs font-semibold mb-1">Scale *</label><select id="scale" class="p-2 border rounded text-sm"><option value="Lab Scale">Lab Scale</option><option value="Pilot Scale">Pilot Scale</option><option value="Commercial Scale">Commercial Scale</option></select></div>
+          <div>
+            <label class="block text-xs font-semibold mb-1">Action Type *</label>
+            <select id="studyAction" class="w-full p-2 border rounded text-sm">
+              <option value="Executed">Executed</option>
+              <option value="In Plan">In Plan</option>
+            </select>
+          </div>
+          <div class="md:col-span-2"><label class="block text-xs font-semibold mb-1">Reason / Scope *</label><textarea id="reason" class="w-full p-2 border rounded text-sm" rows="2" required placeholder="Reason for protocol/study..."></textarea></div>
+          <div class="md:col-span-2"><label class="block text-xs font-semibold mb-1">Notes / Description</label><textarea id="notes" class="w-full p-2 border rounded text-sm" rows="2" placeholder="Additional details..."></textarea></div>
+          <div><label class="block text-xs font-semibold mb-1">Other Department Reviewer Dept</label><input type="text" id="reviewerDepartment" class="w-full p-2 border rounded text-sm" placeholder="e.g. QC, Engineering"></div>
+          <div class="flex items-center pt-5"><label class="flex items-center gap-2 text-sm font-medium"><input type="checkbox" id="requireOtherDeptReview" class="w-4 h-4"> Require Other Department Review</label></div>
+        </div>
+        <div class="flex justify-end gap-2 pt-4">
+          <button type="button" data-close class="px-4 py-2 border rounded text-sm">Cancel</button>
+          <button type="submit" class="px-4 py-2 bg-primary text-white rounded text-sm font-semibold">Save Study</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Module Record Modal (Calibration / Qualification) -->
+  <div id="moduleModal" class="modal fixed inset-0 bg-gray-900/60 z-50 items-center justify-center p-4">
+    <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 space-y-4">
+      <div class="flex justify-between items-center"><h3 id="moduleModalTitle" class="text-lg font-bold">Add Record</h3><button data-close><i class="fas fa-times"></i></button></div>
+      <form id="moduleForm" class="space-y-4">
+        <input type="hidden" id="moduleEditId">
+        <input type="hidden" id="moduleType">
+
+        <!-- Calibration Fields -->
+        <div id="calibrationFields" class="grid md:grid-cols-2 gap-4">
+          <div><label class="block text-xs font-semibold mb-1">Certificate No *</label><input type="text" id="calCertificateNo" class="w-full p-2 border rounded text-sm"></div>
+          <div><label class="block text-xs font-semibold mb-1">Department</label><input type="text" id="calDept" class="w-full p-2 border rounded text-sm" placeholder="e.g. QA, QC, Production"></div>
+          <div><label class="block text-xs font-semibold mb-1">Instrument Name *</label><input type="text" id="calInstrument" class="w-full p-2 border rounded text-sm"></div>
+          <div><label class="block text-xs font-semibold mb-1">Manufacturer</label><input type="text" id="calManuf" class="w-full p-2 border rounded text-sm"></div>
+          <div><label class="block text-xs font-semibold mb-1">Model</label><input type="text" id="calModel" class="w-full p-2 border rounded text-sm"></div>
+          <div><label class="block text-xs font-semibold mb-1">Serial Number</label><input type="text" id="calSN" class="w-full p-2 border rounded text-sm"></div>
+          <div><label class="block text-xs font-semibold mb-1">Code / ID *</label><input type="text" id="calCode" class="w-full p-2 border rounded text-sm"></div>
+          <div><label class="block text-xs font-semibold mb-1">Location</label><input type="text" id="calLocation" class="w-full p-2 border rounded text-sm"></div>
+          <div><label class="block text-xs font-semibold mb-1">Calibration Range</label><input type="text" id="calRange" class="w-full p-2 border rounded text-sm"></div>
+          <div><label class="block text-xs font-semibold mb-1">Acceptance Limits</label><input type="text" id="calAcceptanceLimits" class="w-full p-2 border rounded text-sm"></div>
+          <div><label class="block text-xs font-semibold mb-1">Interval</label><input type="text" id="calInterval" class="w-full p-2 border rounded text-sm" placeholder="e.g. Annual, 6 Months"></div>
+          <div><label class="block text-xs font-semibold mb-1">Calibration Date</label><input type="date" id="calDate" class="w-full p-2 border rounded text-sm"></div>
+          <div><label class="block text-xs font-semibold mb-1">Due Date</label><input type="date" id="calDueDate" class="w-full p-2 border rounded text-sm"></div>
+          <div><label class="block text-xs font-semibold mb-1">Month / Year Label</label><input type="text" id="calMonthYear" class="w-full p-2 border rounded text-sm" placeholder="e.g. January 2026"></div>
+          <div>
+            <label class="block text-xs font-semibold mb-1">Action Type *</label>
+            <select id="calAction" class="w-full p-2 border rounded text-sm">
+              <option value="Executed">Executed</option>
+              <option value="In Plan">In Plan</option>
+            </select>
+          </div>
+          <div class="flex items-center gap-4 pt-4 md:col-span-2">
+            <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="calIsAddendum" class="w-4 h-4"> Addendum of Calibration</label>
+            <label class="flex items-center gap-2 text-sm text-red-600 font-semibold"><input type="checkbox" id="calIsOutOfCalibration" class="w-4 h-4"> Out of Calibration</label>
+          </div>
+        </div>
+
+        <!-- Qualification Fields -->
+        <div id="qualificationFields" class="grid md:grid-cols-2 gap-4 hidden">
+          <div><label class="block text-xs font-semibold mb-1">Name / Equipment *</label><input type="text" id="qualName" class="w-full p-2 border rounded text-sm"></div>
+          <div><label class="block text-xs font-semibold mb-1">Reference ID / Protocol *</label><input type="text" id="qualReference" class="w-full p-2 border rounded text-sm"></div>
+          <div>
+            <label class="block text-xs font-semibold mb-1">Qualification Type *</label>
+            <select id="qualType" class="w-full p-2 border rounded text-sm">
+              <option value="equipment">Equipment Qualification</option>
+              <option value="utilities">Utilities Qualification</option>
+              <option value="system">Computerized System Validation</option>
+            </select>
+          </div>
+          <div id="utilitySubtypeGroup" class="hidden">
+            <label class="block text-xs font-semibold mb-1">Utility Subtype</label>
+            <select id="qualUtilityType" class="w-full p-2 border rounded text-sm">
+              <option value="HVAC">HVAC</option>
+              <option value="Water System">Water System (PW/WFI/纯化水)</option>
+              <option value="Compressed Air">Compressed Air</option>
+              <option value="Pure Steam">Pure Steam</option>
+            </select>
+          </div>
+          <div id="equipmentGroup">
+            <label class="block text-xs font-semibold mb-1">Equipment Info</label>
+            <input type="text" id="qualEquipmentInfo" class="w-full p-2 border rounded text-sm" placeholder="Maker, Model...">
+          </div>
+          <div id="systemGroup" class="hidden">
+            <label class="block text-xs font-semibold mb-1">System Info</label>
+            <input type="text" id="qualSystemInfo" class="w-full p-2 border rounded text-sm" placeholder="Software version, GAMP category...">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold mb-1">Stage *</label>
+            <select id="qualStage" class="w-full p-2 border rounded text-sm">
+              <option value="DQ">DQ</option>
+              <option value="IQ" selected>IQ</option>
+              <option value="OQ">OQ</option>
+              <option value="PQ">PQ</option>
+              <option value="PERIODIC PQ">Periodic PQ</option>
+            </select>
+          </div>
+          <div><label class="block text-xs font-semibold mb-1">Planned Date</label><input type="date" id="qualDate" class="w-full p-2 border rounded text-sm"></div>
+          <div><label class="block text-xs font-semibold mb-1">Due Date</label><input type="date" id="qualDueDate" class="w-full p-2 border rounded text-sm"></div>
+          <div>
+            <label class="block text-xs font-semibold mb-1">Action Type *</label>
+            <select id="qualAction" class="w-full p-2 border rounded text-sm">
+              <option value="Executed">Executed</option>
+              <option value="In Plan">In Plan</option>
+            </select>
+          </div>
+          <div class="md:col-span-2"><label class="block text-xs font-semibold mb-1">Description / Scope</label><textarea id="qualDescription" class="w-full p-2 border rounded text-sm" rows="2" placeholder="Description..."></textarea></div>
+        </div>
+
+        <div class="flex justify-end gap-2 pt-4">
+          <button type="button" data-close class="px-4 py-2 border rounded text-sm">Cancel</button>
+          <button type="submit" class="px-4 py-2 bg-primary text-white rounded text-sm font-semibold">Save Record</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- File Modal -->
   <div id="fileModal" class="modal fixed inset-0 bg-gray-900/60 z-50 items-center justify-center p-4">
     <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 space-y-4">
@@ -1808,18 +1960,18 @@
           <div><label class="block text-xs font-semibold mb-1">Role *</label><select id="newRole" class="w-full p-2 border rounded text-sm" required></select></div>
           <div><label class="block text-xs font-semibold mb-1">Department</label><input type="text" id="newDepartment" class="w-full p-2 border rounded text-sm"></div>
           <div><label class="block text-xs font-semibold mb-1">Temporary Password</label><input type="password" id="newPassword" class="w-full p-2 border rounded text-sm" placeholder="Min 8 chars if new user"></div>
-          <div class="flex items-center pt-5"><label class="flex items-center gap-2 text-xs font-semibold cursor-pointer"><input type="checkbox" id="newDisabled"> Disable Account</label></div>
+          <div class="flex items-center pt-5"><label class="flex items-center gap-2 text-sm font-medium"><input type="checkbox" id="newDisabled" class="w-4 h-4"> Disable Account</label></div>
         </div>
         <div class="flex justify-end gap-2">
-          <button type="button" id="sendResetBtn" class="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded text-xs font-semibold">Send Password Reset</button>
-          <button type="submit" class="px-4 py-1.5 bg-primary hover:bg-blue-800 text-white rounded text-xs font-semibold">Save User</button>
+          <button type="button" id="sendResetBtn" class="px-3 py-1.5 bg-gray-200 hover:bg-gray-300 rounded text-xs font-semibold">Send Password Reset</button>
+          <button type="submit" class="px-4 py-1.5 bg-primary text-white rounded text-xs font-semibold">Save User Profile</button>
         </div>
       </form>
       <div class="overflow-y-auto max-h-[40vh]">
         <table class="min-w-full divide-y text-left">
           <thead class="bg-gray-50 sticky top-0">
             <tr>
-              <th class="px-3 py-2 text-xs">User / Email</th>
+              <th class="px-3 py-2 text-xs">User</th>
               <th class="px-3 py-2 text-xs">Role</th>
               <th class="px-3 py-2 text-xs">Department</th>
               <th class="px-3 py-2 text-xs">Status</th>
@@ -1829,113 +1981,6 @@
           <tbody id="userTableBody" class="divide-y text-xs"></tbody>
         </table>
       </div>
-    </div>
-  </div>
-
-  <!-- Record Modal -->
-  <div id="recordModal" class="modal fixed inset-0 bg-gray-900/60 z-50 items-center justify-center p-4">
-    <div class="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[95vh] overflow-y-auto scrollbar flex flex-col">
-      <div class="bg-primary text-white p-4 flex justify-between"><h3 id="modalTitle" class="text-xl font-bold">Add Validation Study</h3><button data-close><i class="fas fa-times"></i></button></div>
-      <form id="recordForm" class="p-6 space-y-4">
-        <input type="hidden" id="recordId"><input type="hidden" id="studyStatus">
-        <div class="grid md:grid-cols-2 gap-4">
-          <div class="md:col-span-2"><label class="block text-sm font-medium">Product / API Name *</label><input id="productName" class="w-full p-2 border rounded" required></div>
-          <div><label class="block text-sm font-medium">Study Category *</label><select id="studyCategory" class="w-full p-2 border rounded"><option>Process Validation</option><option>Hold Time Study</option><option>Cleaning Validation</option></select></div>
-          <div><label class="block text-sm font-medium">Product Type</label><select id="productType" class="w-full p-2 border rounded"><option>Finished Product</option><option>API</option><option>Intermediate</option></select></div>
-          <div><label class="block text-sm font-medium">Study Date *</label><input type="date" id="studyDate" class="w-full p-2 border rounded" required></div>
-          <div><label class="block text-sm font-medium">Stage</label><select id="stage" class="w-full p-2 border rounded"><option>Raw</option><option>Bulk</option><option>Finished Product</option><option>Cleaning Validation</option><option>CHT</option><option>DHT</option><option>Campaign Length</option></select></div>
-          <div><label class="block text-sm font-medium">Version *</label><input id="version" class="w-full p-2 border rounded" value="v1.0" required></div>
-          <div><label class="block text-sm font-medium">Scale</label><select id="scale" class="w-full p-2 border rounded"><option>Lab Scale</option><option>Pilot Scale</option><option>Commercial Scale</option></select></div>
-          <div class="md:col-span-2"><label class="block text-sm font-medium">Reason for Study / Objective *</label><textarea id="reason" class="w-full p-2 border rounded" rows="2" required></textarea></div>
-          <div class="md:col-span-2"><label class="block text-sm font-medium">Notes / Remarks</label><textarea id="notes" class="w-full p-2 border rounded" rows="2"></textarea></div>
-          <div><label class="block text-sm font-medium">Other Dept Reviewer (Optional)</label><input id="reviewerDepartment" class="w-full p-2 border rounded" placeholder="e.g. QC, Engineering"></div>
-          <div class="flex items-center pt-5"><label class="flex items-center gap-2 text-sm font-semibold cursor-pointer"><input type="checkbox" id="requireOtherDeptReview"> Require Review by Other Department</label></div>
-        </div>
-        <div class="flex justify-end gap-2 pt-4"><button type="button" data-close class="px-4 py-2 border rounded">Cancel</button><button type="submit" class="px-6 py-2 bg-primary text-white rounded font-semibold">Save Study</button></div>
-      </form>
-    </div>
-  </div>
-
-  <!-- Module Record Modal -->
-  <div id="moduleModal" class="modal fixed inset-0 bg-gray-900/60 z-50 items-center justify-center p-4">
-    <div class="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[95vh] overflow-y-auto scrollbar flex flex-col">
-      <div class="bg-primary text-white p-4 flex justify-between"><h3 id="moduleModalTitle" class="text-xl font-bold">Add Module Record</h3><button data-close><i class="fas fa-times"></i></button></div>
-      <form id="moduleForm" class="p-6 space-y-4">
-        <input type="hidden" id="moduleEditId"><input type="hidden" id="moduleType">
-        <div id="calibrationFields" class="space-y-4">
-          <div class="grid md:grid-cols-2 gap-4">
-            <div><label class="block text-sm font-medium">Certificate No. *</label><input id="calCertificateNo" class="w-full p-2 border rounded"></div>
-            <div><label class="block text-sm font-medium">Department *</label><input id="calDept" class="w-full p-2 border rounded" placeholder="QA, QC, Production..."></div>
-            <div><label class="block text-sm font-medium">Instrument Name *</label><input id="calInstrument" class="w-full p-2 border rounded"></div>
-            <div><label class="block text-sm font-medium">Manufacturer</label><input id="calManuf" class="w-full p-2 border rounded"></div>
-            <div><label class="block text-sm font-medium">Model</label><input id="calModel" class="w-full p-2 border rounded"></div>
-            <div><label class="block text-sm font-medium">Serial Number</label><input id="calSN" class="w-full p-2 border rounded"></div>
-            <div><label class="block text-sm font-medium">Instrument Code *</label><input id="calCode" class="w-full p-2 border rounded"></div>
-            <div><label class="block text-sm font-medium">Location</label><input id="calLocation" class="w-full p-2 border rounded"></div>
-            <div><label class="block text-sm font-medium">Calibration Range</label><input id="calRange" class="w-full p-2 border rounded"></div>
-            <div><label class="block text-sm font-medium">Acceptance Limits</label><input id="calAcceptanceLimits" class="w-full p-2 border rounded"></div>
-            <div><label class="block text-sm font-medium">Interval (Months/Years)</label><input id="calInterval" class="w-full p-2 border rounded"></div>
-            <div><label class="block text-sm font-medium">Calibration Date</label><input type="date" id="calDate" class="w-full p-2 border rounded"></div>
-            <div><label class="block text-sm font-medium">Due Date</label><input type="date" id="calDueDate" class="w-full p-2 border rounded"></div>
-            <div><label class="block text-sm font-medium">Month / Year Label</label><input id="calMonthYear" class="w-full p-2 border rounded" placeholder="January 2026"></div>
-          </div>
-          <div class="flex gap-6 pt-2">
-            <label class="flex items-center gap-2 text-sm font-semibold cursor-pointer"><input type="checkbox" id="calIsAddendum"> Addendum of Calibration</label>
-            <label class="flex items-center gap-2 text-sm font-semibold cursor-pointer"><input type="checkbox" id="calIsOutOfCalibration"> Out of Calibration</label>
-          </div>
-        </div>
-
-        <div id="qualificationFields" class="space-y-4 hidden">
-          <div class="grid md:grid-cols-2 gap-4">
-            <div><label class="block text-sm font-medium">Name / ID *</label><input id="qualName" class="w-full p-2 border rounded"></div>
-            <div><label class="block text-sm font-medium">Reference Protocol No. *</label><input id="qualReference" class="w-full p-2 border rounded"></div>
-            <div>
-              <label class="block text-sm font-medium">Qualification Type *</label>
-              <select id="qualType" class="w-full p-2 border rounded">
-                <option value="equipment">Equipment Qualification</option>
-                <option value="utilities">Utilities Qualification</option>
-                <option value="system">System / Computerized Validation</option>
-              </select>
-            </div>
-            <div>
-              <label class="block text-sm font-medium">Stage *</label>
-              <select id="qualStage" class="w-full p-2 border rounded">
-                <option value="DQ">DQ</option>
-                <option value="IQ">IQ</option>
-                <option value="OQ">OQ</option>
-                <option value="PQ">PQ</option>
-                <option value="PERIODIC PQ">Periodic PQ</option>
-              </select>
-            </div>
-            <div id="utilitySubtypeGroup" class="hidden">
-              <label class="block text-sm font-medium">Utility Subtype</label>
-              <select id="qualUtilityType" class="w-full p-2 border rounded">
-                <option value="HVAC">HVAC</option>
-                <option value="WFI">WFI (Water for Injection)</option>
-                <option value="PW">PW (Purified Water)</option>
-                <option value="Compressed Air">Compressed Air</option>
-                <option value="Clean Steam">Clean Steam</option>
-              </select>
-            </div>
-            <div id="equipmentGroup">
-              <label class="block text-sm font-medium">Equipment Info</label>
-              <input id="qualEquipmentInfo" class="w-full p-2 border rounded" placeholder="Make, model, tag...">
-            </div>
-            <div id="systemGroup" class="hidden">
-              <label class="block text-sm font-medium">System Software / Category</label>
-              <input id="qualSystemInfo" class="w-full p-2 border rounded" placeholder="GAMP category, software version...">
-            </div>
-            <div><label class="block text-sm font-medium">Planned Date</label><input type="date" id="qualDate" class="w-full p-2 border rounded"></div>
-            <div><label class="block text-sm font-medium">Due Date</label><input type="date" id="qualDueDate" class="w-full p-2 border rounded"></div>
-            <div class="md:col-span-2"><label class="block text-sm font-medium">Description / Scope</label><textarea id="qualDescription" class="w-full p-2 border rounded" rows="2"></textarea></div>
-          </div>
-        </div>
-
-        <div class="flex justify-end gap-2 pt-4">
-          <button type="button" data-close class="px-4 py-2 border rounded">Cancel</button>
-          <button type="submit" class="px-6 py-2 bg-primary text-white rounded font-semibold">Save Record</button>
-        </div>
-      </form>
     </div>
   </div>
 </body>
