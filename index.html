@@ -228,8 +228,11 @@ let userStore="nested";
 
 const $=id=>document.getElementById(id);
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const APP_IDS=[...new Set([appId,"validapp-default","validapp"])];
 const colRef=n=>collection(db,"artifacts",appId,"public","data",n);
 const docRef=(n,id)=>doc(db,"artifacts",appId,"public","data",n,id);
+const legacyColRef=(legacyId,n)=>collection(db,"artifacts",legacyId,"public","data",n);
+const legacyDocRef=(legacyId,n,id)=>doc(db,"artifacts",legacyId,"public","data",n,id);
 const rootColRef=n=>collection(db,n);
 const rootDocRef=(n,id)=>doc(db,n,id);
 const usersColRef=()=>userStore==="root"?rootColRef("users"):colRef("users");
@@ -275,21 +278,69 @@ async function safeGet(ref){try{return await getDoc(ref)}catch(e){console.warn("
 async function loadProfile(u){
   const email=String(u.email||"").trim().toLowerCase();
   const username=email?email.split("@")[0].toLowerCase():"";
-  const candidates=[["nested",docRef("users",u.uid)],["nested",email?docRef("users",email):null],["nested",username?docRef("users",username):null],["root",rootDocRef("users",u.uid)],["root",email?rootDocRef("users",email):null],["root",username?rootDocRef("users",username):null]];
-  let s=null;
-  for(const [store,ref] of candidates){if(!ref)continue;const snap=await safeGet(ref);if(snap?.exists()){s=snap;userStore=store;break}}
-  if(!s){for(const store of ["nested","root"]){try{const q=await getDocs(query(store==="root"?rootColRef("users"):colRef("users"),where("email","==",email),limit(1)));if(!q.empty){s=q.docs[0];userStore=store;break}}catch(e){console.warn("Email profile query skipped:",e?.code||e)}}}
-  if(!s)throw Error("Your Firebase account exists, but no ValidApp user profile was found. The existing profile could not be read from Firestore.");
+  let s=null; userStore="nested"; let selectedAppId=appId;
+  // 1) Current nested ValidApp path, then known legacy app IDs.
+  for(const aid of APP_IDS){
+    const candidates=[
+      legacyDocRef(aid,"users",u.uid),
+      email?legacyDocRef(aid,"users",email):null,
+      username?legacyDocRef(aid,"users",username):null
+    ];
+    for(const ref of candidates){
+      if(!ref)continue;
+      const snap=await safeGet(ref);
+      if(snap?.exists()){s=snap;selectedAppId=aid;userStore="nested";break}
+    }
+    if(s)break;
+  }
+  // 2) Query by email in each nested users collection.
+  if(!s){
+    for(const aid of APP_IDS){
+      try{
+        const q=await getDocs(query(legacyColRef(aid,"users"),where("email","==",email),limit(1)));
+        if(!q.empty){s=q.docs[0];selectedAppId=aid;userStore="nested";break}
+      }catch(e){console.warn("Nested email profile lookup skipped:",aid,e?.code||e)}
+    }
+  }
+  // 3) Root users collection as a legacy compatibility fallback.
+  if(!s){
+    const candidates=[rootDocRef("users",u.uid),email?rootDocRef("users",email):null,username?rootDocRef("users",username):null];
+    for(const ref of candidates){
+      if(!ref)continue;
+      const snap=await safeGet(ref);
+      if(snap?.exists()){s=snap;userStore="root";break}
+    }
+  }
+  if(!s){
+    try{
+      const q=await getDocs(query(rootColRef("users"),where("email","==",email),limit(1)));
+      if(!q.empty){s=q.docs[0];userStore="root";}
+    }catch(e){console.warn("Root email profile lookup skipped:",e?.code||e)}
+  }
+  if(!s)throw Error("Firebase login succeeded, but no ValidApp user profile was found for this account. Check the existing Firestore users record and its role.");
   const raw=s.data()||{};
   const aliases={admin:ROLES.ADMIN,administrator:ROLES.ADMIN,creator:ROLES.CREATOR,"section head":ROLES.SECTION_HEAD,sectionhead:ROLES.SECTION_HEAD,"deputy qa manager":ROLES.DEPUTY,"qa deputy manager":ROLES.DEPUTY,deputy:ROLES.DEPUTY,"qa manager":ROLES.QA_MANAGER,reviewer:ROLES.REVIEWER,"reviewer — other department":ROLES.REVIEWER,"reviewer - other department":ROLES.REVIEWER,viewer:ROLES.VIEWER};
   const normalizedRole=ROLE_LIST.includes(raw.role)?raw.role:aliases[String(raw.role||"").trim().toLowerCase()];
   if(!normalizedRole)throw Error(`Your ValidApp profile has an invalid or missing role: ${raw.role||"not assigned"}.`);
   if(raw.disabled===true)throw Error("Your ValidApp account is disabled.");
-  const p={id:s.id,...raw,role:normalizedRole,email:raw.email||email,username:raw.username||username};
+  const p={id:s.id,...raw,role:normalizedRole,email:raw.email||email,username:raw.username||username,sourceAppId:selectedAppId};
   let changed=p.passwordChangedAt?.toDate?p.passwordChangedAt.toDate():p.passwordChangedAt?new Date(p.passwordChangedAt):null;
-  if(!changed||Number.isNaN(changed.getTime())){changed=new Date();try{await updateDoc(userStore==="root"?rootDocRef("users",s.id):docRef("users",s.id),{passwordChangedAt:serverTimestamp(),updatedAt:serverTimestamp()});p.passwordChangedAt=changed}catch(e){console.warn("Could not initialize password age:",e?.code||e)}}
+  if(!changed||Number.isNaN(changed.getTime())){
+    changed=new Date();
+    try{
+      const target=userStore==="root"?rootDocRef("users",s.id):legacyDocRef(selectedAppId,"users",s.id);
+      await updateDoc(target,{passwordChangedAt:serverTimestamp(),updatedAt:serverTimestamp()});
+      p.passwordChangedAt=changed;
+    }catch(e){console.warn("Could not initialize password age:",e?.code||e)}
+  }
   p.passwordExpired=Date.now()-changed.getTime()>90*24*60*60*1000;
-  if(s.id!==u.uid){try{await setDoc(usersDocRef(u.uid),{...raw,email:email||raw.email,role:normalizedRole,username:p.username,migratedFrom:s.id,updatedAt:serverTimestamp()},{merge:true})}catch(e){console.warn("Profile UID migration skipped:",e?.code||e)}}
+  // Migration is best-effort and never blocks login.
+  if(s.id!==u.uid){
+    try{
+      const target=userStore==="root"?rootDocRef("users",u.uid):legacyDocRef(selectedAppId,"users",u.uid);
+      await setDoc(target,{...raw,email:email||raw.email,role:normalizedRole,username:p.username,migratedFrom:s.id,updatedAt:serverTimestamp()},{merge:true});
+    }catch(e){console.warn("Profile UID migration skipped:",e?.code||e)}
+  }
   return p;
 }
 async function resolveLoginEmail(identifier){
@@ -407,8 +458,8 @@ async function workflow(id,target,comment="",actionName="Workflow Progressed"){
   await audit(actionName,id,r.productName,comment||`${role()} action`,old,target,{delegatedApproval:isDelegatedDeputy()});await notifyEmails(actionName,r.productName,target,comment||`${old} → ${target}`);await loadStudies();
 }
 async function returnStudy(id){const r=records.find(x=>x.id===id);if(!r)return;confirmAction("Return for Revision",`Return "${r.productName}" to the Creator?`,async c=>{try{await workflow(id,STATUS.RETURNED,c,"Study Returned");showMsg("Returned","Study returned for revision.","success")}catch(e){showMsg("Return failed",friendly(e),"error")}},true)}
-async function reviewStudy(id){const r=records.find(x=>x.id===id);if(!r)return;confirmAction("Complete Review",`Complete review for "${r.productName}"?`,async c=>{try{await workflow(id,nextStatus(r),c,"Review Completed");showMsg("Review completed","Study advanced to the next workflow stage.","success")}catch(e){showMsg("Review failed",friendly(e),"error")}})},
-async function approveStudy(id){const r=records.find(x=>x.id===id);if(!r)return;confirmAction(isDelegatedDeputy()?"Approve as QA Manager Delegate":"Approve Study",`Approve "${r.productName}"?`,async()=>{try{await workflow(id,STATUS.APPROVED,isDelegatedDeputy()?"Approved under active QA Manager delegation":"QA Manager Approval","Study Approved");showMsg("Approved",isDelegatedDeputy()?"Study approved by QA Deputy under active delegation.":"Study approved by QA Manager.","success")}catch(e){showMsg("Approval failed",friendly(e),"error")}})},
+async function reviewStudy(id){const r=records.find(x=>x.id===id);if(!r)return;confirmAction("Complete Review",`Complete review for "${r.productName}"?`,async c=>{try{await workflow(id,nextStatus(r),c,"Review Completed");showMsg("Review completed","Study advanced to the next workflow stage.","success")}catch(e){showMsg("Review failed",friendly(e),"error")}})}
+async function approveStudy(id){const r=records.find(x=>x.id===id);if(!r)return;confirmAction(isDelegatedDeputy()?"Approve as QA Manager Delegate":"Approve Study",`Approve "${r.productName}"?`,async()=>{try{await workflow(id,STATUS.APPROVED,isDelegatedDeputy()?"Approved under active QA Manager delegation":"QA Manager Approval","Study Approved");showMsg("Approved",isDelegatedDeputy()?"Study approved by QA Deputy under active delegation.":"Study approved by QA Manager.","success")}catch(e){showMsg("Approval failed",friendly(e),"error")}})}
 async function rejectStudy(id){confirmAction("Reject Study","Rejection requires a documented reason.",async c=>{try{await workflow(id,STATUS.REJECTED,c,"Study Rejected");showMsg("Rejected","Study rejected.","success")}catch(e){showMsg("Rejection failed",friendly(e),"error")}},true,"Rejection reason *")}
 async function setStudyAction(id,a){
   const r=records.find(x=>x.id===id);if(!r)return;
@@ -534,7 +585,7 @@ async function loadSops(){
 }
 function renderSops(){const q=$("sopSearch").value.trim().toLowerCase(),t=$("sopTypeFilter").value;const arr=sops.filter(x=>(!q||`${x.title} ${x.name}`.toLowerCase().includes(q))&&(t==="All"||x.type===t));$("sopList").innerHTML=arr.map(x=>`<div class="border rounded-xl p-3 flex flex-wrap justify-between gap-3"><div><b>${esc(x.title||x.name)}</b><div class="text-xs text-slate-500">${esc(x.type||"SOP")} • ${esc(x.name)} • ${esc(nowLabel(x.createdAt))}</div></div><div class="flex gap-3"><button data-sop-file="${x.id}" class="text-primary font-bold">Open</button><button data-sop-delete="${x.id}" class="text-red-600 font-bold">Delete</button></div></div>`).join("")||`<div class="text-sm text-slate-500">No SOPs found.</div>`}
 async function uploadSop(ev){const f=ev.target.files[0];if(!f)return;if(!isSopUser())return;try{const title=prompt("SOP title:",f.name)||f.name,type=prompt("Document type: SOP / Work Instruction / Form / Other","SOP")||"SOP",id=crypto.randomUUID(),path=`${appId}/sops/${id}_${f.name.replace(/[^a-zA-Z0-9._-]/g,"_")}`;const {error}=await supabaseClient.storage.from("documents").upload(path,f,{upsert:false});if(error)throw Error(error.message);const ref=await addDoc(colRef("sops"),{title,type,name:f.name,storagePath:path,uploadedByUid:currentUser.uid,uploadedByName:currentProfile.displayName||currentUser.email,createdAt:serverTimestamp()});await audit("SOP Uploaded",ref.id,title,`Type: ${type}`);await loadSops();showMsg("Uploaded","SOP uploaded successfully.","success")}catch(e){showMsg("SOP upload failed",friendly(e),"error")}ev.target.value=""}
-async function deleteSop(id){const s=sops.find(x=>x.id===id);if(!s)return;confirmAction("Delete SOP",`Delete "${s.title||s.name}"?`,async()=>{try{await supabaseClient.storage.from("documents").remove([s.storagePath]);await updateDoc(docRef("sops",id),{deletedAt:serverTimestamp()});await audit("SOP Deleted",id,s.title||s.name,"Controlled SOP marked deleted.");await loadSops()}catch(e){showMsg("Delete failed",friendly(e),"error")})}
+async function deleteSop(id){const s=sops.find(x=>x.id===id);if(!s)return;confirmAction("Delete SOP",`Delete "${s.title||s.name}"?`,async()=>{try{await supabaseClient.storage.from("documents").remove([s.storagePath]);await updateDoc(docRef("sops",id),{deletedAt:serverTimestamp()});await audit("SOP Deleted",id,s.title||s.name,"Controlled SOP marked deleted.");await loadSops()}catch(e){showMsg("Delete failed",friendly(e),"error")}})}
 async function openSop(id){const s=sops.find(x=>x.id===id);if(s)await openStoredFile(s,false)}
 
 async function loadPrpo(){try{const snap=await getDocs(query(colRef("prpo"),orderBy("createdAt","desc")));prpos=snap.docs.map(d=>({id:d.id,...d.data()}));renderPrpo()}catch(e){showMsg("PR/PO load failed",friendly(e),"error")}}
