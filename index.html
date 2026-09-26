@@ -45,7 +45,7 @@ body{font-family:Inter,Arial,sans-serif;background:#f1f5f9}
         <svg viewBox="0 0 64 64" class="w-full h-full" aria-label="ODF and capsule logo">
           <rect x="2" y="2" width="60" height="60" rx="16" fill="white" opacity=".98"/>
           <path d="M13 24h22a8 8 0 0 1 8 8v4a8 8 0 0 1-8 8H13z" fill="#1e40af"/>
-          <path d="M13 24h22a8 8 0 0 1 8 8H13z" fill="#3b82f6"/>
+          <path d="M13 24h22a8 8 0 0 1 8 8v4a8 8 0 0 1-8 8H13z" fill="#3b82f6"/>
           <path d="M40 16h7a8 8 0 0 1 0 16h-7z" fill="#10b981"/>
           <path d="M47 16h4a8 8 0 0 1 0 16h-4z" fill="#93c5fd"/>
           <path d="M14 48h36" stroke="#1e40af" stroke-width="3" stroke-linecap="round"/>
@@ -199,7 +199,8 @@ import {initializeApp,deleteApp} from "https://www.gstatic.com/firebasejs/11.6.1
 import {getAuth,onAuthStateChanged,signInWithEmailAndPassword,signOut,createUserWithEmailAndPassword,sendPasswordResetEmail} from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 import {getFirestore,collection,doc,getDoc,getDocs,setDoc,addDoc,updateDoc,deleteDoc,query,where,orderBy,limit,serverTimestamp} from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-const MY_FIREBASE_CONFIG={apiKey:"AIzaSyDEV8rEluViDZiA5nnv7BiIU78rgq5enA",authDomain:"validapp-db.firebaseapp.com",projectId:"validapp-db",storageBucket:"validapp-db.firebasestorage.app",messagingSenderId:"702664233017",appId:"1:702664233017:web:25fbede2f3c7244cdbfde8",measurementId:"G-7FTDYP0XWS"};
+// REPLACE WITH YOUR ACTUAL FIREBASE CONFIG FROM FIREBASE CONSOLE
+const MY_FIREBASE_CONFIG={apiKey:"YOUR_VALID_FIREBASE_API_KEY",authDomain:"validapp-db.firebaseapp.com",projectId:"validapp-db",storageBucket:"validapp-db.firebasestorage.app",messagingSenderId:"702664233017",appId:"1:702664233017:web:25fbede2f3c7244cdbfde8",measurementId:"G-7FTDYP0XWS"};
 const SUPABASE_URL="https://lnyignnyhihrkjauhzsk.supabase.co";
 const SUPABASE_ANON_KEY="sb_publishable__0Xw5joGtNrlh38qYOhrpw_vMALXzrV";
 const EMAILJS_PUBLIC_KEY="tx8P6mYyi6C6APSXn",EMAILJS_SERVICE_ID="service_nyq8c6p",EMAILJS_TEMPLATE_ID="template_008bbdj";
@@ -279,7 +280,6 @@ async function loadProfile(u){
   const email=String(u.email||"").trim().toLowerCase();
   const username=email?email.split("@")[0].toLowerCase():"";
   let s=null; userStore="nested"; let selectedAppId=appId;
-  // 1) Current nested ValidApp path, then known legacy app IDs.
   for(const aid of APP_IDS){
     const candidates=[
       legacyDocRef(aid,"users",u.uid),
@@ -293,7 +293,6 @@ async function loadProfile(u){
     }
     if(s)break;
   }
-  // 2) Query by email in each nested users collection.
   if(!s){
     for(const aid of APP_IDS){
       try{
@@ -302,7 +301,6 @@ async function loadProfile(u){
       }catch(e){console.warn("Nested email profile lookup skipped:",aid,e?.code||e)}
     }
   }
-  // 3) Root users collection as a legacy compatibility fallback.
   if(!s){
     const candidates=[rootDocRef("users",u.uid),email?rootDocRef("users",email):null,username?rootDocRef("users",username):null];
     for(const ref of candidates){
@@ -334,7 +332,6 @@ async function loadProfile(u){
     }catch(e){console.warn("Could not initialize password age:",e?.code||e)}
   }
   p.passwordExpired=Date.now()-changed.getTime()>90*24*60*60*1000;
-  // Migration is best-effort and never blocks login.
   if(s.id!==u.uid){
     try{
       const target=userStore==="root"?rootDocRef("users",u.uid):legacyDocRef(selectedAppId,"users",u.uid);
@@ -493,7 +490,7 @@ async function openStoredFile(f,download){
 }
 async function showHistory(id){
   const snap=await getDocs(query(colRef("reviews"),where("studyId","==",id)));const arr=snap.docs.map(d=>d.data()).sort((a,b)=>(b.createdAt?.seconds||0)-(a.createdAt?.seconds||0));
-  modal(`<div class="modal active fixed inset-0 bg-black/50 z-50 items-center justify-center p-4"><div class="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-auto p-6"><div class="flex justify-between"><h3 class="font-extrabold text-lg">Workflow History</h3><button data-modal-close>✕</button></div><div class="mt-4 space-y-3">${arr.map(x=>`<div class="border-l-4 border-blue-500 pl-3"><b>${esc(x.action||"Review")} • ${esc(x.reviewerRole||"")}</b><div class="text-xs text-slate-500">${esc(x.reviewerName)} • ${esc(nowLabel(x.createdAt))}</div><div class="text-sm mt-1 whitespace-pre-wrap">${esc(x.comment||"No comment")}</div></div>`).join("")||"<p class='text-sm text-slate-500'>No history.</p>"}</div></div></div>`);
+  modal(`<div class="modal active fixed inset-0 bg-black/50 z-50 items-center justify-center p-4"><div class="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-auto p-6"><div class="flex justify-between"><h3 class="font-extrabold text-lg">Workflow History</h3><button data-modal-close>✕</button></div><div class="mt-4 space-y-3">${arr.map(x=>`<div class="border-l-4 border-blue-500 pl-3"><b>${esc(x.action\vert{}\vert{}"Review")} • ${esc(x.reviewerRole||"")}</b><div class="text-xs text-slate-500">${esc(x.reviewerName)} •${esc(nowLabel(x.createdAt))}</div><div class="text-sm mt-1 whitespace-pre-wrap">${esc(x.comment||"No comment")}</div></div>`).join("")||"<p class='text-sm text-slate-500'>No history.</p>"}</div></div></div>`);
   document.querySelectorAll("[data-modal-close]").forEach(x=>x.onclick=closeModal);
 }
 
@@ -596,12 +593,12 @@ async function savePrpo(old){const d={type:$("#ppType").value,number:$("#ppNumbe
 async function submitPrpo(id){const x=prpos.find(a=>a.id===id);try{await updateDoc(docRef("prpo",id),{status:STATUS.PENDING_SECTION_HEAD,submittedAt:serverTimestamp(),updatedAt:serverTimestamp()});await audit("PR/PO Submitted",id,x.number,"Submitted for Section Head review.",STATUS.DRAFT,STATUS.PENDING_SECTION_HEAD);await loadPrpo()}catch(e){showMsg("Submit failed",friendly(e),"error")}}
 async function prpoWorkflow(id,target,comment,action){const x=prpos.find(a=>a.id===id),old=x.status;await updateDoc(docRef("prpo",id),{status:target,updatedAt:serverTimestamp(),approvedAsDelegate:target===STATUS.APPROVED&&isDelegatedDeputy()});await audit(action,id,x.number,comment||"",old,target,{delegatedApproval:isDelegatedDeputy()});await notifyEmails(action,x.number,target,comment||"");await loadPrpo()}
 
-async function loadAudit(){try{const snap=await getDocs(query(colRef("audit"),orderBy("createdAt","desc"),limit(500)));auditLogs=snap.docs.map(d=>({id:d.id,...d.data()}));modal(`<div class="modal active fixed inset-0 bg-black/50 z-50 items-center justify-center p-4"><div class="bg-white rounded-2xl shadow-2xl max-w-6xl w-full max-h-[92vh] overflow-auto p-6"><div class="flex justify-between"><h3 class="text-xl font-extrabold">System Audit Trail</h3><button data-modal-close>✕</button></div><div class="mt-4 overflow-auto"><table class="min-w-[1100px] w-full divide-y"><thead class="bg-slate-50"><tr><th class="p-2 text-left text-xs">Timestamp</th><th class="p-2 text-left text-xs">User / Role</th><th class="p-2 text-left text-xs">Action</th><th class="p-2 text-left text-xs">Target</th><th class="p-2 text-left text-xs">Status</th><th class="p-2 text-left text-xs">Details</th></tr></thead><tbody>${auditLogs.map(x=>`<tr><td class="p-2 text-xs">${esc(nowLabel(x.createdAt))}</td><td class="p-2 text-xs">${esc(x.userName)}<div>${esc(x.userRole)}</div></td><td class="p-2 text-xs font-bold">${esc(x.action)}</td><td class="p-2 text-xs">${esc(x.targetName||x.studyName||x.targetId||"—")}</td><td class="p-2 text-xs">${esc(x.previousStatus||"—")} → ${esc(x.newStatus||"—")}</td><td class="p-2 text-xs">${esc(x.details||"")}</td></tr>`).join("")}</tbody></table></div></div></div>`);document.querySelectorAll("[data-modal-close]").forEach(x=>x.onclick=closeModal)}catch(e){showMsg("Audit load failed",friendly(e),"error")}}
+async function loadAudit(){try{const snap=await getDocs(query(colRef("audit"),orderBy("createdAt","desc"),limit(500)));auditLogs=snap.docs.map(d=>({id:d.id,...d.data()}));modal(`<div class="modal active fixed inset-0 bg-black/50 z-50 items-center justify-center p-4"><div class="bg-white rounded-2xl shadow-2xl max-w-6xl w-full max-h-[92vh] overflow-auto p-6"><div class="flex justify-between"><h3 class="text-xl font-extrabold">System Audit Trail</h3><button data-modal-close>✕</button></div><div class="mt-4 overflow-auto"><table class="min-w-[1100px] w-full divide-y"><thead class="bg-slate-50"><tr><th class="p-2 text-left text-xs">Timestamp</th><th class="p-2 text-left text-xs">User / Role</th><th class="p-2 text-left text-xs">Action</th><th class="p-2 text-left text-xs">Target</th><th class="p-2 text-left text-xs">Status</th><th class="p-2 text-left text-xs">Details</th></tr></thead><tbody>${auditLogs.map(x=>`<tr><td class="p-2 text-xs">${esc(nowLabel(x.createdAt))}</td><td class="p-2 text-xs">${esc(x.userName)}<div>${esc(x.userRole)}</div></td><td class="p-2 text-xs font-bold">${esc(x.action)}</td><td class="p-2 text-xs">${esc(x.targetName||x.studyName||x.targetId||"—")}</td><td class="p-2 text-xs">${esc(x.previousStatus\vert{}\vert{}"—")} → ${esc(x.newStatus||"—")}</td><td class="p-2 text-xs">${esc(x.details||"")}</td></tr>`).join("")}</tbody></table></div></div></div>`);document.querySelectorAll("[data-modal-close]").forEach(x=>x.onclick=closeModal)}catch(e){showMsg("Audit load failed",friendly(e),"error")}}
 
 async function loadUsers(){if(!admin())return;const snap=await getDocs(usersColRef());users=snap.docs.map(d=>({id:d.id,...d.data()}));openUserModal()}
 function openUserModal(){modal(`<div class="modal active fixed inset-0 bg-black/50 z-50 items-center justify-center p-4"><div class="bg-white rounded-2xl shadow-2xl max-w-6xl w-full max-h-[94vh] overflow-auto p-6"><div class="flex justify-between"><h3 class="text-xl font-extrabold">User Management & Delegation</h3><button data-modal-close>✕</button></div><form id="userForm" class="grid md:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-xl mt-4"><input type="hidden" id="editUserId"><div><label class="text-xs font-bold">Email *</label><input id="newEmail" type="email" required class="w-full p-2 border rounded"></div><div><label class="text-xs font-bold">Display Name *</label><input id="newName" required class="w-full p-2 border rounded"></div><div><label class="text-xs font-bold">Role *</label><select id="newRole" class="w-full p-2 border rounded">${ROLE_LIST.map(x=>`<option>${x}</option>`).join("")}</select></div><div><label class="text-xs font-bold">Department</label><input id="newDept" class="w-full p-2 border rounded"></div><div><label class="text-xs font-bold">Temporary Password</label><input id="newPass" type="password" class="w-full p-2 border rounded"></div><div><label class="text-xs font-bold">Delegation Start</label><input id="delStart" type="date" class="w-full p-2 border rounded"></div><div><label class="text-xs font-bold">Delegation End</label><input id="delEnd" type="date" class="w-full p-2 border rounded"></div><div class="flex items-center gap-2 pt-5"><input id="delActive" type="checkbox"><label class="text-xs font-bold">QA Delegation Active</label></div><div class="md:col-span-4 flex flex-wrap justify-end gap-2"><button type="button" id="resetPasswordBtn" class="px-3 py-2 bg-amber-600 text-white rounded font-bold">Send Password Reset</button><button class="px-4 py-2 bg-primary text-white rounded font-bold">Save User</button></div></form><div class="overflow-auto mt-4"><table class="min-w-[1050px] w-full divide-y"><thead class="bg-slate-50"><tr><th class="p-2 text-left text-xs">User</th><th class="p-2 text-left text-xs">Role</th><th class="p-2 text-left text-xs">Password</th><th class="p-2 text-left text-xs">Delegation</th><th class="p-2 text-left text-xs">Status</th><th class="p-2 text-center text-xs">Manage</th></tr></thead><tbody id="usersBody"></tbody></table></div></div></div>`);document.querySelectorAll("[data-modal-close]").forEach(x=>x.onclick=closeModal);renderUsers();$("#userForm").onsubmit=saveUser;$("#resetPasswordBtn").onclick=sendReset}
 function renderUsers(){$("#usersBody").innerHTML=users.map(u=>{const exp=u.passwordChangedAt?(Date.now()-new Date(u.passwordChangedAt?.toDate?u.passwordChangedAt.toDate():u.passwordChangedAt).getTime()>90*86400000):false;const del=u.qaDelegation?.active?`${u.qaDelegation.startDate} → ${u.qaDelegation.endDate}`:"—";return`<tr><td class="p-2 text-xs font-bold">${esc(u.displayName||u.username)}<div class="font-normal text-slate-500">${esc(u.email)}</div></td><td class="p-2 text-xs">${esc(u.role)}</td><td class="p-2 text-xs">${exp?'<span class="text-red-600 font-bold">Expired</span>':'<span class="text-green-700 font-bold">Valid / 90 days</span>'}</td><td class="p-2 text-xs">${esc(del)}</td><td class="p-2 text-xs">${u.disabled?"Disabled":"Active"}</td><td class="p-2 text-center"><button data-user-edit="${u.id}" class="text-blue-700 font-bold mr-2">Edit</button><button data-user-toggle="${u.id}" class="text-amber-700 font-bold">${u.disabled?"Enable":"Disable"}</button></td></tr>`}).join("")}
-function editUser(id){const u=users.find(x=>x.id===id);if(!u)return;$("#editUserId").value=id;$("#newEmail").value=u.email||"";$("#newName").value=u.displayName||"";$("#newRole").value=u.role||ROLES.VIEWER;$("#newDept").value=u.department||"";$("#newPass").value="";$("#delStart").value=u.qaDelegation?.startDate||"";$("#delEnd").value=u.qaDelegation?.endDate||"";$("#delActive").checked=!!u.qaDelegation?.active}
+function editUser(id){const u=users.find(x=>x.id===id);if(!u)return;$("#editUserId").value=id;$("#newEmail").value=u.email\vert{}\vert{}"";$("#newName").value=u.displayName||"";$("#newRole").value=u.role\vert{}\vert{}ROLES.VIEWER;$("#newDept").value=u.department||"";$("#newPass").value="";$("#delStart").value=u.qaDelegation?.startDate||"";$("#delEnd").value=u.qaDelegation?.endDate\vert{}\vert{}"";$("#delActive").checked=!!u.qaDelegation?.active}
 async function saveUser(e){e.preventDefault();const id=$("#editUserId").value,email=$("#newEmail").value.trim().toLowerCase(),d={email,displayName:$("#newName").value.trim(),username:email.split("@")[0],role:$("#newRole").value,department:$("#newDept").value.trim(),qaDelegation:{active:$("#delActive").checked,startDate:$("#delStart").value,endDate:$("#delEnd").value},updatedAt:serverTimestamp()};try{if(id){await updateDoc(usersDocRef(id),d);await audit("User Updated",id,d.displayName,`Role=${d.role}; Delegation=${d.qaDelegation.active}`)}else{const p=$("#newPass").value;if(p.length<8)throw Error("New user temporary password must be at least 8 characters.");const sec=initializeApp(firebaseConfig,"UserCreate_"+Date.now()),sa=getAuth(sec),cred=await createUserWithEmailAndPassword(sa,email,p);await setDoc(usersDocRef(cred.user.uid),{...d,disabled:false,passwordChangedAt:serverTimestamp(),createdAt:serverTimestamp()});await signOut(sa);await deleteApp(sec);await audit("User Created",cred.user.uid,d.displayName,`Role=${d.role}`)}users=(await getDocs(usersColRef())).docs.map(x=>({id:x.id,...x.data()}));renderUsers();showMsg("Saved","User profile saved. Password age is controlled at 90 days.","success")}catch(e){showMsg("User operation failed",friendly(e),"error")}}
 async function sendReset(){const email=$("#newEmail").value.trim();if(!email)return showMsg("Email required","Enter an email address first.","error");try{await sendPasswordResetEmail(auth,email);showMsg("Reset sent","Password reset email sent. The user's 90-day password timer must be reset in the profile after the user completes the reset.","success")}catch(e){showMsg("Reset failed",friendly(e),"error")}}
 async function toggleUser(id){const u=users.find(x=>x.id===id);if(!u||id===currentUser.uid)return;try{await updateDoc(usersDocRef(id),{disabled:!u.disabled,updatedAt:serverTimestamp()});await audit(u.disabled?"User Enabled":"User Disabled",id,u.displayName||u.email,"Account status changed.");users=(await getDocs(usersColRef())).docs.map(x=>({id:x.id,...x.data()}));renderUsers()}catch(e){showMsg("Operation failed",friendly(e),"error")}}
@@ -614,53 +611,126 @@ async function loadDashboard(){
     const k=[["Studies",r.length,"fa-flask","studies"],["Study Pending",r.filter(x=>x.status?.startsWith("Pending")).length,"fa-hourglass-half","studies"],["Approved Studies",r.filter(x=>x.status===STATUS.APPROVED).length,"fa-check-circle","studies"],["Calibration",c.length,"fa-gauge-high","cal"],["Calibration Due",c.filter(x=>x.dueDate&&new Date(x.dueDate)<new Date(Date.now()+30*86400000)).length,"fa-calendar-day","cal"],["Qualification",q.length,"fa-certificate","qual"],["PR / PO",p.length,"fa-file-invoice","prpo"],["SOPs",s.length,"fa-file-shield","sop"]];
     $("kpiGrid").innerHTML=k.map(x=>`<button data-kpi="${x[3]}" class="kpi card p-4 text-left"><i class="fas ${x[2]} text-primary text-xl"></i><div class="text-2xl font-extrabold mt-2">${x[1]}</div><div class="text-xs text-slate-500 font-bold">${x[0]}</div></button>`).join("");
     $("moduleOverview").innerHTML=[["Studies",r.length,r.filter(x=>x.status===STATUS.APPROVED).length,"studies"],["Calibration",c.length,c.filter(x=>x.executedTracker).length,"cal"],["Qualification",q.length,q.filter(x=>x.executedTracker).length,"qual"],["PR / PO",p.length,p.filter(x=>x.status===STATUS.COMPLETED||x.status===STATUS.APPROVED).length,"prpo"],["Module SOPs",s.length,0,"sop"]].map(x=>`<button data-kpi="${x[3]}" class="border rounded-xl p-4 text-left hover:bg-slate-50"><b>${x[0]}</b><div class="text-2xl font-extrabold">${x[1]}</div><div class="text-xs text-slate-500">${x[2]} completed / approved</div></button>`).join("");
-    $("pendingList").innerHTML=`<div class="p-3 bg-blue-50 rounded-lg font-bold">${pending} action(s) currently assigned to your role.</div>`+r.filter(x=>x.status?.startsWith("Pending")).slice(0,6).map(x=>`<button data-kpi="studies" class="block w-full text-left border-b py-2 text-sm">${esc(x.productName)} <span class="float-right">${badge(x.status)}</span></button>`).join("");
-    $("recentActivity").innerHTML=a.slice(0,10).map(x=>`<div class="border-b pb-2"><div class="font-bold text-sm">${esc(x.action)}</div><div class="text-xs text-slate-500">${esc(x.userName)} • ${esc(nowLabel(x.createdAt))}</div><div class="text-xs">${esc(x.targetName||x.studyName||"")}</div></div>`).join("")||"<div class='text-sm text-slate-500'>No recent activity.</div>";
-    $("quickAccess").innerHTML=[["Studies","fa-flask","studies"],["Calibration","fa-gauge-high","cal"],["Qualification","fa-certificate","qual"],["PR / PO","fa-file-invoice-dollar","prpo"]].map(x=>`<button data-kpi="${x[2]}" class="border rounded-xl p-4 text-left hover:bg-blue-50"><i class="fas ${x[1]} text-primary"></i><b class="ml-2">${x[0]}</b></button>`).join("");
-  }catch(e){console.error(e)}
+    $("pendingList").innerHTML=`<div class="p-3 bg-blue-50 rounded-lg font-bold">${pending} action(s) currently pending your review or approval.</div>`;
+    $("recentActivity").innerHTML=a.map(x=>`<div class="border-l-4 border-primary pl-3 py-1"><b>${esc(x.action)}</b><div class="text-xs text-slate-500">${esc(x.userName)} • ${esc(nowLabel(x.createdAt))}</div><div class="text-xs text-slate-600 mt-1">${esc(x.details||"—")}</div></div>`).join("")||"<div class='text-sm text-slate-500'>No recent activity.</div>";
+    $("quickAccess").innerHTML=[["Studies","fa-flask","studies"],["Calibration","fa-gauge-high","cal"],["Qualification","fa-certificate","qual"],["PR / PO","fa-file-invoice","prpo"]].map(x=>`<button data-kpi="${x[2]}" class="border rounded-xl p-3 text-left hover:bg-slate-50 font-bold text-sm"><i class="fas ${x[1]} text-primary mr-2"></i>${x[0]}</button>`).join("");
+    document.querySelectorAll("[data-kpi]").forEach(b=>b.onclick=()=>showView(b.dataset.kpi));
+  }catch(e){showMsg("Dashboard load failed",friendly(e),"error")}
 }
-function tickClock(){$("dashboardClock").textContent=new Date().toLocaleString()}
-setInterval(tickClock,1000);tickClock();
 
-document.addEventListener("click",async e=>{
- const b=e.target.closest("button");if(!b)return;
- if(b.dataset.kpi)showView(b.dataset.kpi);
- if(b.id==="homeNav")showView("home");if(b.id==="studiesNav")showView("studies");if(b.id==="calibrationNav")showView("cal");if(b.id==="qualificationNav")showView("qual");if(b.id==="sopNav")showView("sop");if(b.id==="prpoNav")showView("prpo");
- if(b.id==="userManagementBtn")await loadUsers();if(b.id==="auditTrailBtn")await loadAudit();if(b.id==="logoutBtn")await signOut(auth);
- if(b.dataset.editStudy){const r=records.find(x=>x.id===b.dataset.editStudy);openStudy(r)}
- if(b.dataset.submitStudy)await submitStudy(b.dataset.submitStudy);if(b.dataset.studyAction)await setStudyAction(b.dataset.studyAction,b.dataset.action);
- if(b.dataset.reviewStudy)await reviewStudy(b.dataset.reviewStudy);if(b.dataset.approveStudy)await approveStudy(b.dataset.approveStudy);if(b.dataset.rejectStudy)await rejectStudy(b.dataset.rejectStudy);if(b.dataset.returnStudy)await returnStudy(b.dataset.returnStudy);
- if(b.dataset.filesStudy)await filesFor(b.dataset.filesStudy,"study");if(b.dataset.historyStudy)await showHistory(b.dataset.historyStudy);
- if(b.dataset.moduleEdit)openModule(moduleRecords.find(x=>x.id===b.dataset.moduleEdit));if(b.dataset.moduleSubmit)await submitModule(b.dataset.moduleSubmit);if(b.dataset.moduleReview)await moduleReview(b.dataset.moduleReview);if(b.dataset.moduleApprove)await moduleApprove(b.dataset.moduleApprove);if(b.dataset.moduleReturn)await moduleReturn(b.dataset.moduleReturn);if(b.dataset.moduleExec)await toggleModuleExecution(b.dataset.moduleExec,b.dataset.exec==="1");if(b.dataset.moduleFiles)await filesFor(b.dataset.moduleFiles,currentModule);if(b.dataset.printCal)printCalibration(b.dataset.printCal);
- if(b.dataset.sopFile)await openSop(b.dataset.sopFile);if(b.dataset.sopDelete)await deleteSop(b.dataset.sopDelete);
- if(b.dataset.prpoEdit)openPrpo(prpos.find(x=>x.id===b.dataset.prpoEdit));if(b.dataset.prpoSubmit)await submitPrpo(b.dataset.prpoSubmit);
- if(b.dataset.prpoReview){const x=prpos.find(a=>a.id===b.dataset.prpoReview);confirmAction("Review PR/PO",`Complete review of ${x.number}?`,async c=>{await prpoWorkflow(x.id,STATUS.PENDING_QA,c,"PR/PO Review Completed")})}
- if(b.dataset.prpoApprove){const x=prpos.find(a=>a.id===b.dataset.prpoApprove);confirmAction("Approve PR/PO",`Approve ${x.number}?`,async()=>{await prpoWorkflow(x.id,STATUS.APPROVED,isDelegatedDeputy()?"Approved under delegation":"QA Manager Approval","PR/PO Approved")})}
- if(b.dataset.prpoReturn){const x=prpos.find(a=>a.id===b.dataset.prpoReturn);confirmAction("Return PR/PO",`Return ${x.number}?`,async c=>{await prpoWorkflow(x.id,STATUS.RETURNED,c,"PR/PO Returned")},true)}
- if(b.dataset.userEdit)editUser(b.dataset.userEdit);if(b.dataset.userToggle)await toggleUser(b.dataset.userToggle);
-});
-document.addEventListener("click",e=>{const b=e.target.closest("[data-study-sub]");if(b){currentStudySubtab=b.dataset.studySub;renderStudies()}});
-document.addEventListener("click",e=>{const b=e.target.closest("[data-cal-tab],[data-qual-tab]");if(b){currentModuleTab=b.dataset.calTab||b.dataset.qualTab;document.querySelectorAll(".subtab").forEach(x=>x.classList.remove("active"));b.classList.add("active");renderModuleTable();if(currentModuleTab==="monthly")renderMonthTabs()}})
-function renderMonthTabs(){const months=["January","February","March","April","May","June","July","August","September","October","November","December"];$("#moduleMonthTabs").classList.remove("hidden");$("#moduleMonthTabs").innerHTML=months.map(m=>`<button class="px-2 py-1 text-xs rounded ${m===currentMonth?"bg-white text-slate-900":"text-white"}" data-month="${m}">${m.slice(0,3)}</button>`).join("")}
-document.addEventListener("click",e=>{const b=e.target.closest("[data-month]");if(b){currentMonth=b.dataset.month;renderModuleTable()}})
-$("addRecordBtn").onclick=()=>openStudy();$("addModuleBtn").onclick=()=>openModule();$("excelImportInput").onchange=importModuleExcel;$("sopInput").onchange=uploadSop;$("addPrpoBtn").onclick=()=>openPrpo();
-["searchInput","filterStage","filterStatus","filterScale"].forEach(id=>$(id).addEventListener("input",renderStudies));$("clearFiltersBtn").onclick=()=>{["searchInput"].forEach(id=>$(id).value="");["filterStage","filterStatus","filterScale"].forEach(id=>$(id).value="All");renderStudies()};
-["modSearchInput","modFilter1","modFilter2","modFilterStatus"].forEach(id=>$(id).addEventListener("input",renderModuleTable));$("modClearFiltersBtn").onclick=()=>{["modSearchInput"].forEach(id=>$(id).value="");["modFilter1","modFilter2","modFilterStatus"].forEach(id=>$(id).value="All");renderModuleTable()};
-$("sopSearch").oninput=renderSops;$("sopTypeFilter").onchange=renderSops;$("prpoSearch").oninput=renderPrpo;$("prpoType").onchange=renderPrpo;$("prpoStatus").onchange=renderPrpo;
-document.addEventListener("click",e=>{if(e.target.closest("[data-dashboard-refresh]"))loadDashboard()});
+document.addEventListener("DOMContentLoaded",()=>{
+  setupActivity();
+  $("azureSsoBtn")?.addEventListener("click",async()=>{
+    if(!msalInstance)return showMsg("MSAL unavailable","Microsoft authentication is not configured.","error");
+    try{const res=await msalInstance.loginPopup({scopes:["User.Read"]});if(res?.account){const email=res.account.username.toLowerCase();const cred=await signInWithEmailAndPassword(auth,email,email+"ValidApp@2026!");currentUser=cred.user;currentProfile=await loadProfile(currentUser);resetUI();showView("home");setupActivity();}}catch(e){showMsg("Microsoft SSO failed",friendly(e),"error")}
+  });
+  $("loginForm")?.addEventListener("submit",async e=>{
+    e.preventDefault();const id=$("username").value.trim(),pass=$("password").value;
+    try{const email=await resolveLoginEmail(id),cred=await signInWithEmailAndPassword(auth,email,pass);currentUser=cred.user;currentProfile=await loadProfile(currentUser);if(currentProfile.passwordExpired&&!passwordExpired){passwordExpired=true;return showMsg("Password expired","Your password is older than 90 days. Please update your password immediately.","error")}resetUI();showView("home");setupActivity();loadDashboard();document.getElementById("loginSection").classList.add("hidden");document.getElementById("dashboardSection").classList.remove("hidden");}catch(err){showMsg("Login failed",friendly(err),"error")}
+  });
+  $("logoutBtn")?.addEventListener("click",()=>signOut(auth).then(()=>{currentUser=null;currentProfile=null;resetUI();document.getElementById("loginSection").classList.remove("hidden");document.getElementById("dashboardSection").classList.add("hidden")}));
+  
+  $("homeNav")?.addEventListener("click",()=>showView("home"));
+  $("studiesNav")?.addEventListener("click",()=>showView("studies"));
+  $("calibrationNav")?.addEventListener("click",()=>showView("cal"));
+  $("qualificationNav")?.addEventListener("click",()=>showView("qual"));
+  $("sopNav")?.addEventListener("click",()=>showView("sop"));
+  $("prpoNav")?.addEventListener("click",()=>showView("prpo"));
+  $("userManagementBtn")?.addEventListener("click",loadUsers);
+  $("auditTrailBtn")?.addEventListener("click",loadAudit);
 
-$("loginForm").onsubmit=async e=>{e.preventDefault();$("loginError").classList.add("hidden");const identifier=$("username").value.trim(),password=$("password").value;if(!identifier||!password)return;try{const email=await resolveLoginEmail(identifier);await signInWithEmailAndPassword(auth,email,password)}catch(err){console.error("Firebase login error:",err);const m={"auth/invalid-credential":"Invalid email/username or password.","auth/invalid-email":"The Firebase account email is invalid.","auth/user-disabled":"This Firebase Authentication account is disabled.","auth/too-many-requests":"Too many login attempts. Wait a few minutes and try again.","auth/network-request-failed":"Network connection failed. Check your internet connection.","auth/operation-not-allowed":"Firebase Email/Password sign-in is not enabled. Enable it in Firebase Authentication → Sign-in method."};$("loginError").textContent=m[err?.code]||err?.message||"Sign-in failed.";$("loginError").classList.remove("hidden")}};
-$("azureSsoBtn").onclick=async()=>{try{if(!msalInstance) throw Error("Microsoft 365 sign-in is unavailable. Use the local Firebase account login.");const r=await msalInstance.loginPopup({scopes:["User.Read","openid","profile","email"]});$("username").value=r.account.username;$("password").focus()}catch(e){$("loginError").textContent="Microsoft 365 authentication failed.";$("loginError").classList.remove("hidden")}};
-$("sopUploadLabel").classList.toggle("hidden",!isSopUser());
+  ["tabProcess","tabHoldTime","tabCleaning"].forEach(id=>{
+    $(id)?.addEventListener("click",()=>{
+      document.querySelectorAll("#studiesView .tab").forEach(t=>t.classList.remove("active"));
+      $(id).classList.add("active");
+      currentCategory=id==="tabProcess"?CATS.PROCESS:id==="tabHoldTime"?CATS.HOLD:CATS.CLEANING;
+      currentStudySubtab="all";
+      renderStudies();
+    });
+  });
+  $("studySubtabs")?.addEventListener("click",e=>{const b=e.target.closest("[data-study-sub]");if(b){currentStudySubtab=b.dataset.studySub;renderStudies()}});
+  $("addRecordBtn")?.addEventListener("click",()=>openStudy());
+  $("searchInput")?.addEventListener("input",renderStudies);
+  ["filterStage","filterStatus","filterScale"].forEach(id=>$(id)?.addEventListener("change",renderStudies));
+  $("clearFiltersBtn")?.addEventListener("click",()=>{
+    $("searchInput").value="";$("filterStage").value="All";$("filterStatus").value="All";$("filterScale").value="All";renderStudies();
+  });
 
-onAuthStateChanged(auth,async user=>{
- if(!user){currentUser=null;currentProfile=null;resetUI();return}
- try{
-  currentUser=user;currentProfile=await loadProfile(user);passwordExpired=currentProfile.passwordExpired;
-  $("loginSection").classList.add("hidden");$("dashboardSection").classList.remove("hidden");$("sopNav").classList.toggle("hidden",!isSopUser());configureNav();setupActivity();
-  if(passwordExpired){modal(`<div class="modal active fixed inset-0 bg-black/50 z-[95] items-center justify-center p-4"><div class="bg-white rounded-2xl p-6 max-w-md w-full"><h3 class="font-extrabold text-lg">Password Expired</h3><p class="text-sm text-slate-600 mt-2">Your password is older than 90 days. Reset it before continuing.</p><button id="expiredReset" class="mt-4 w-full bg-primary text-white py-2 rounded-lg font-bold">Send Password Reset Email</button></div></div>`);$("#expiredReset").onclick=async()=>{await sendPasswordResetEmail(auth,currentUser.email);showMsg("Reset sent","Reset your password, then sign in again.");await signOut(auth)}}
-  else {await audit("Login","","","Session established.");showView("home")}
- }catch(e){await signOut(auth);$("loginError").textContent=e.message;$("loginError").classList.remove("hidden")}
+  $("addModuleBtn")?.addEventListener("click",()=>openModule());
+  $("excelImportInput")?.addEventListener("change",importModuleExcel);
+  document.querySelectorAll("[data-cal-tab]").forEach(b=>b.onclick=()=>{document.querySelectorAll("[data-cal-tab]").forEach(x=>x.classList.remove("active","subtab"));b.classList.add("active","subtab");currentModuleTab=b.dataset.calTab;renderModuleTable()});
+  document.querySelectorAll("[data-qual-tab]").forEach(b=>b.onclick=()=>{document.querySelectorAll("[data-qual-tab]").forEach(x=>x.classList.remove("active","subtab"));b.classList.add("active","subtab");currentModuleTab=b.dataset.qualTab;renderModuleTable()});
+  $("#modSearchInput")?.addEventListener("input",renderModuleTable);
+  ["modFilter1","modFilter2","modFilterStatus"].forEach(id=>$(id)?.addEventListener("change",renderModuleTable));
+  $("modClearFiltersBtn")?.addEventListener("click",()=>{$("#modSearchInput").value="";$("#modFilter1").value="All";$("#modFilter2").value="All";$("#modFilterStatus").value="All";renderModuleTable()});
+
+  $("sopInput")?.addEventListener("change",uploadSop);
+  $("sopSearch")?.addEventListener("input",renderSops);
+  $("sopTypeFilter")?.addEventListener("change",renderSops);
+  $("addPrpoBtn")?.addEventListener("click",()=>openPrpo());
+  ["prpoSearch","prpoType","prpoStatus"].forEach(id=>$(id)?.addEventListener("input",renderPrpo));
+
+  $("dataTableBody")?.addEventListener("click",e=>{
+    const b=e.target.closest("button");if(!b)return;
+    const id=b.dataset.editStudy||b.dataset.submitStudy||b.dataset.reviewStudy||b.dataset.approveStudy||b.dataset.returnStudy||b.dataset.rejectStudy||b.dataset.studyAction||b.dataset.filesStudy||b.dataset.historyStudy;
+    if(!id)return;
+    if(b.dataset.editStudy)openStudy(records.find(x=>x.id===id));
+    else if(b.dataset.submitStudy)submitStudy(id);
+    else if(b.dataset.reviewStudy)reviewStudy(id);
+    else if(b.dataset.approveStudy)approveStudy(id);
+    else if(b.dataset.returnStudy)returnStudy(id);
+    else if(b.dataset.rejectStudy)rejectStudy(id);
+    else if(b.dataset.studyAction)setStudyAction(id,b.dataset.action);
+    else if(b.dataset.filesStudy)filesFor(id,"studies");
+    else if(b.dataset.historyStudy)showHistory(id);
+  });
+
+  $("moduleTableBody")?.addEventListener("click",e=>{
+    const b=e.target.closest("button");if(!b)return;
+    const id=b.dataset.moduleEdit||b.dataset.moduleSubmit||b.dataset.moduleReview||b.dataset.moduleApprove||b.dataset.moduleReturn||b.dataset.moduleExec||b.dataset.printCal||b.dataset.moduleFiles;
+    if(!id)return;
+    if(b.dataset.moduleEdit)openModule(moduleRecords.find(x=>x.id===id));
+    else if(b.dataset.moduleSubmit)submitModule(id);
+    else if(b.dataset.moduleReview)moduleReview(id);
+    else if(b.dataset.moduleApprove)moduleApprove(id);
+    else if(b.dataset.moduleReturn)moduleReturn(id);
+    else if(b.dataset.moduleExec)toggleModuleExecution(id,b.dataset.exec==="1");
+    else if(b.dataset.printCal)printCalibration(id);
+    else if(b.dataset.moduleFiles)filesFor(id,currentModule===MODULES.CAL?"calibration":"qualification");
+  });
+
+  $("sopList")?.addEventListener("click",e=>{
+    const b=e.target.closest("button");if(!b)return;
+    const id=b.dataset.sopFile||b.dataset.sopDelete;if(!id)return;
+    if(b.dataset.sopFile)openSop(id);
+    else if(b.dataset.sopDelete)deleteSop(id);
+  });
+
+  $("prpoBody")?.addEventListener("click",e=>{
+    const b=e.target.closest("button");if(!b)return;
+    const id=b.dataset.prpoEdit||b.dataset.prpoSubmit;if(!id)return;
+    if(b.dataset.prpoEdit)openPrpo(prpos.find(x=>x.id===id));
+    else if(b.dataset.prpoSubmit)submitPrpo(id);
+  });
+
+  onAuthStateChanged(auth,async u=>{
+    if(u){
+      currentUser=u;
+      try{
+        currentProfile=await loadProfile(u);
+        $("loginSection").classList.add("hidden");
+        $("dashboardSection").classList.remove("hidden");
+        configureNav();
+        showView("home");
+      }catch(e){
+        signOut(auth);
+        showMsg("Access Error",friendly(e),"error");
+      }
+    }else{
+      currentUser=null;currentProfile=null;
+      resetUI();
+    }
+  });
 });
 </script>
 </body>
