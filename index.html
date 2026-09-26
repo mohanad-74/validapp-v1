@@ -109,7 +109,7 @@ body{font-family:Inter,Arial,sans-serif;background:#f1f5f9}
         <div class="text-right"><div id="dashboardClock" class="text-lg font-bold"></div><div class="text-xs text-blue-200">Session timeout: 15 minutes inactivity</div></div>
       </div>
     </div>
-    <div id="kpiGrid" class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3"></div>
+    <div id="kpiGrid" class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-5 gap-3"></div>
     <div class="grid grid-cols-1 xl:grid-cols-3 gap-4">
       <div class="card p-4 xl:col-span-2">
         <div class="flex justify-between items-center mb-3"><h3 class="font-extrabold">Module Overview</h3><button data-dashboard-refresh class="text-primary text-sm font-bold"><i class="fas fa-sync mr-1"></i>Refresh</button></div>
@@ -196,7 +196,7 @@ body{font-family:Inter,Arial,sans-serif;background:#f1f5f9}
 
 <script type="module">
 import {initializeApp,deleteApp} from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-import {getAuth,onAuthStateChanged,signInWithEmailAndPassword,signOut,createUserWithEmailAndPassword,sendPasswordResetEmail} from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+import {getAuth,onAuthStateChanged,signInWithEmailAndPassword,signOut,createUserWithEmailAndPassword,sendPasswordResetEmail,signInWithPopup,OAuthProvider} from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 import {getFirestore,collection,doc,getDoc,getDocs,setDoc,addDoc,updateDoc,deleteDoc,query,where,orderBy,limit,serverTimestamp} from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
 const MY_FIREBASE_CONFIG={apiKey:"AIzaSyDEV8rEluViDZiA5nnv7BiIU78rgq5en8A",authDomain:"validapp-db.firebaseapp.com",projectId:"validapp-db",storageBucket:"validapp-db.firebasestorage.app",messagingSenderId:"702664233017",appId:"1:702664233017:web:25fbede2f3c7244cdbfde8",measurementId:"G-7FTDYP0XWS"};
@@ -488,12 +488,11 @@ async function openStoredFile(f,download){
   try{const {data,error}=await supabaseClient.storage.from("documents").createSignedUrl(f.storagePath,120,{download:download?f.name:false});if(error)throw Error(error.message);if(download){const a=document.createElement("a");a.href=data.signedUrl;a.download=f.name;a.click()}else window.open(data.signedUrl,"_blank","noopener")}catch(e){showMsg("File access failed",friendly(e),"error")}
 }
 async function showHistory(id){
-    const snap=await getDocs(query(colRef("reviews"),where("studyId","==",id)));
-    const arr=snap.docs.map(d=>d.data()).sort((a,b)=>(b.createdAt?.seconds||0)-(a.createdAt?.seconds||0));
-    modal(`<div class="modal active fixed inset-0 bg-black/50 z-50 items-center justify-center p-4"><div class="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-auto p-6"><div class="flex justify-between"><h3 class="font-extrabold text-lg">Workflow History</h3><button data-modal-close>✕</button></div><div class="mt-4 space-y-3">${arr.map(x=>`<div class="border-l-4 border-blue-500 pl-3"><b>${esc(x.action\vert{}\vert{}"Review")} • ${esc(x.reviewerRole||"")}</b><div class="text-xs text-slate-500">${esc(x.reviewerName)} •${esc(nowLabel(x.createdAt))}</div><div class="text-sm mt-1 whitespace-pre-wrap">${esc(x.comment||"No comment")}</div></div>`).join("")||"<p class='text-sm text-slate-500'>No history.</p>"}</div></div></div>`);
-    document.querySelectorAll("[data-modal-close]").forEach(x=>x.onclick=closeModal);
+  const snap=await getDocs(query(colRef("reviews"),where("studyId","==" ,id)));
+  const arr=snap.docs.map(d=>d.data()).sort((a,b)=>(b.createdAt?.seconds||0)-(a.createdAt?.seconds||0));
+  modal(`<div class="modal active fixed inset-0 bg-black/50 z-50 items-center justify-center p-4"><div class="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-auto p-6"><div class="flex justify-between"><h3 class="font-extrabold text-lg">Workflow History</h3><button data-modal-close>✕</button></div><div class="mt-4 space-y-3">${arr.map(x=>`<div class="border-l-4 border-blue-500 pl-3"><b>${esc(x.action\vert{}\vert{}"Review")} • ${esc(x.reviewerRole||"")}</b><div class="text-xs text-slate-500">${esc(x.reviewerName)} •${esc(nowLabel(x.createdAt))}</div><div class="text-sm mt-1 whitespace-pre-wrap">${esc(x.comment||"No comment")}</div></div>`).join("")||"<p class='text-sm text-slate-500'>No history.</p>"}</div></div></div>`);
+  document.querySelectorAll("[data-modal-close]").forEach(x=>x.onclick=closeModal);
 }
-```[cite: 13]
 
 async function loadModule(){
   const cal=currentModule===MODULES.CAL;$("#moduleTitle").textContent=cal?"Calibration":"Qualification";$("#moduleDescription").textContent=cal?"Calibration monthly and department plans, due dates and execution tracking":"Qualification monthly plan, utilities and systems with due-date monitoring";
@@ -549,11 +548,10 @@ function openModule(record=null){
   modal(`<div class="modal active fixed inset-0 bg-black/50 z-50 items-center justify-center p-4"><div class="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[92vh] overflow-auto p-6"><div class="flex justify-between border-b pb-3 mb-4"><h3 class="text-xl font-extrabold">${record?"Edit":"Add"} ${cal?"Calibration":"Qualification"} Record</h3><button data-modal-close>✕</button></div><form id="moduleForm" class="space-y-4"><input type="hidden" id="moduleId" value="${record?.id||""}">${cal?calFields(record):qualFields(record)}<div class="flex justify-end gap-2 border-t pt-3"><button type="button" data-modal-close class="px-4 py-2 border rounded-lg">Cancel</button><button class="px-5 py-2 bg-primary text-white rounded-lg font-bold">Save Draft</button></div></form></div></div>`);
   document.querySelectorAll("[data-modal-close]").forEach(x=>x.onclick=closeModal);$("#moduleForm").onsubmit=async e=>{e.preventDefault();await saveModule(record)}
 }
-function calFields(r){return`<div class="grid md:grid-cols-2 gap-4">${[
-["Certificate No.","calCertificateNo",r?.certificateNo],["Department","calDept",r?.department],["Instrument","calInstrument",r?.instrument],["Code","calCode",r?.code],["Manufacturer","calManuf",r?.manufacturer],["Model","calModel",r?.model],["Serial Number","calSN",r?.serialNumber],["Location","calLocation",r?.location],["Calibration Range","calRange",r?.calRange],["Acceptance Limits","calLimits",r?.acceptanceLimits],["Interval","calInterval",r?.interval],["Month / Year","calMonthYear",r?.monthYear]].map(x=>`<div><label class="text-sm font-bold">${x[0]}</label><input id="${x[1]}" class="w-full p-2 border rounded-lg" value="${esc(x[2]||"")}"></div>`).join("")}<div><label class="text-sm font-bold">Calibration Date</label><input id="calDate" type="date" class="w-full p-2 border rounded-lg" value="${esc(r?.calDate||"")}"></div><div><label class="text-sm font-bold">Due Date</label><input id="calDueDate" type="date" class="w-full p-2 border rounded-lg" value="${esc(r?.dueDate||"")}"></div></div><div class="flex gap-5"><label><input id="calAdd" type="checkbox" ${r?.isAddendum?"checked":""}> Addendum</label><label><input id="calOut" type="checkbox" ${r?.isOutOfCalibration?"checked":""}> Out of Calibration</label></div>`}
+function calFields(r){return`<div class="grid md:grid-cols-2 gap-4">${[["Certificate No.","calCertificateNo",r?.certificateNo],["Department","calDept",r?.department],["Instrument","calInstrument",r?.instrument],["Code","calCode",r?.code],["Manufacturer","calManuf",r?.manufacturer],["Model","calModel",r?.model],["Serial Number","calSN",r?.serialNumber],["Location","calLocation",r?.location],["Calibration Range","calRange",r?.calRange],["Acceptance Limits","calLimits",r?.acceptanceLimits],["Interval","calInterval",r?.interval],["Month / Year","calMonthYear",r?.monthYear]].map(x=>`<div><label class="text-sm font-bold">${x[0]}</label><input id="${x[1]}" class="w-full p-2 border rounded-lg" value="${esc(x[2]||"")}"></div>`).join("")}<div><label class="text-sm font-bold">Calibration Date</label><input id="calDate" type="date" class="w-full p-2 border rounded-lg" value="${esc(r?.calDate||"")}"></div><div><label class="text-sm font-bold">Due Date</label><input id="calDueDate" type="date" class="w-full p-2 border rounded-lg" value="${esc(r?.dueDate||"")}"></div></div><div class="flex gap-5"><label><input id="calAdd" type="checkbox" ${r?.isAddendum?"checked":""}> Addendum</label><label><input id="calOut" type="checkbox" ${r?.isOutOfCalibration?"checked":""}> Out of Calibration</label></div>`}
 function qualFields(r){return`<div class="grid md:grid-cols-2 gap-4"><div><label class="text-sm font-bold">Name *</label><input id="qualName" required class="w-full p-2 border rounded-lg" value="${esc(r?.name||"")}"></div><div><label class="text-sm font-bold">Reference / Protocol *</label><input id="qualRef" required class="w-full p-2 border rounded-lg" value="${esc(r?.reference||"")}"></div><div><label class="text-sm font-bold">Type</label><select id="qualType" class="w-full p-2 border rounded-lg"><option value="equipment" ${r?.qualificationType==="equipment"?"selected":""}>Equipment</option><option value="utilities" ${r?.qualificationType==="utilities"?"selected":""}>Utilities</option><option value="system" ${r?.qualificationType==="system"?"selected":""}>System</option></select></div><div><label class="text-sm font-bold">Stage</label><select id="qualStage" class="w-full p-2 border rounded-lg">${["DQ","IQ","OQ","PQ","PERIODIC PQ"].map(x=>`<option ${r?.stage===x?"selected":""}>${x}</option>`).join("")}</select></div><div><label class="text-sm font-bold">Planned Date</label><input id="qualDate" type="date" class="w-full p-2 border rounded-lg" value="${esc(r?.plannedDate||"")}"></div><div><label class="text-sm font-bold">Due Date</label><input id="qualDueDate" type="date" class="w-full p-2 border rounded-lg" value="${esc(r?.dueDate||"")}"></div><div class="md:col-span-2"><label class="text-sm font-bold">Equipment / Utility / System Details</label><input id="qualInfo" class="w-full p-2 border rounded-lg" value="${esc(r?.equipmentSystemInfo||"")}"></div><div class="md:col-span-2"><label class="text-sm font-bold">Description / Scope</label><textarea id="qualDesc" rows="2" class="w-full p-2 border rounded-lg">${esc(r?.description||"")}</textarea></div></div>`}
 async function saveModule(old){
-  const cal=currentModule===MODULES.CAL,data=cal?{certificateNo:$("#calCertificateNo").value.trim(),department:$("#calDept").value.trim(),instrument:$("#calInstrument").value.trim(),code:$("#calCode").value.trim(),manufacturer:$("#calManuf").value.trim(),model:$("#calModel").value.trim(),serialNumber:$("#calSN").value.trim(),location:$("#calLocation").value.trim(),calRange:$("#calRange").value.trim(),acceptanceLimits:$("#calLimits").value.trim(),interval:$("#calInterval").value.trim(),monthYear:$("#calMonthYear").value.trim(),calDate:$("#calDate").value,dueDate:$("#calDueDate").value,isAddendum:$("#calAdd").checked,isOutOfCalibration:$("#calOut").checked,name:$("#calInstrument").value.trim(),reference:$("#calCertificateNo").value.trim()}:{name:$("#qualName").value.trim(),reference:$("#qualRef").value.trim(),qualificationType:$("#qualType").value,stage:$("#qualStage").value,plannedDate:$("#qualDate").value,dueDate:$("#qualDueDate").value,equipmentSystemInfo:$("#qualInfo").value.trim(),description:$("#qualDesc").value.trim()};
+  const cal=currentModule===MODULES.CAL,data=cal?{certificateNo:$("#calCertificateNo").value.trim(),department:$("#calDept").value.trim(),instrument:$("#calInstrument").value.trim(),code:$("#calCode").value.trim(),manufacturer:$("#calManuf").value.trim(),model:$("#calModel").value.trim(),serialNumber:$("#calSN").value.trim(),location:$("#calLocation").value.trim(),calRange:$("#calRange").value.trim(),acceptanceLimits:$("#calLimits").value.trim(),interval:$("#calInterval").value.trim(),monthYear:$("#calMonthYear").value.trim(),calDate:$("#calDate").value,dueDate:$("#calDueDate").value,isAddendum:$("#calAdd").checked,isOutOfCalibration:$("#calOut").checked,name:$("#calInstrument").value.trim(),reference:$("#calCertificateNo").value.trim()}:{name:$("#qualName").value.trim(),reference:$("#qualRef").value.trim(),qualificationType:$("#qualType").value,stage:$("#qualStage").value,plannedDate:$("#calDate").value,dueDate:$("#calDueDate").value,equipmentSystemInfo:$("#qualInfo").value.trim(),description:$("#qualDesc").value.trim()};
   if(cal&&(!data.certificateNo||!data.instrument||!data.code))return showMsg("Missing fields","Certificate No., Instrument and Code are required.","error");
   if(!cal&&(!data.name||!data.reference))return showMsg("Missing fields","Name and Reference are required.","error");
   try{const c=cal?"calibration":"qualification";if(old){await updateDoc(docRef(c,old.id),{...data,updatedAt:serverTimestamp()})}else await addDoc(colRef(c),{...data,status:STATUS.DRAFT,executedTracker:false,createdByUid:currentUser.uid,createdByName:currentProfile.displayName||currentUser.email,createdAt:serverTimestamp(),updatedAt:serverTimestamp()});closeModal();await loadModule();showMsg("Saved","Record saved as Draft. Workflow audit begins on submission.","success")}catch(e){showMsg("Save failed",friendly(e),"error")}
@@ -621,120 +619,122 @@ async function loadDashboard(){
     `;
 
     $("moduleOverview").innerHTML=`
-      <div class="border rounded-xl p-3 bg-slate-50"><b>Validation Studies</b><div class="text-xs text-slate-600 mt-1">${totalStudies} tracked records (${approvedStudies} approved).</div></div>
-      <div class="border rounded-xl p-3 bg-slate-50"><b>Calibration Module</b><div class="text-xs text-slate-600 mt-1">${totalCal} active instruments.</div></div>
-      <div class="border rounded-xl p-3 bg-slate-50"><b>Qualification Module</b><div class="text-xs text-slate-600 mt-1">${totalQual} utilities/systems.</div></div>
+      <div class="border rounded-xl p-3 bg-slate-50"><b>Process Validation</b><div class="text-2xl font-bold text-primary mt-1">${r.filter(x=>x.studyCategory===CATS.PROCESS).length}</div></div>
+      <div class="border rounded-xl p-3 bg-slate-50"><b>Hold Time Studies</b><div class="text-2xl font-bold text-primary mt-1">${r.filter(x=>x.studyCategory===CATS.HOLD).length}</div></div>
+      <div class="border rounded-xl p-3 bg-slate-50"><b>Cleaning Validation</b><div class="text-2xl font-bold text-primary mt-1">${r.filter(x=>x.studyCategory===CATS.CLEANING).length}</div></div>
     `;
-
-    const pending=rs.docs.map(d=>({id:d.id,...d.data()})).filter(x=>!["Approved","Rejected","Completed","Draft"].includes(x.status));
-    $("pendingList").innerHTML=pending.slice(0,5).map(x=>`<div class="p-2 border rounded-lg text-xs flex justify-between items-center"><div><b>${esc(x.productName)}</b><div class="text-slate-500">${esc(x.status)}</div></div><button data-goto-study="${x.id}" class="text-primary font-bold">View</button></div>`).join("")||`<div class="text-xs text-slate-500">No pending actions.</div>`;
-
-    $("recentActivity").innerHTML=as.docs.map(d=>{const x=d.data();return`<div class="border-l-2 border-primary pl-2 py-1 text-xs"><b>${esc(x.action)}</b> — ${esc(x.targetName||x.studyName||"—")}<div class="text-slate-500">${esc(x.userName)} (${esc(x.userRole)}) • ${esc(nowLabel(x.createdAt))}</div></div>`}).join("")||`<div class="text-xs text-slate-500">No recent activity.</div>`;
 
     $("quickAccess").innerHTML=`
-      <button data-quick="studies" class="p-3 border rounded-xl text-left hover:bg-slate-50 font-bold text-xs"><i class="fas fa-flask mr-1 text-primary"></i>Studies Module</button>
-      <button data-quick="cal" class="p-3 border rounded-xl text-left hover:bg-slate-50 font-bold text-xs"><i class="fas fa-gauge-high mr-1 text-indigo-600"></i>Calibration Module</button>
-      <button data-quick="qual" class="p-3 border rounded-xl text-left hover:bg-slate-50 font-bold text-xs"><i class="fas fa-certificate mr-1 text-purple-600"></i>Qualification Module</button>
-      <button data-quick="prpo" class="p-3 border rounded-xl text-left hover:bg-slate-50 font-bold text-xs"><i class="fas fa-file-invoice-dollar mr-1 text-amber-600"></i>PR / PO Module</button>
+      <button onclick="showView('studies')" class="p-3 border rounded-xl bg-slate-50 hover:bg-slate-100 text-left font-bold"><i class="fas fa-flask text-primary mr-2"></i>Studies Module</button>
+      <button onclick="showView('cal')" class="p-3 border rounded-xl bg-slate-50 hover:bg-slate-100 text-left font-bold"><i class="fas fa-gauge-high text-indigo-600 mr-2"></i>Calibration</button>
+      <button onclick="showView('qual')" class="p-3 border rounded-xl bg-slate-50 hover:bg-slate-100 text-left font-bold"><i class="fas fa-certificate text-purple-600 mr-2"></i>Qualification</button>
+      <button onclick="showView('prpo')" class="p-3 border rounded-xl bg-slate-50 hover:bg-slate-100 text-left font-bold"><i class="fas fa-file-invoice-dollar text-amber-600 mr-2"></i>PR / PO Tracking</button>
     `;
-    document.querySelectorAll("[data-quick]").forEach(b=>b.onclick=()=>showView(b.dataset.quick));
-    document.querySelectorAll("[data-goto-study]").forEach(b=>b.onclick=()=>{showView("studies");setTimeout(()=>{$("searchInput").value=pending.find(x=>x.id===b.dataset.gotoStudy)?.productName||"";renderStudies()},200)});
-  }catch(e){console.warn("Dashboard load warning:",e)}
+
+    $("recentActivity").innerHTML=as.docs.map(d=>{const x=d.data();return`<div class="text-xs border-b pb-2"><b>${esc(x.action)}</b> — <span class="text-slate-500">${esc(x.userName)}</span><div class="text-slate-400">${esc(nowLabel(x.createdAt))}</div></div>`}).join("")||"<div class='text-sm text-slate-500'>No recent activity.</div>";
+  }catch(e){console.error("Dashboard load failed:",e)}
 }
 
-document.addEventListener("DOMContentLoaded",()=>{
-  setupActivity();
-  $("logoutBtn").onclick=()=>signOut(auth);
-  $("homeNav").onclick=()=>showView("home");
-  $("studiesNav").onclick=()=>showView("studies");
-  $("calibrationNav").onclick=()=>showView("cal");
-  $("qualificationNav").onclick=()=>showView("qual");
-  $("sopNav").onclick=()=>showView("sop");
-  $("prpoNav").onclick=()=>showView("prpo");
-  $("userManagementBtn").onclick=loadUsers;
-  $("auditTrailBtn").onclick=loadAudit;
+// Global Event Routing & Handlers
+document.addEventListener("click",async e=>{
+  const t=e.target.closest("button");if(!t)return;
+  if(t.id==="homeNav")showView("home");
+  if(t.id==="studiesNav")showView("studies");
+  if(t.id==="calibrationNav")showView("cal");
+  if(t.id==="qualificationNav")showView("qual");
+  if(t.id==="sopNav")showView("sop");
+  if(t.id==="prpoNav")showView("prpo");
+  if(t.id==="auditTrailBtn")loadAudit();
+  if(t.id==="userManagementBtn")loadUsers();
+  if(t.id==="logoutBtn")signOut(auth);
+  if(t.id==="addRecordBtn")openStudy();
+  if(t.id==="addModuleBtn")openModule();
+  if(t.id==="addPrpoBtn")openPrpo();
+  
+  if(t.dataset.studySub){currentStudySubtab=t.dataset.studySub;renderStudies()}
+  if(t.dataset.editStudy)openStudy(records.find(x=>x.id===t.dataset.editStudy));
+  if(t.dataset.submitStudy)submitStudy(t.dataset.submitStudy);
+  if(t.dataset.reviewStudy)reviewStudy(t.dataset.reviewStudy);
+  if(t.dataset.approveStudy)approveStudy(t.dataset.approveStudy);
+  if(t.dataset.returnStudy)returnStudy(t.dataset.returnStudy);
+  if(t.dataset.rejectStudy)rejectStudy(t.dataset.rejectStudy);
+  if(t.dataset.studyAction)setStudyAction(t.dataset.studyAction,t.dataset.action);
+  if(t.dataset.filesStudy)filesFor(t.dataset.filesStudy,"studies");
+  if(t.dataset.historyStudy)showHistory(t.dataset.historyStudy);
 
-  $("azureSsoBtn").onclick=async()=>{
-    if(!msalInstance)return showMsg("MSAL unavailable","Microsoft login wrapper not loaded.","error");
+  if(t.dataset.moduleEdit)openModule(moduleRecords.find(x=>x.id===t.dataset.moduleEdit));
+  if(t.dataset.moduleSubmit)submitModule(t.dataset.moduleSubmit);
+  if(t.dataset.moduleReview)moduleReview(t.dataset.moduleReview);
+  if(t.dataset.moduleApprove)moduleApprove(t.dataset.moduleApprove);
+  if(t.dataset.moduleReturn)moduleReturn(t.dataset.moduleReturn);
+  if(t.dataset.moduleExec)toggleModuleExecution(t.dataset.moduleExec,t.dataset.exec==="1");
+  if(t.dataset.moduleFiles)filesFor(t.dataset.moduleFiles,currentModule===MODULES.CAL?"calibration":"qualification");
+  if(t.dataset.printCal)printCalibration(t.dataset.printCal);
+
+  if(t.dataset.calTab||t.dataset.qualTab){
+    document.querySelectorAll(".module-tab").forEach(x=>x.classList.remove("active","bg-primary","text-white"));
+    t.classList.add("active","bg-primary","text-white");
+    currentModuleTab=t.dataset.calTab||t.dataset.qualTab;renderModuleTable();
+  }
+
+  if(t.dataset.sopFile)openSop(t.dataset.sopFile);
+  if(t.dataset.sopDelete)deleteSop(t.dataset.sopDelete);
+  if(t.dataset.prpoEdit)openPrpo(prpos.find(x=>x.id===t.dataset.prpoEdit));
+  if(t.dataset.prpoSubmit)submitPrpo(t.dataset.prpoSubmit);
+  if(t.dataset.userEdit)editUser(t.dataset.userEdit);
+  if(t.dataset.userToggle)toggleUser(t.dataset.userToggle);
+});
+
+// Category and Filter Change Listeners
+$("tabProcess").onclick=()=>{currentCategory=CATS.PROCESS;currentStudySubtab="all";document.querySelectorAll("#studiesView .tab").forEach(x=>x.classList.remove("active"));$("tabProcess").classList.add("active");renderStudies()};
+$("tabHoldTime").onclick=()=>{currentCategory=CATS.HOLD;currentStudySubtab="all";document.querySelectorAll("#studiesView .tab").forEach(x=>x.classList.remove("active"));$("tabHoldTime").classList.add("active");renderStudies()};
+$("tabCleaning").onclick=()=>{currentCategory=CATS.CLEANING;currentStudySubtab="all";document.querySelectorAll("#studiesView .tab").forEach(x=>x.classList.remove("active"));$("tabCleaning").classList.add("active");renderStudies()};
+
+["searchInput","filterStage","filterStatus","filterScale"].forEach(id=>$(id).oninput=renderStudies);$("clearFiltersBtn").onclick=()=>{["searchInput","filterStage","filterStatus","filterScale"].forEach(id=>$(id).value="All");$("searchInput").value="";renderStudies()};
+["modSearchInput","modFilter1","modFilter2","modFilterStatus"].forEach(id=>$(id).oninput=renderModuleTable);$("modClearFiltersBtn").onclick=()=>{["modSearchInput","modFilter1","modFilter2","modFilterStatus"].forEach(id=>$(id).value="All");$("modSearchInput").value="";renderModuleTable()};
+$("sopSearch").oninput=renderSops;$("sopTypeFilter").onchange=renderSops;
+$("prpoSearch").oninput=renderPrpo;$("prpoType").onchange=renderPrpo;$("prpoStatus").onchange=renderPrpo;
+if($("sopInput"))$("sopInput").onchange=uploadSop;
+if($("excelImportInput"))$("excelImportInput").onchange=importModuleExcel;
+
+// Authentication Handlers
+$("loginForm").onsubmit=async e=>{
+  e.preventDefault();const err=$("loginError");err.classList.add("hidden");
+  try{
+    const email=await resolveLoginEmail($("username").value);
+    await signInWithEmailAndPassword(auth,email,$("password").value);
+  }catch(ex){err.textContent=friendly(ex);err.classList.remove("hidden")}
+};
+
+$("azureSsoBtn").onclick=async()=>{
+  const err=$("loginError");err.classList.add("hidden");
+  if(msalInstance){
     try{
-      await msalInstance.initialize();const res=await msalInstance.loginPopup({scopes:["User.Read"]});
-      if(res?.account?.username){
-        const email=res.account.username.toLowerCase();
-        try{
-          const profile=await loadProfile({email,uid:res.account.homeAccountId});
-          currentUser={uid:res.account.homeAccountId,email};currentProfile=profile;
-          if(profile.passwordExpired)return showMsg("Password Expired","Your account password has expired (>90 days). Contact admin to reset.","error");
-          configureNav();showView("home");
-        }catch(err){showMsg("SSO profile error",friendly(err),"error")}
+      const resp=await msalInstance.loginPopup({scopes:["User.Read"]});
+      if(resp?.account?.username){
+        const email=resp.account.username.trim().toLowerCase();
+        const profile=await loadProfile({email});
+        if(profile){showView("home");setupActivity();return}
       }
-    }catch(e){showMsg("Microsoft Login failed",friendly(e),"error")}
-  };
+    }catch(ex){console.warn("MSAL Popup fallback to Firebase popup:",ex)}
+  }
+  try{
+    const provider=new OAuthProvider("microsoft.com");provider.setCustomParameters({prompt:"select_account"});
+    const res=await signInWithPopup(auth,provider);
+    if(res?.user){const email=res.user.email;await loadProfile({email});showView("home");setupActivity()}
+  }catch(ex){err.textContent=friendly(ex);err.classList.remove("hidden")}
+};
 
-  $("loginForm").onsubmit=async e=>{
-    e.preventDefault();const raw=$("username").value.trim(),password=$("password").value;const errDiv=$("loginError");errDiv.classList.add("hidden");
+onAuthStateChanged(auth,async u=>{
+  if(u){
     try{
-      const email=await resolveLoginEmail(raw);
-      const cred=await signInWithEmailAndPassword(auth,email,password);
-      const profile=await loadProfile(cred.user);
-      currentUser=cred.user;currentProfile=profile;
-      if(profile.passwordExpired){await signOut(auth);return showMsg("Password Expired","Your password has expired (exceeds 90 days). Please use the password reset option to update it.","error")}
-      configureNav();showView("home");
-    }catch(err){errDiv.textContent=friendly(err);errDiv.classList.remove("hidden")}
-  };
-
-  [CATS.PROCESS,CATS.HOLD,CATS.CLEANING].forEach((cat,i)=>{const ids=["tabProcess","tabHoldTime","tabCleaning"];$(ids[i]).onclick=()=>{document.querySelectorAll("#studiesView .tab").forEach(t=>t.classList.remove("active"));$(ids[i]).classList.add("active");currentCategory=cat;currentStudySubtab="all";loadStudies()}});
-  $("studySubtabs").onclick=e=>{const btn=e.target.closest("[data-study-sub]");if(btn){currentStudySubtab=btn.dataset.studySub;renderStudies()}};
-  $("addRecordBtn").onclick=()=>openStudy();
-  ["searchInput","filterStage","filterStatus","filterScale"].forEach(id=>$(id).oninput=renderStudies);$("clearFiltersBtn").onclick=()=>{["searchInput","filterStage","filterStatus","filterScale"].forEach(id=>$(id).value="All");$("searchInput").value="";renderStudies()};
-
-  $("dataTableBody").onclick=e=>{
-    const ed=e.target.closest("[data-edit-study]"),sub=e.target.closest("[data-submit-study]"),rev=e.target.closest("[data-review-study]"),app=e.target.closest("[data-approve-study]"),rej=e.target.closest("[data-reject-study]"),ret=e.target.closest("[data-return-study]"),act=e.target.closest("[data-study-action]"),files=e.target.closest("[data-files-study]"),hist=e.target.closest("[data-history-study]");
-    if(ed)openStudy(records.find(x=>x.id===ed.dataset.editStudy));
-    if(sub)submitStudy(sub.dataset.submitStudy);
-    if(rev)reviewStudy(rev.dataset.reviewStudy);
-    if(app)approveStudy(app.dataset.approveStudy);
-    if(rej)rejectStudy(rej.dataset.rejectStudy);
-    if(ret)returnStudy(ret.dataset.returnStudy);
-    if(act)setStudyAction(act.dataset.studyAction,act.dataset.action);
-    if(files)filesFor(files.dataset.filesStudy,"studies");
-    if(hist)showHistory(hist.dataset.historyStudy);
-  };
-
-  document.querySelectorAll("[data-cal-tab]").forEach(b=>b.onclick=()=>{document.querySelectorAll("[data-cal-tab]").forEach(x=>x.classList.remove("active","subtab"));b.classList.add("active","subtab");currentModuleTab=b.dataset.calTab;renderModuleTable()});
-  document.querySelectorAll("[data-qual-tab]").forEach(b=>b.onclick=()=>{document.querySelectorAll("[data-qual-tab]").forEach(x=>x.classList.remove("active","subtab"));b.classList.add("active","subtab");currentModuleTab=b.dataset.qualTab;renderModuleTable()});
-  $("addModuleBtn").onclick=()=>openModule();
-  $("excelImportInput").onchange=importModuleExcel;
-  ["modSearchInput","modFilter1","modFilter2","modFilterStatus"].forEach(id=>$(id).oninput=renderModuleTable);$("modClearFiltersBtn").onclick=()=>{["modSearchInput","modFilter1","modFilter2","modFilterStatus"].forEach(id=>$(id).value="All");$("modSearchInput").value="";renderModuleTable()};
-
-  $("moduleTableBody").onclick=e=>{
-    const ed=e.target.closest("[data-module-edit]"),sub=e.target.closest("[data-module-submit]"),rev=e.target.closest("[data-module-review]"),app=e.target.closest("[data-module-approve]"),ret=e.target.closest("[data-module-return]"),exec=e.target.closest("[data-module-exec]"),print=e.target.closest("[data-print-cal]"),files=e.target.closest("[data-module-files]");
-    if(ed)openModule(moduleRecords.find(x=>x.id===ed.dataset.moduleEdit));
-    if(sub)submitModule(sub.dataset.moduleSubmit);
-    if(rev)moduleReview(rev.dataset.moduleReview);
-    if(app)moduleApprove(app.dataset.moduleApprove);
-    if(ret)moduleReturn(ret.dataset.moduleReturn);
-    if(exec)toggleModuleExecution(exec.dataset.moduleExec,exec.dataset.exec==="1");
-    if(print)printCalibration(print.dataset.printCal);
-    if(files)filesFor(files.dataset.moduleFiles,currentModule.toLowerCase());
-  };
-
-  $("sopInput").onchange=uploadSop;
-  $("sopSearch").oninput=renderSops;
-  $("sopTypeFilter").onchange=renderSops;
-  $("sopList").onclick=e=>{const op=e.target.closest("[data-sop-file]"),del=e.target.closest("[data-sop-delete]");if(op)openSop(op.dataset.sopFile);if(del)deleteSop(del.dataset.sopDelete)};
-
-  $("addPrpoBtn").onclick=()=>openPrpo();
-  ["prpoSearch","prpoType","prpoStatus"].forEach(id=>$(id).oninput=renderPrpo);$("prpoBody").onclick=e=>{const ed=e.target.closest("[data-prpo-edit]"),sub=e.target.closest("[data-prpo-submit]"),rev=e.target.closest("[data-prpo-review]"),app=e.target.closest("[data-prpo-approve]"),ret=e.target.closest("[data-prpo-return]");if(ed)openPrpo(prpos.find(x=>x.id===ed.dataset.prpoEdit));if(sub)submitPrpo(sub.dataset.prpoSubmit);if(rev)prpoWorkflow(rev.dataset.prpoReview,STATUS.PENDING_QA,"Review completed","PR/PO Reviewed");if(app)prpoWorkflow(app.dataset.prpoApprove,STATUS.APPROVED,"Approved","PR/PO Approved");if(ret)prpoWorkflow(ret.dataset.prpoReturn,STATUS.RETURNED,"Returned for revision","PR/PO Returned")};
-
-  onAuthStateChanged(auth,async user=>{
-    if(user){
-      try{
-        const profile=await loadProfile(user);currentUser=user;currentProfile=profile;
-        if(profile.passwordExpired){await signOut(auth);return showMsg("Password Expired","Account password has expired. Contact system administrator.","error")}
-        configureNav();showView("home");
-      }catch(err){resetUI();showMsg("Authentication error",friendly(err),"error")}
-    }else{resetUI()}
-  });
+      currentProfile=await loadProfile(u);currentUser=u;
+      $("loginSection").classList.add("hidden");$("dashboardSection").classList.remove("hidden");
+      configureNav();showView("home");setupActivity();
+    }catch(ex){
+      signOut(auth);resetUI();const err=$("loginError");err.textContent=friendly(ex);err.classList.remove("hidden");
+    }
+  }else{currentUser=null;currentProfile=null;resetUI()}
 });
 </script>
 </body>
