@@ -94,7 +94,7 @@ body{font-family:Inter,Arial,sans-serif;background:#f1f5f9}
   </button>
   <div class="relative flex items-center mb-5"><div class="flex-1 border-t"></div><span class="px-3 text-xs text-slate-400 uppercase">or local account</span><div class="flex-1 border-t"></div></div>
   <form id="loginForm" class="space-y-4">
-    <div><label class="text-sm font-semibold">Email</label><input id="username" type="email" autocomplete="username" required class="w-full mt-1 p-3 border rounded-lg"></div>
+    <div><label class="text-sm font-semibold">Email</label><input id="username" type="text" autocomplete="username" required class="w-full mt-1 p-3 border rounded-lg"></div>
     <div><label class="text-sm font-semibold">Password</label><input id="password" type="password" autocomplete="current-password" required class="w-full mt-1 p-3 border rounded-lg"></div>
     <div id="loginError" class="hidden text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-3"></div>
     <button class="w-full bg-primary hover:bg-blue-800 text-white font-bold py-3 rounded-lg">Sign In</button>
@@ -205,7 +205,7 @@ const SUPABASE_ANON_KEY="sb_publishable__0Xw5joGtNrlh38qYOhrpw_vMALXzrV";
 const EMAILJS_PUBLIC_KEY="tx8P6mYyi6C6APSXn",EMAILJS_SERVICE_ID="service_nyq8c6p",EMAILJS_TEMPLATE_ID="template_008bbdj";
 if(window.emailjs) window.emailjs.init(EMAILJS_PUBLIC_KEY);
 const msalConfig={auth:{clientId:"22315588-6d90-4c55-87be-3e293fc5a7a9",authority:"https://login.microsoftonline.com/a0463def-3037-44e8-8e17-e94af8f05069",redirectUri:window.location.origin+window.location.pathname},cache:{cacheLocation:"localStorage",storeAuthStateInCookie:false}};
-const msalInstance=(window.msal&&window.msal.PublicClientApplication)?new msal.PublicClientApplication(msalConfig):null;
+const msalInstance=(window.msal&&window.msal.PublicClientApplication)?new window.msal.PublicClientApplication(msalConfig):null;
 const firebaseConfig=typeof __firebase_config!=="undefined"?JSON.parse(__firebase_config):MY_FIREBASE_CONFIG;
 const appId=typeof __app_id!=="undefined"?__app_id:"validapp-default";
 const app=initializeApp(firebaseConfig),auth=getAuth(app),db=getFirestore(app);
@@ -224,11 +224,16 @@ let currentUser=null,currentProfile=null,currentView="home",currentCategory=CATS
 let currentModule=MODULES.CAL,currentModuleTab="all",currentMonth=new Date().toLocaleString("en-US",{month:"long"});
 let records=[],moduleRecords=[],users=[],sops=[],prpos=[],auditLogs=[],filesByParent=[],pendingAction=null;
 let inactivityTimer=null,lastActivity=Date.now(),passwordExpired=false;
+let userStore="nested";
 
 const $=id=>document.getElementById(id);
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const colRef=n=>collection(db,"artifacts",appId,"public","data",n);
 const docRef=(n,id)=>doc(db,"artifacts",appId,"public","data",n,id);
+const rootColRef=n=>collection(db,n);
+const rootDocRef=(n,id)=>doc(db,n,id);
+const usersColRef=()=>userStore==="root"?rootColRef("users"):colRef("users");
+const usersDocRef=id=>userStore==="root"?rootDocRef("users",id):docRef("users",id);
 const nowLabel=v=>{if(!v)return"—";const d=v?.toDate?v.toDate():new Date(v);return Number.isNaN(d.getTime())?"—":d.toLocaleString()};
 const role=()=>currentProfile?.role;
 const can=(...r)=>!!currentProfile&&r.includes(role());
@@ -252,7 +257,7 @@ async function audit(action,targetId="",targetName="",details="",previous="",nex
 async function notifyEmails(action,targetName,status,details,excludeSelf=false){
   if(!window.emailjs||!currentUser)return;
   try{
-    const snap=await getDocs(colRef("users"));const recipients=snap.docs.map(d=>d.data()).filter(u=>u.disabled!==true&&u.email&&(!excludeSelf||u.email.toLowerCase()!==currentUser.email.toLowerCase()));
+    const snap=await getDocs(usersColRef());const recipients=snap.docs.map(d=>d.data()).filter(u=>u.disabled!==true&&u.email&&(!excludeSelf||u.email.toLowerCase()!==currentUser.email.toLowerCase()));
     for(const u of recipients){
       await window.emailjs.send(EMAILJS_SERVICE_ID,EMAILJS_TEMPLATE_ID,{to_email:u.email,action_taken:action,timestamp:new Date().toLocaleString(),username:currentProfile?.displayName||currentUser.email,product_details:targetName||"N/A",current_status:status||"N/A",audit_details:details||""});
     }
@@ -266,35 +271,36 @@ function isDelegatedDeputy(){
 }
 function delegationLabel(){return isDelegatedDeputy()?`QA Manager Delegation Active (${currentProfile.qaDelegation.startDate} → ${currentProfile.qaDelegation.endDate})`:""}
 
+async function safeGet(ref){try{return await getDoc(ref)}catch(e){console.warn("Profile lookup failed:",e?.code||e);return null}}
 async function loadProfile(u){
-  // Backward-compatible profile lookup: existing ValidApp users may have their
-  // Firestore profile keyed by UID, email, or username from an older version.
-  let s=await getDoc(docRef("users",u.uid));
-  if(!s.exists() && u.email) s=await getDoc(docRef("users",u.email.toLowerCase()));
-  if(!s.exists() && u.email) s=await getDoc(docRef("users",u.email.split("@")[0].toLowerCase()));
-  if(!s.exists()){
-    try{
-      const q=await getDocs(query(colRef("users"),where("email","==",u.email.toLowerCase()),limit(1)));
-      if(!q.empty) s=q.docs[0];
-    }catch(e){console.warn("Email profile lookup skipped:",e)}
-  }
-  if(!s.exists()) throw Error("Your Firebase account exists, but no ValidApp profile was found for this email. Contact an Administrator.");
-  const raw=s.data();
-  const aliases={admin:ROLES.ADMIN,administrator:ROLES.ADMIN,creator:ROLES.CREATOR,"section head":ROLES.SECTION_HEAD,"deputy qa manager":ROLES.DEPUTY,"qa deputy manager":ROLES.DEPUTY,"qa manager":ROLES.QA_MANAGER,"reviewer":ROLES.REVIEWER,"reviewer — other department":ROLES.REVIEWER,viewer:ROLES.VIEWER};
+  const email=String(u.email||"").trim().toLowerCase();
+  const username=email?email.split("@")[0].toLowerCase():"";
+  const candidates=[["nested",docRef("users",u.uid)],["nested",email?docRef("users",email):null],["nested",username?docRef("users",username):null],["root",rootDocRef("users",u.uid)],["root",email?rootDocRef("users",email):null],["root",username?rootDocRef("users",username):null]];
+  let s=null;
+  for(const [store,ref] of candidates){if(!ref)continue;const snap=await safeGet(ref);if(snap?.exists()){s=snap;userStore=store;break}}
+  if(!s){for(const store of ["nested","root"]){try{const q=await getDocs(query(store==="root"?rootColRef("users"):colRef("users"),where("email","==",email),limit(1)));if(!q.empty){s=q.docs[0];userStore=store;break}}catch(e){console.warn("Email profile query skipped:",e?.code||e)}}}
+  if(!s)throw Error("Your Firebase account exists, but no ValidApp user profile was found. The existing profile could not be read from Firestore.");
+  const raw=s.data()||{};
+  const aliases={admin:ROLES.ADMIN,administrator:ROLES.ADMIN,creator:ROLES.CREATOR,"section head":ROLES.SECTION_HEAD,sectionhead:ROLES.SECTION_HEAD,"deputy qa manager":ROLES.DEPUTY,"qa deputy manager":ROLES.DEPUTY,deputy:ROLES.DEPUTY,"qa manager":ROLES.QA_MANAGER,reviewer:ROLES.REVIEWER,"reviewer — other department":ROLES.REVIEWER,"reviewer - other department":ROLES.REVIEWER,viewer:ROLES.VIEWER};
   const normalizedRole=ROLE_LIST.includes(raw.role)?raw.role:aliases[String(raw.role||"").trim().toLowerCase()];
-  if(!normalizedRole) throw Error(`Your ValidApp profile has an invalid role: ${raw.role||"not assigned"}.`);
-  if(raw.disabled===true) throw Error("Your ValidApp account is disabled.");
-  const p={id:s.id,...raw,role:normalizedRole};
-  const changed=p.passwordChangedAt?.toDate?p.passwordChangedAt.toDate():p.passwordChangedAt?new Date(p.passwordChangedAt):null;
-  p.passwordExpired=!!changed&&!Number.isNaN(changed.getTime())&&(Date.now()-changed.getTime()>90*24*60*60*1000);
-  // If this is an older profile keyed by email/username, keep it usable and
-  // transparently migrate it to the Firebase Auth UID after successful login.
-  if(s.id!==u.uid){try{await setDoc(docRef("users",u.uid),{...raw,email:u.email||raw.email,role:normalizedRole,username:raw.username||u.email?.split("@")[0],migratedFrom:s.id,updatedAt:serverTimestamp()},{merge:true})}catch(e){console.warn("Profile migration skipped:",e)}}
+  if(!normalizedRole)throw Error(`Your ValidApp profile has an invalid or missing role: ${raw.role||"not assigned"}.`);
+  if(raw.disabled===true)throw Error("Your ValidApp account is disabled.");
+  const p={id:s.id,...raw,role:normalizedRole,email:raw.email||email,username:raw.username||username};
+  let changed=p.passwordChangedAt?.toDate?p.passwordChangedAt.toDate():p.passwordChangedAt?new Date(p.passwordChangedAt):null;
+  if(!changed||Number.isNaN(changed.getTime())){changed=new Date();try{await updateDoc(userStore==="root"?rootDocRef("users",s.id):docRef("users",s.id),{passwordChangedAt:serverTimestamp(),updatedAt:serverTimestamp()});p.passwordChangedAt=changed}catch(e){console.warn("Could not initialize password age:",e?.code||e)}}
+  p.passwordExpired=Date.now()-changed.getTime()>90*24*60*60*1000;
+  if(s.id!==u.uid){try{await setDoc(usersDocRef(u.uid),{...raw,email:email||raw.email,role:normalizedRole,username:p.username,migratedFrom:s.id,updatedAt:serverTimestamp()},{merge:true})}catch(e){console.warn("Profile UID migration skipped:",e?.code||e)}}
   return p;
 }
+async function resolveLoginEmail(identifier){
+  const v=String(identifier||"").trim().toLowerCase();if(v.includes("@"))return v;
+  for(const store of ["nested","root"]){try{const direct=await safeGet(store==="root"?rootDocRef("users",v):docRef("users",v));if(direct?.exists()&&direct.data()?.email)return String(direct.data().email).trim().toLowerCase();const q=await getDocs(query(store==="root"?rootColRef("users"):colRef("users"),where("username","==",v),limit(1)));if(!q.empty&&q.docs[0].data()?.email)return String(q.docs[0].data().email).trim().toLowerCase()}catch(e){console.warn("Username lookup skipped:",e?.code||e)}}
+  throw Error("Enter the Firebase account email address, or a valid existing ValidApp username.");
+}
+
 async function updateActivity(){lastActivity=Date.now();if(inactivityTimer)clearTimeout(inactivityTimer);inactivityTimer=setTimeout(()=>{if(currentUser){showMsg("Session expired","You were automatically logged out after 15 minutes without activity.","error");setTimeout(()=>signOut(auth),700)}},15*60*1000)}
 function setupActivity(){["click","keydown","mousemove","scroll","touchstart"].forEach(e=>document.addEventListener(e,updateActivity,{passive:true}));updateActivity()}
-function resetUI(){ $("loginSection").classList.remove("hidden");$("dashboardSection").classList.add("hidden");$("userInfo").classList.add("hidden");$("userInfo").classList.remove("flex");}
+function resetUI(){if(inactivityTimer){clearTimeout(inactivityTimer);inactivityTimer=null}$("loginSection").classList.remove("hidden");$("dashboardSection").classList.add("hidden");$("userInfo").classList.add("hidden");$("userInfo").classList.remove("flex");if($("password"))$("password").value="";passwordExpired=false;}
 function nav(id){document.querySelectorAll(".nav-btn").forEach(x=>x.classList.remove("active"));if($(id))$(id).classList.add("active")}
 function configureNav(){
   $("userInfo").classList.remove("hidden");$("userInfo").classList.add("flex");
@@ -541,13 +547,13 @@ async function prpoWorkflow(id,target,comment,action){const x=prpos.find(a=>a.id
 
 async function loadAudit(){try{const snap=await getDocs(query(colRef("audit"),orderBy("createdAt","desc"),limit(500)));auditLogs=snap.docs.map(d=>({id:d.id,...d.data()}));modal(`<div class="modal active fixed inset-0 bg-black/50 z-50 items-center justify-center p-4"><div class="bg-white rounded-2xl shadow-2xl max-w-6xl w-full max-h-[92vh] overflow-auto p-6"><div class="flex justify-between"><h3 class="text-xl font-extrabold">System Audit Trail</h3><button data-modal-close>✕</button></div><div class="mt-4 overflow-auto"><table class="min-w-[1100px] w-full divide-y"><thead class="bg-slate-50"><tr><th class="p-2 text-left text-xs">Timestamp</th><th class="p-2 text-left text-xs">User / Role</th><th class="p-2 text-left text-xs">Action</th><th class="p-2 text-left text-xs">Target</th><th class="p-2 text-left text-xs">Status</th><th class="p-2 text-left text-xs">Details</th></tr></thead><tbody>${auditLogs.map(x=>`<tr><td class="p-2 text-xs">${esc(nowLabel(x.createdAt))}</td><td class="p-2 text-xs">${esc(x.userName)}<div>${esc(x.userRole)}</div></td><td class="p-2 text-xs font-bold">${esc(x.action)}</td><td class="p-2 text-xs">${esc(x.targetName||x.studyName||x.targetId||"—")}</td><td class="p-2 text-xs">${esc(x.previousStatus||"—")} → ${esc(x.newStatus||"—")}</td><td class="p-2 text-xs">${esc(x.details||"")}</td></tr>`).join("")}</tbody></table></div></div></div>`);document.querySelectorAll("[data-modal-close]").forEach(x=>x.onclick=closeModal)}catch(e){showMsg("Audit load failed",friendly(e),"error")}}
 
-async function loadUsers(){if(!admin())return;const snap=await getDocs(colRef("users"));users=snap.docs.map(d=>({id:d.id,...d.data()}));openUserModal()}
+async function loadUsers(){if(!admin())return;const snap=await getDocs(usersColRef());users=snap.docs.map(d=>({id:d.id,...d.data()}));openUserModal()}
 function openUserModal(){modal(`<div class="modal active fixed inset-0 bg-black/50 z-50 items-center justify-center p-4"><div class="bg-white rounded-2xl shadow-2xl max-w-6xl w-full max-h-[94vh] overflow-auto p-6"><div class="flex justify-between"><h3 class="text-xl font-extrabold">User Management & Delegation</h3><button data-modal-close>✕</button></div><form id="userForm" class="grid md:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-xl mt-4"><input type="hidden" id="editUserId"><div><label class="text-xs font-bold">Email *</label><input id="newEmail" type="email" required class="w-full p-2 border rounded"></div><div><label class="text-xs font-bold">Display Name *</label><input id="newName" required class="w-full p-2 border rounded"></div><div><label class="text-xs font-bold">Role *</label><select id="newRole" class="w-full p-2 border rounded">${ROLE_LIST.map(x=>`<option>${x}</option>`).join("")}</select></div><div><label class="text-xs font-bold">Department</label><input id="newDept" class="w-full p-2 border rounded"></div><div><label class="text-xs font-bold">Temporary Password</label><input id="newPass" type="password" class="w-full p-2 border rounded"></div><div><label class="text-xs font-bold">Delegation Start</label><input id="delStart" type="date" class="w-full p-2 border rounded"></div><div><label class="text-xs font-bold">Delegation End</label><input id="delEnd" type="date" class="w-full p-2 border rounded"></div><div class="flex items-center gap-2 pt-5"><input id="delActive" type="checkbox"><label class="text-xs font-bold">QA Delegation Active</label></div><div class="md:col-span-4 flex flex-wrap justify-end gap-2"><button type="button" id="resetPasswordBtn" class="px-3 py-2 bg-amber-600 text-white rounded font-bold">Send Password Reset</button><button class="px-4 py-2 bg-primary text-white rounded font-bold">Save User</button></div></form><div class="overflow-auto mt-4"><table class="min-w-[1050px] w-full divide-y"><thead class="bg-slate-50"><tr><th class="p-2 text-left text-xs">User</th><th class="p-2 text-left text-xs">Role</th><th class="p-2 text-left text-xs">Password</th><th class="p-2 text-left text-xs">Delegation</th><th class="p-2 text-left text-xs">Status</th><th class="p-2 text-center text-xs">Manage</th></tr></thead><tbody id="usersBody"></tbody></table></div></div></div>`);document.querySelectorAll("[data-modal-close]").forEach(x=>x.onclick=closeModal);renderUsers();$("#userForm").onsubmit=saveUser;$("#resetPasswordBtn").onclick=sendReset}
 function renderUsers(){$("#usersBody").innerHTML=users.map(u=>{const exp=u.passwordChangedAt?(Date.now()-new Date(u.passwordChangedAt?.toDate?u.passwordChangedAt.toDate():u.passwordChangedAt).getTime()>90*86400000):false;const del=u.qaDelegation?.active?`${u.qaDelegation.startDate} → ${u.qaDelegation.endDate}`:"—";return`<tr><td class="p-2 text-xs font-bold">${esc(u.displayName||u.username)}<div class="font-normal text-slate-500">${esc(u.email)}</div></td><td class="p-2 text-xs">${esc(u.role)}</td><td class="p-2 text-xs">${exp?'<span class="text-red-600 font-bold">Expired</span>':'<span class="text-green-700 font-bold">Valid / 90 days</span>'}</td><td class="p-2 text-xs">${esc(del)}</td><td class="p-2 text-xs">${u.disabled?"Disabled":"Active"}</td><td class="p-2 text-center"><button data-user-edit="${u.id}" class="text-blue-700 font-bold mr-2">Edit</button><button data-user-toggle="${u.id}" class="text-amber-700 font-bold">${u.disabled?"Enable":"Disable"}</button></td></tr>`}).join("")}
 function editUser(id){const u=users.find(x=>x.id===id);if(!u)return;$("#editUserId").value=id;$("#newEmail").value=u.email||"";$("#newName").value=u.displayName||"";$("#newRole").value=u.role||ROLES.VIEWER;$("#newDept").value=u.department||"";$("#newPass").value="";$("#delStart").value=u.qaDelegation?.startDate||"";$("#delEnd").value=u.qaDelegation?.endDate||"";$("#delActive").checked=!!u.qaDelegation?.active}
-async function saveUser(e){e.preventDefault();const id=$("#editUserId").value,email=$("#newEmail").value.trim().toLowerCase(),d={email,displayName:$("#newName").value.trim(),username:email.split("@")[0],role:$("#newRole").value,department:$("#newDept").value.trim(),qaDelegation:{active:$("#delActive").checked,startDate:$("#delStart").value,endDate:$("#delEnd").value},updatedAt:serverTimestamp()};try{if(id){await updateDoc(docRef("users",id),d);await audit("User Updated",id,d.displayName,`Role=${d.role}; Delegation=${d.qaDelegation.active}`)}else{const p=$("#newPass").value;if(p.length<8)throw Error("New user temporary password must be at least 8 characters.");const sec=initializeApp(firebaseConfig,"UserCreate_"+Date.now()),sa=getAuth(sec),cred=await createUserWithEmailAndPassword(sa,email,p);await setDoc(docRef("users",cred.user.uid),{...d,disabled:false,passwordChangedAt:serverTimestamp(),createdAt:serverTimestamp()});await signOut(sa);await deleteApp(sec);await audit("User Created",cred.user.uid,d.displayName,`Role=${d.role}`)}users=(await getDocs(colRef("users"))).docs.map(x=>({id:x.id,...x.data()}));renderUsers();showMsg("Saved","User profile saved. Password age is controlled at 90 days.","success")}catch(e){showMsg("User operation failed",friendly(e),"error")}}
+async function saveUser(e){e.preventDefault();const id=$("#editUserId").value,email=$("#newEmail").value.trim().toLowerCase(),d={email,displayName:$("#newName").value.trim(),username:email.split("@")[0],role:$("#newRole").value,department:$("#newDept").value.trim(),qaDelegation:{active:$("#delActive").checked,startDate:$("#delStart").value,endDate:$("#delEnd").value},updatedAt:serverTimestamp()};try{if(id){await updateDoc(usersDocRef(id),d);await audit("User Updated",id,d.displayName,`Role=${d.role}; Delegation=${d.qaDelegation.active}`)}else{const p=$("#newPass").value;if(p.length<8)throw Error("New user temporary password must be at least 8 characters.");const sec=initializeApp(firebaseConfig,"UserCreate_"+Date.now()),sa=getAuth(sec),cred=await createUserWithEmailAndPassword(sa,email,p);await setDoc(usersDocRef(cred.user.uid),{...d,disabled:false,passwordChangedAt:serverTimestamp(),createdAt:serverTimestamp()});await signOut(sa);await deleteApp(sec);await audit("User Created",cred.user.uid,d.displayName,`Role=${d.role}`)}users=(await getDocs(usersColRef())).docs.map(x=>({id:x.id,...x.data()}));renderUsers();showMsg("Saved","User profile saved. Password age is controlled at 90 days.","success")}catch(e){showMsg("User operation failed",friendly(e),"error")}}
 async function sendReset(){const email=$("#newEmail").value.trim();if(!email)return showMsg("Email required","Enter an email address first.","error");try{await sendPasswordResetEmail(auth,email);showMsg("Reset sent","Password reset email sent. The user's 90-day password timer must be reset in the profile after the user completes the reset.","success")}catch(e){showMsg("Reset failed",friendly(e),"error")}}
-async function toggleUser(id){const u=users.find(x=>x.id===id);if(!u||id===currentUser.uid)return;try{await updateDoc(docRef("users",id),{disabled:!u.disabled,updatedAt:serverTimestamp()});await audit(u.disabled?"User Enabled":"User Disabled",id,u.displayName||u.email,"Account status changed.");users=(await getDocs(colRef("users"))).docs.map(x=>({id:x.id,...x.data()}));renderUsers()}catch(e){showMsg("Operation failed",friendly(e),"error")}}
+async function toggleUser(id){const u=users.find(x=>x.id===id);if(!u||id===currentUser.uid)return;try{await updateDoc(usersDocRef(id),{disabled:!u.disabled,updatedAt:serverTimestamp()});await audit(u.disabled?"User Enabled":"User Disabled",id,u.displayName||u.email,"Account status changed.");users=(await getDocs(usersColRef())).docs.map(x=>({id:x.id,...x.data()}));renderUsers()}catch(e){showMsg("Operation failed",friendly(e),"error")}}
 
 async function loadDashboard(){
   try{
@@ -592,7 +598,7 @@ $("addRecordBtn").onclick=()=>openStudy();$("addModuleBtn").onclick=()=>openModu
 $("sopSearch").oninput=renderSops;$("sopTypeFilter").onchange=renderSops;$("prpoSearch").oninput=renderPrpo;$("prpoType").onchange=renderPrpo;$("prpoStatus").onchange=renderPrpo;
 document.addEventListener("click",e=>{if(e.target.closest("[data-dashboard-refresh]"))loadDashboard()});
 
-$("loginForm").onsubmit=async e=>{e.preventDefault();try{await signInWithEmailAndPassword(auth,$("username").value.trim(),$("password").value)}catch(err){console.error("Firebase login error:",err);const m={"auth/invalid-credential":"Invalid email or password.","auth/invalid-email":"Please enter a valid email address.","auth/user-disabled":"This Firebase account is disabled.","auth/too-many-requests":"Too many login attempts. Please wait and try again.","auth/network-request-failed":"Network connection failed. Check your internet connection.","auth/operation-not-allowed":"Email/password sign-in is not enabled in Firebase Authentication."};$("loginError").textContent=m[err?.code]||err?.message||"Sign-in failed.";$("loginError").classList.remove("hidden")}};
+$("loginForm").onsubmit=async e=>{e.preventDefault();$("loginError").classList.add("hidden");const identifier=$("username").value.trim(),password=$("password").value;if(!identifier||!password)return;try{const email=await resolveLoginEmail(identifier);await signInWithEmailAndPassword(auth,email,password)}catch(err){console.error("Firebase login error:",err);const m={"auth/invalid-credential":"Invalid email/username or password.","auth/invalid-email":"The Firebase account email is invalid.","auth/user-disabled":"This Firebase Authentication account is disabled.","auth/too-many-requests":"Too many login attempts. Wait a few minutes and try again.","auth/network-request-failed":"Network connection failed. Check your internet connection.","auth/operation-not-allowed":"Firebase Email/Password sign-in is not enabled. Enable it in Firebase Authentication → Sign-in method."};$("loginError").textContent=m[err?.code]||err?.message||"Sign-in failed.";$("loginError").classList.remove("hidden")}};
 $("azureSsoBtn").onclick=async()=>{try{if(!msalInstance) throw Error("Microsoft 365 sign-in is unavailable. Use the local Firebase account login.");const r=await msalInstance.loginPopup({scopes:["User.Read","openid","profile","email"]});$("username").value=r.account.username;$("password").focus()}catch(e){$("loginError").textContent="Microsoft 365 authentication failed.";$("loginError").classList.remove("hidden")}};
 $("sopUploadLabel").classList.toggle("hidden",!isSopUser());
 
