@@ -89,7 +89,7 @@ body{font-family:Inter,Arial,sans-serif;background:#f1f5f9}
     <h2 class="text-2xl font-extrabold">ValidApp</h2>
     <p class="text-slate-500 text-sm">Controlled Validation & Qualification Workflow</p>
   </div>
-  <button id="azureSsoBtn" type="button" class="w-full mb-5 bg-slate-800 hover:bg-slate-900 text-white font-semibold py-3 rounded-lg flex items-center justify-center gap-3">
+  <button id="azureSsoBtn" class="w-full mb-5 bg-slate-800 hover:bg-slate-900 text-white font-semibold py-3 rounded-lg flex items-center justify-center gap-3">
     <i class="fab fa-microsoft"></i> Sign in with Microsoft 365
   </button>
   <div class="relative flex items-center mb-5"><div class="flex-1 border-t"></div><span class="px-3 text-xs text-slate-400 uppercase">or local account</span><div class="flex-1 border-t"></div></div>
@@ -97,7 +97,7 @@ body{font-family:Inter,Arial,sans-serif;background:#f1f5f9}
     <div><label class="text-sm font-semibold">Email</label><input id="username" type="email" autocomplete="username" required class="w-full mt-1 p-3 border rounded-lg"></div>
     <div><label class="text-sm font-semibold">Password</label><input id="password" type="password" autocomplete="current-password" required class="w-full mt-1 p-3 border rounded-lg"></div>
     <div id="loginError" class="hidden text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-3"></div>
-    <button type="submit" class="w-full bg-primary hover:bg-blue-800 text-white font-bold py-3 rounded-lg">Sign In</button>
+    <button class="w-full bg-primary hover:bg-blue-800 text-white font-bold py-3 rounded-lg">Sign In</button>
   </form>
 </section>
 
@@ -328,12 +328,6 @@ function studySubMatch(r){
 async function loadStudies(){
   try{const snap=await getDocs(query(colRef("records"),orderBy("createdAt","desc")));records=snap.docs.map(d=>({id:d.id,...d.data()}));renderStudies()}catch(e){showMsg("Study load failed",friendly(e),"error")}
 }
-function nextStatus(r){
-  if(r.status===STATUS.PENDING_SECTION_HEAD)return r.requireOtherDeptReview?STATUS.PENDING_REVIEWER:STATUS.PENDING_DEPUTY;
-  if(r.status===STATUS.PENDING_REVIEWER)return STATUS.PENDING_DEPUTY;
-  if(r.status===STATUS.PENDING_DEPUTY)return STATUS.PENDING_QA;
-  return STATUS.PENDING_QA;
-}
 function studyButtons(r){
   const owner=admin()||r.createdByUid===currentUser?.uid;
   let b=[];
@@ -365,8 +359,8 @@ function openStudy(record=null){
 <div><label class="text-sm font-bold">Subcategory</label><input id="subCategory" class="w-full p-2 border rounded-lg" value="${esc(record?.subCategory||"")}"></div>
 <div><label class="text-sm font-bold">Product Type</label><input id="productType" class="w-full p-2 border rounded-lg" value="${esc(record?.productType||"Finished Product")}"></div>
 <div><label class="text-sm font-bold">Study Date *</label><input id="studyDate" type="date" required class="w-full p-2 border rounded-lg" value="${esc(record?.date||"")}"></div>
-<div><label class="text-sm font-bold">Stage</label><select id="stage" class="w-full p-2 border rounded-lg">${["Raw","Bulk","Finished Product","Cleaning Validation","CHT","DHT","Campaign Length"].map(x=>`<option ${x===(record?.stage\vert{}\vert{}"Raw")?"selected":""}>${x}</option>`).join("")}</select></div>
-<div><label class="text-sm font-bold">Scale</label><select id="scale" class="w-full p-2 border rounded-lg">${["Lab Scale","Pilot Scale","Commercial Scale"].map(x=>`<option ${x===(record?.scale\vert{}\vert{}"Lab Scale")?"selected":""}>${x}</option>`).join("")}</select></div>
+<div><label class="text-sm font-bold">Stage</label><select id="stage" class="w-full p-2 border rounded-lg">${["Raw","Bulk","Finished Product","Cleaning Validation","CHT","DHT","Campaign Length"].map(x=>`<option ${x===(record?.stage||"Raw")?"selected":""}>${x}</option>`).join("")}</select></div>
+<div><label class="text-sm font-bold">Scale</label><select id="scale" class="w-full p-2 border rounded-lg">${["Lab Scale","Pilot Scale","Commercial Scale"].map(x=>`<option ${x===(record?.scale||"Lab Scale")?"selected":""}>${x}</option>`).join("")}</select></div>
 <div><label class="text-sm font-bold">Version *</label><input id="version" required class="w-full p-2 border rounded-lg" value="${esc(record?.version||"v1.0")}"></div></div>
 <div><label class="text-sm font-bold">Reason / Scope *</label><textarea id="reason" required class="w-full p-2 border rounded-lg" rows="2">${esc(record?.reason)}</textarea></div>
 <div><label class="text-sm font-bold">Notes</label><textarea id="notes" class="w-full p-2 border rounded-lg" rows="2">${esc(record?.notes)}</textarea></div>
@@ -518,22 +512,57 @@ async function saveModule(old){
   if(!cal&&(!data.name||!data.reference))return showMsg("Missing fields","Name and Reference are required.","error");
   try{const c=cal?"calibration":"qualification";if(old){await updateDoc(docRef(c,old.id),{...data,updatedAt:serverTimestamp()})}else await addDoc(colRef(c),{...data,status:STATUS.DRAFT,executedTracker:false,createdByUid:currentUser.uid,createdByName:currentProfile.displayName||currentUser.email,createdAt:serverTimestamp(),updatedAt:serverTimestamp()});closeModal();await loadModule();showMsg("Saved","Record saved as Draft.","success")}catch(e){showMsg("Save failed",friendly(e),"error")}
 }
-async function submitModule(id){const c=currentModule===MODULES.CAL?"calibration":"qualification",r=moduleRecords.find(x=>x.id===id);if(!r)return;try{await updateDoc(docRef(c,id),{status:STATUS.PENDING_SECTION_HEAD,submittedAt:serverTimestamp(),updatedAt:serverTimestamp()});await audit(`${currentModule} Submitted`,id,r.name||r.instrument||r.certificateNo,"Submitted for Section Head review.",STATUS.DRAFT,STATUS.PENDING_SECTION_HEAD);await notifyEmails(`${currentModule} Submitted`,r.name||r.instrument||r.certificateNo,STATUS.PENDING_SECTION_HEAD,"Submitted for Section Head review.");await loadModule();showMsg("Submitted","Record submitted to Section Head.","success")}catch(e){showMsg("Submit failed",friendly(e),"error")}}
-async function moduleReview(id){const r=moduleRecords.find(x=>x.id===id);if(!r)return;confirmAction("Complete Review",`Complete review for ${r.name||r.instrument||r.certificateNo}?`,async c=>{try{const target=r.status===STATUS.PENDING_SECTION_HEAD?STATUS.PENDING_QA:STATUS.COMPLETED;await updateModuleWorkflow(id,target,c,"Module Review Completed");showMsg("Review completed","Record advanced.","success")}catch(e){showMsg("Review failed",friendly(e),"error")})}
-async function updateModuleWorkflow(id,target,comment,actionName){const c=currentModule===MODULES.CAL?"calibration":"qualification",r=moduleRecords.find(x=>x.id===id);const old=r.status;await updateDoc(docRef(c,id),{status:target,updatedAt:serverTimestamp(),lastActionByUid:currentUser.uid,lastActionByName:currentProfile.displayName||currentUser.email,approvedByUid:target===STATUS.APPROVED?currentUser.uid:null,approvedAsDelegate:target===STATUS.APPROVED&&isDelegatedDeputy()});await audit(actionName,id,r.name||r.instrument||r.certificateNo,comment||"",old,target,{delegatedApproval:isDelegatedDeputy()});await notifyEmails(actionName,r.name||r.instrument||r.certificateNo,target,comment||"");await loadModule()}
-async function moduleApprove(id){const r=moduleRecords.find(x=>x.id===id);confirmAction(isDelegatedDeputy()?"Approve as QA Manager Delegate":"Approve",`Approve ${r.name||r.instrument||r.certificateNo}?`,async()=>{try{await updateModuleWorkflow(id,STATUS.APPROVED,isDelegatedDeputy()?"Approved under active delegation":"Approved","Module Approved");showMsg("Approved","Record approved.","success")}catch(e){showMsg("Approval failed",friendly(e),"error")})}
-async function moduleReturn(id){const r=moduleRecords.find(x=>x.id===id);confirmAction("Return for Revision",`Return ${r.name||r.instrument||r.certificateNo}?`,async c=>{try{await updateModuleWorkflow(id,STATUS.RETURNED,c,"Module Returned");showMsg("Returned","Record returned.","success")}catch(e){showMsg("Return failed",friendly(e),"error")},true)}
-async function toggleModuleExecution(id,checked){const c=currentModule===MODULES.CAL?"calibration":"qualification",r=moduleRecords.find(x=>x.id===id);if(!r)return;try{await updateDoc(docRef(c,id),{executedTracker:checked,executedAt:checked?serverTimestamp():null,updatedAt:serverTimestamp(),lastActionByUid:currentUser.uid,lastActionByName:currentProfile.displayName||currentUser.email});await audit(`${currentModule} ${checked?"Executed":"Returned to Plan"}`,id,r.name||r.instrument||r.certificateNo,`Execution status: ${checked?"Executed":"In Plan"}`,r.status,r.status);await notifyEmails(`${currentModule} Execution Status`,r.name||r.instrument||r.certificateNo,r.status,`Execution status changed to ${checked?"Executed":"In Plan"}.`);await loadModule();showMsg("Execution updated",checked?"Item is now Executed.":"Item is now In Plan.","success")}catch(e){showMsg("Execution failed",friendly(e),"error")}}
+async function submitModule(id){
+  const c=currentModule===MODULES.CAL?"calibration":"qualification",r=moduleRecords.find(x=>x.id===id);if(!r)return;
+  try{await updateDoc(docRef(c,id),{status:STATUS.PENDING_SECTION_HEAD,submittedAt:serverTimestamp(),updatedAt:serverTimestamp()});await audit(`${currentModule} Submitted`,id,r.name||r.instrument||r.certificateNo,"Submitted for Section Head review.",STATUS.DRAFT,STATUS.PENDING_SECTION_HEAD);await notifyEmails(`${currentModule} Submitted`,r.name||r.instrument||r.certificateNo,STATUS.PENDING_SECTION_HEAD,"Submitted for Section Head review.");await loadModule();showMsg("Submitted","Record submitted to Section Head.","success")}catch(e){showMsg("Submit failed",friendly(e),"error")}
+}
+async function moduleReview(id){
+  const r=moduleRecords.find(x=>x.id===id);if(!r)return;
+  confirmAction("Complete Review",`Complete review for ${r.name||r.instrument||r.certificateNo}?`,async c=>{
+    try{const target=r.status===STATUS.PENDING_SECTION_HEAD?STATUS.PENDING_QA:STATUS.COMPLETED;await updateModuleWorkflow(id,target,c,"Module Review Completed");showMsg("Review completed","Record advanced.","success")}catch(e){showMsg("Review failed",friendly(e),"error")}
+  });
+}
+async function updateModuleWorkflow(id,target,comment,actionName){
+  const c=currentModule===MODULES.CAL?"calibration":"qualification",r=moduleRecords.find(x=>x.id===id);const old=r.status;
+  await updateDoc(docRef(c,id),{status:target,updatedAt:serverTimestamp(),lastActionByUid:currentUser.uid,lastActionByName:currentProfile.displayName||currentUser.email,approvedByUid:target===STATUS.APPROVED?currentUser.uid:null,approvedAsDelegate:target===STATUS.APPROVED&&isDelegatedDeputy()});
+  await audit(actionName,id,r.name||r.instrument||r.certificateNo,comment||"",old,target,{delegatedApproval:isDelegatedDeputy()});await notifyEmails(actionName,r.name||r.instrument||r.certificateNo,target,comment||"");await loadModule();
+}
+async function moduleApprove(id){
+  const r=moduleRecords.find(x=>x.id===id);
+  confirmAction(isDelegatedDeputy()?"Approve as QA Manager Delegate":"Approve",`Approve ${r.name||r.instrument||r.certificateNo}?`,async()=>{
+    try{await updateModuleWorkflow(id,STATUS.APPROVED,isDelegatedDeputy()?"Approved under active delegation":"Approved","Module Approved");showMsg("Approved","Record approved.","success")}catch(e){showMsg("Approval failed",friendly(e),"error")}
+  });
+}
+async function moduleReturn(id){
+  const r=moduleRecords.find(x=>x.id===id);
+  confirmAction("Return for Revision",`Return ${r.name||r.instrument||r.certificateNo}?`,async c=>{
+    try{await updateModuleWorkflow(id,STATUS.RETURNED,c,"Module Returned");showMsg("Returned","Record returned.","success")}catch(e){showMsg("Return failed",friendly(e),"error")}
+  },true);
+}
+async function toggleModuleExecution(id,checked){
+  const c=currentModule===MODULES.CAL?"calibration":"qualification",r=moduleRecords.find(x=>x.id===id);if(!r)return;
+  try{await updateDoc(docRef(c,id),{executedTracker:checked,executedAt:checked?serverTimestamp():null,updatedAt:serverTimestamp(),lastActionByUid:currentUser.uid,lastActionByName:currentProfile.displayName||currentUser.email});await audit(`${currentModule} ${checked?"Executed":"Returned to Plan"}`,id,r.name||r.instrument||r.certificateNo,`Execution status: ${checked?"Executed":"In Plan"}`,r.status,r.status);await notifyEmails(`${currentModule} Execution Status`,r.name||r.instrument||r.certificateNo,r.status,`Execution status changed to ${checked?"Executed":"In Plan"}.`);await loadModule();showMsg("Execution updated",checked?"Item is now Executed.":"Item is now In Plan.","success")}catch(e){showMsg("Execution failed",friendly(e),"error")}
+}
 async function importModuleExcel(ev){
-  const file=ev.target.files[0];if(!file)return;try{const wb=XLSX.read(new Uint8Array(await file.arrayBuffer()),{type:"array"});let rows=[];wb.SheetNames.forEach(s=>rows.push(...XLSX.utils.sheet_to_json(wb.Sheets[s])));const c=currentModule===MODULES.CAL?"calibration":"qualification";let count=0;
-  for(const row of rows){const x={};Object.keys(row).forEach(k=>x[k.toLowerCase().replace(/[^a-z0-9]/g,"")]=row[k]);let p;
-    if(currentModule===MODULES.CAL)p={certificateNo:String(x.certificateno||x.certno||x.reference||""),department:String(x.department||x.dept||""),instrument:String(x.instrument||x.name||""),code:String(x.code||x.instrumentcode||""),manufacturer:String(x.manufacturer||x.manuf||""),model:String(x.model||""),serialNumber:String(x.serialnumber||x.serialno||x.sn||""),location:String(x.location||""),calRange:String(x.calrange||x.range||""),acceptanceLimits:String(x.acceptancelimits||x.limits||""),interval:String(x.interval||""),monthYear:String(x.monthyear||""),calDate:String(x.caldate||x.date||""),dueDate:String(x.duedate||""),isAddendum:["true","yes","1"].includes(String(x.isaddendum||x.addendum||"").toLowerCase()),isOutOfCalibration:["true","yes","1"].includes(String(x.isoutofcalibration||x.outofcal||x.out||"").toLowerCase()),name:String(x.instrument||x.name||"Imported Instrument"),reference:String(x.certificateno||x.certno||x.reference||"IMP-"+Date.now())};
-    else p={name:String(x.name||x.equipmentname||x.systemname||""),reference:String(x.reference||x.refid||x.protocol||""),qualificationType:["equipment","utilities","system"].includes(String(x.qualificationtype||x.type||"").toLowerCase())?String(x.qualificationtype||x.type).toLowerCase():"equipment",stage:String(x.stage||x.qualificationstage||"IQ").toUpperCase(),plannedDate:String(x.planneddate||x.date||""),dueDate:String(x.duedate||""),equipmentSystemInfo:String(x.equipmentsysteminfo||x.info||x.details||""),description:String(x.description||x.scope||"")};
-    if((currentModule===MODULES.CAL&&(p.instrument||p.code))||(currentModule===MODULES.QUAL&&(p.name&&p.reference))){await addDoc(colRef(c),{...p,status:STATUS.DRAFT,executedTracker:false,createdByUid:currentUser.uid,createdByName:currentProfile.displayName||currentUser.email,createdAt:serverTimestamp(),updatedAt:serverTimestamp()});count++}
-  }
-  await audit(`${currentModule} Excel/Macro Imported`,"","",`Imported ${count} draft records.`);await loadModule();showMsg("Import complete",`${count} records imported as Draft.`,`success`)}catch(e){showMsg("Import failed",friendly(e),"error")}ev.target.value=""}
+  const file=ev.target.files[0];if(!file)return;
+  try{
+    const wb=XLSX.read(new Uint8Array(await file.arrayBuffer()),{type:"array"});let rows=[];wb.SheetNames.forEach(s=>rows.push(...XLSX.utils.sheet_to_json(wb.Sheets[s])));
+    const c=currentModule===MODULES.CAL?"calibration":"qualification";let count=0;
+    for(const row of rows){
+      const x={};Object.keys(row).forEach(k=>x[k.toLowerCase().replace(/[^a-z0-9]/g,"")]=row[k]);let p;
+      if(currentModule===MODULES.CAL)p={certificateNo:String(x.certificateno||x.certno||x.reference||""),department:String(x.department||x.dept||""),instrument:String(x.instrument||x.name||""),code:String(x.code||x.instrumentcode||""),manufacturer:String(x.manufacturer||x.manuf||""),model:String(x.model||""),serialNumber:String(x.serialnumber||x.serialno||x.sn||""),location:String(x.location||""),calRange:String(x.calrange||x.range||""),acceptanceLimits:String(x.acceptancelimits||x.limits||""),interval:String(x.interval||""),monthYear:String(x.monthyear||""),calDate:String(x.caldate||x.date||""),dueDate:String(x.duedate||""),isAddendum:["true","yes","1"].includes(String(x.isaddendum||x.addendum||"").toLowerCase()),isOutOfCalibration:["true","yes","1"].includes(String(x.isoutofcalibration||x.outofcal||x.out||"").toLowerCase()),name:String(x.instrument||x.name||"Imported Instrument"),reference:String(x.certificateno||x.certno||x.reference||"IMP-"+Date.now())};
+      else p={name:String(x.name||x.equipmentname||x.systemname||""),reference:String(x.reference||x.refid||x.protocol||""),qualificationType:["equipment","utilities","system"].includes(String(x.qualificationtype||x.type||"").toLowerCase())?String(x.qualificationtype||x.type).toLowerCase():"equipment",stage:String(x.stage||x.qualificationstage||"IQ").toUpperCase(),plannedDate:String(x.planneddate||x.date||""),dueDate:String(x.duedate||""),equipmentSystemInfo:String(x.equipmentsysteminfo||x.info||x.details||""),description:String(x.description||x.scope||"")};
+      if((currentModule===MODULES.CAL&&(p.instrument||p.code))||(currentModule===MODULES.QUAL&&(p.name&&p.reference))){
+        await addDoc(colRef(c),{...p,status:STATUS.DRAFT,executedTracker:false,createdByUid:currentUser.uid,createdByName:currentProfile.displayName||currentUser.email,createdAt:serverTimestamp(),updatedAt:serverTimestamp()});count++;
+      }
+    }
+    await audit(`${currentModule} Excel/Macro Imported`,"","",`Imported ${count} draft records.`);await loadModule();showMsg("Import complete",`${count} records imported as Draft.`,"success");
+  }catch(e){showMsg("Import failed",friendly(e),"error")}
+  ev.target.value="";
+}
 function printCalibration(id){
-  const r=moduleRecords.find(x=>x.id===id);if(!r)return;const prepared=r.createdByName||"Creator",reviewed=r.reviewedByName||"Section Head",approved=r.approvedByName||(r.approvedAsDelegate?"QA Deputy Manager (Delegate)":"QA Manager");
+  const r=moduleRecords.find(x=>x.id===id);if(!r)return;
+  const prepared=r.createdByName||"Creator",reviewed=r.reviewedByName||"Section Head",approved=r.approvedByName||(r.approvedAsDelegate?"QA Deputy Manager (Delegate)":"QA Manager");
   const {jsPDF}=window.jspdf;const pdf=new jsPDF();pdf.setFontSize(18);pdf.text("ValidApp - Calibration Monthly Plan",20,20);pdf.setFontSize(10);pdf.text(`Generated: ${new Date().toLocaleString()}`,20,28);let y=42;
   [["Certificate No.",r.certificateNo],["Instrument",r.instrument],["Code",r.code],["Department",r.department],["Location",r.location],["Calibration Date",r.calDate],["Due Date",r.dueDate],["Execution Status",r.executedTracker?"Executed":"In Plan"],["Prepared By",prepared],["Reviewed By",reviewed],["Approved By",approved]].forEach(([a,b])=>{pdf.setFont("helvetica","bold");pdf.text(`${a}:`,20,y);pdf.setFont("helvetica","normal");pdf.text(String(b||"—"),65,y);y+=9});pdf.save(`ValidApp_Calibration_${r.code||r.certificateNo||id}.pdf`);
 }
@@ -541,28 +570,106 @@ function printCalibration(id){
 async function loadSops(){
   if(!isSopUser())return;try{const snap=await getDocs(query(colRef("sops"),orderBy("createdAt","desc")));sops=snap.docs.map(d=>({id:d.id,...d.data()}));renderSops()}catch(e){showMsg("SOP load failed",friendly(e),"error")}
 }
-function renderSops(){const q=$("sopSearch").value.trim().toLowerCase(),t=$("sopTypeFilter").value;const arr=sops.filter(x=>(!q||`${x.title} ${x.name}`.toLowerCase().includes(q))&&(t==="All"||x.type===t));$("sopList").innerHTML=arr.map(x=>`<div class="border rounded-xl p-3 flex flex-wrap justify-between gap-3"><div><b>${esc(x.title||x.name)}</b><div class="text-xs text-slate-500">${esc(x.type||"SOP")} • ${esc(x.name)} • ${esc(nowLabel(x.createdAt))}</div></div><div class="flex gap-3"><button data-sop-file="${x.id}" class="text-primary font-bold">Open</button><button data-sop-delete="${x.id}" class="text-red-600 font-bold">Delete</button></div></div>`).join("")||`<div class="text-sm text-slate-500">No SOPs found.</div>`}
-async function uploadSop(ev){const f=ev.target.files[0];if(!f)return;if(!isSopUser())return;try{const title=prompt("SOP title:",f.name)||f.name,type=prompt("Document type: SOP / Work Instruction / Form / Other","SOP")||"SOP",id=crypto.randomUUID(),path=`${appId}/sops/${id}_${f.name.replace(/[^a-zA-Z0-9._-]/g,"_")}`;const {error}=await supabaseClient.storage.from("documents").upload(path,f,{upsert:false});if(error)throw Error(error.message);const ref=await addDoc(colRef("sops"),{title,type,name:f.name,storagePath:path,uploadedByUid:currentUser.uid,uploadedByName:currentProfile.displayName||currentUser.email,createdAt:serverTimestamp()});await audit("SOP Uploaded",ref.id,title,`Type: ${type}`);await loadSops();showMsg("Uploaded","SOP uploaded successfully.","success")}catch(e){showMsg("SOP upload failed",friendly(e),"error")}ev.target.value=""}
-async function deleteSop(id){const s=sops.find(x=>x.id===id);if(!s)return;confirmAction("Delete SOP",`Delete "${s.title||s.name}"?`,async()=>{try{await supabaseClient.storage.from("documents").remove([s.storagePath]);await updateDoc(docRef("sops",id),{deletedAt:serverTimestamp()});await audit("SOP Deleted",id,s.title||s.name,"Controlled SOP marked deleted.");await loadSops()}catch(e){showMsg("Delete failed",friendly(e),"error")}})}
+function renderSops(){
+  const q=$("sopSearch").value.trim().toLowerCase(),t=$("sopTypeFilter").value;const arr=sops.filter(x=>(!q||`${x.title} ${x.name}`.toLowerCase().includes(q))&&(t==="All"||x.type===t));
+  $("sopList").innerHTML=arr.map(x=>`<div class="border rounded-xl p-3 flex flex-wrap justify-between gap-3"><div><b>${esc(x.title||x.name)}</b><div class="text-xs text-slate-500">${esc(x.type||"SOP")} • ${esc(x.name)} • ${esc(nowLabel(x.createdAt))}</div></div><div class="flex gap-3"><button data-sop-file="${x.id}" class="text-primary font-bold">Open</button><button data-sop-delete="${x.id}" class="text-red-600 font-bold">Delete</button></div></div>`).join("")||`<div class="text-sm text-slate-500">No SOPs found.</div>`;
+}
+async function uploadSop(ev){
+  const f=ev.target.files[0];if(!f)return;if(!isSopUser())return;
+  try{
+    const title=prompt("SOP title:",f.name)||f.name,type=prompt("Document type: SOP / Work Instruction / Form / Other","SOP")||"SOP",id=crypto.randomUUID(),path=`${appId}/sops/${id}_${f.name.replace(/[^a-zA-Z0-9._-]/g,"_")}`;
+    const {error}=await supabaseClient.storage.from("documents").upload(path,f,{upsert:false});if(error)throw Error(error.message);
+    const ref=await addDoc(colRef("sops"),{title,type,name:f.name,storagePath:path,uploadedByUid:currentUser.uid,uploadedByName:currentProfile.displayName||currentUser.email,createdAt:serverTimestamp()});
+    await audit("SOP Uploaded",ref.id,title,`Type: ${type}`);await loadSops();showMsg("Uploaded","SOP uploaded successfully.","success");
+  }catch(e){showMsg("SOP upload failed",friendly(e),"error")}
+  ev.target.value="";
+}
+async function deleteSop(id){
+  const s=sops.find(x=>x.id===id);if(!s)return;
+  confirmAction("Delete SOP",`Delete "${s.title||s.name}"?`,async()=>{
+    try{await supabaseClient.storage.from("documents").remove([s.storagePath]);await updateDoc(docRef("sops",id),{deletedAt:serverTimestamp()});await audit("SOP Deleted",id,s.title||s.name,"Controlled SOP marked deleted.");await loadSops()}catch(e){showMsg("Delete failed",friendly(e),"error")}
+  });
+}
 async function openSop(id){const s=sops.find(x=>x.id===id);if(s)await openStoredFile(s,false)}
 
 async function loadPrpo(){try{const snap=await getDocs(query(colRef("prpo"),orderBy("createdAt","desc")));prpos=snap.docs.map(d=>({id:d.id,...d.data()}));renderPrpo()}catch(e){showMsg("PR/PO load failed",friendly(e),"error")}}
-function renderPrpo(){const q=$("prpoSearch").value.trim().toLowerCase(),t=$("prpoType").value,s=$("prpoStatus").value;const arr=prpos.filter(x=>(!q||`${x.number} ${x.description} ${x.supplier}`.toLowerCase().includes(q))&&(t==="All"||x.type===t)&&(s==="All"||x.status===s));$("prpoBody").innerHTML=arr.map(x=>`<tr><td class="p-3 font-bold">${esc(x.type)}<div>${esc(x.number)}</div></td><td class="p-3 text-sm">${esc(x.description)}</td><td class="p-3 text-sm">${esc(x.supplier||"—")}</td><td class="p-3 text-sm">${esc(x.currency||"")} ${esc(x.value||"—")}</td><td class="p-3 text-xs">${esc(x.needDate||"—")}<div>Due: ${esc(x.dueDate||"—")}</div></td><td class="p-3">${badge(x.status)}</td><td class="p-3 text-center whitespace-nowrap">${prpoButtons(x)}</td></tr>`).join("")}
-function prpoButtons(x){let b=[];if((admin()||x.createdByUid===currentUser.uid)&&x.status==="Draft")b.push(`<button data-prpo-edit="${x.id}" class="text-blue-700 font-bold">Edit</button><button data-prpo-submit="${x.id}" class="text-indigo-700 font-bold">Submit</button>`);if(can(ROLES.SECTION_HEAD)&&x.status===STATUS.PENDING_SECTION_HEAD)b.push(`<button data-prpo-review="${x.id}" class="text-blue-700 font-bold">Review</button>`);if(isQAApprover()&&x.status===STATUS.PENDING_QA)b.push(`<button data-prpo-approve="${x.id}" class="text-green-700 font-bold">Approve</button>`);if(reviewer()&&x.status!==STATUS.DRAFT&&x.status!==STATUS.APPROVED)b.push(`<button data-prpo-return="${x.id}" class="text-amber-700 font-bold">Return</button>`);return b.join(" · ")}
-function openPrpo(old=null){modal(`<div class="modal active fixed inset-0 bg-black/50 z-50 items-center justify-center p-4"><div class="bg-white rounded-2xl max-w-2xl w-full p-6"><div class="flex justify-between"><h3 class="font-extrabold text-xl">${old?"Edit":"Add"} PR / PO</h3><button data-modal-close>✕</button></div><form id="prpoForm" class="grid md:grid-cols-2 gap-4 mt-4"><input type="hidden" id="prpoId" value="${old?.id||""}"><div><label class="text-sm font-bold">Type</label><select id="ppType" class="w-full p-2 border rounded-lg"><option ${old?.type==="PR"?"selected":""}>PR</option><option ${old?.type==="PO"?"selected":""}>PO</option></select></div><div><label class="text-sm font-bold">Number *</label><input id="ppNumber" required class="w-full p-2 border rounded-lg" value="${esc(old?.number||"")}"></div><div class="md:col-span-2"><label class="text-sm font-bold">Description *</label><textarea id="ppDesc" required class="w-full p-2 border rounded-lg">${esc(old?.description||"")}</textarea></div><div><label class="text-sm font-bold">Supplier</label><input id="ppSupplier" class="w-full p-2 border rounded-lg" value="${esc(old?.supplier||"")}"></div><div><label class="text-sm font-bold">Value</label><input id="ppValue" class="w-full p-2 border rounded-lg" value="${esc(old?.value||"")}"></div><div><label class="text-sm font-bold">Currency</label><input id="ppCurrency" class="w-full p-2 border rounded-lg" value="${esc(old?.currency||"EGP")}"></div><div><label class="text-sm font-bold">Need Date</label><input id="ppNeed" type="date" class="w-full p-2 border rounded-lg" value="${esc(old?.needDate||"")}"></div><div><label class="text-sm font-bold">Due Date</label><input id="ppDue" type="date" class="w-full p-2 border rounded-lg" value="${esc(old?.dueDate||"")}"></div><div class="md:col-span-2 flex justify-end gap-2"><button type="button" data-modal-close class="px-4 py-2 border rounded-lg">Cancel</button><button class="px-5 py-2 bg-primary text-white rounded-lg font-bold">Save Draft</button></div></form></div></div>`);document.querySelectorAll("[data-modal-close]").forEach(x=>x.onclick=closeModal);$("#prpoForm").onsubmit=async e=>{e.preventDefault();await savePrpo(old)}}
-async function savePrpo(old){const d={type:$("#ppType").value,number:$("#ppNumber").value.trim(),description:$("#ppDesc").value.trim(),supplier:$("#ppSupplier").value.trim(),value:$("#ppValue").value.trim(),currency:$("#ppCurrency").value.trim(),needDate:$("#ppNeed").value,dueDate:$("#ppDue").value,updatedAt:serverTimestamp()};if(!d.number||!d.description)return showMsg("Missing fields","Number and description are required.","error");try{if(old)await updateDoc(docRef("prpo",old.id),d);else await addDoc(colRef("prpo"),{...d,status:STATUS.DRAFT,createdByUid:currentUser.uid,createdByName:currentProfile.displayName||currentUser.email,createdAt:serverTimestamp()});closeModal();await loadPrpo();showMsg("Saved","PR/PO saved as Draft.","success")}catch(e){showMsg("Save failed",friendly(e),"error")}}
-async function submitPrpo(id){const x=prpos.find(a=>a.id===id);try{await updateDoc(docRef("prpo",id),{status:STATUS.PENDING_SECTION_HEAD,submittedAt:serverTimestamp(),updatedAt:serverTimestamp()});await audit("PR/PO Submitted",id,x.number,"Submitted for Section Head review.",STATUS.DRAFT,STATUS.PENDING_SECTION_HEAD);await loadPrpo()}catch(e){showMsg("Submit failed",friendly(e),"error")}}
-async function prpoWorkflow(id,target,comment,action){const x=prpos.find(a=>a.id===id),old=x.status;await updateDoc(docRef("prpo",id),{status:target,updatedAt:serverTimestamp(),approvedAsDelegate:target===STATUS.APPROVED&&isDelegatedDeputy()});await audit(action,id,x.number,comment||"",old,target,{delegatedApproval:isDelegatedDeputy()});await notifyEmails(action,x.number,target,comment||"");await loadPrpo()}
+function renderPrpo(){
+  const q=$("prpoSearch").value.trim().toLowerCase(),t=$("prpoType").value,s=$("prpoStatus").value;
+  const arr=prpos.filter(x=>(!q||`${x.number} ${x.description} ${x.supplier}`.toLowerCase().includes(q))&&(t==="All"||x.type===t)&&(s==="All"||x.status===s));
+  $("prpoBody").innerHTML=arr.map(x=>`<tr><td class="p-3 font-bold">${esc(x.type)}<div>${esc(x.number)}</div></td><td class="p-3 text-sm">${esc(x.description)}</td><td class="p-3 text-sm">${esc(x.supplier||"—")}</td><td class="p-3 text-sm">${esc(x.currency||"")} ${esc(x.value||"—")}</td><td class="p-3 text-xs">${esc(x.needDate||"—")}<div>Due: ${esc(x.dueDate||"—")}</div></td><td class="p-3">${badge(x.status)}</td><td class="p-3 text-center whitespace-nowrap">${prpoButtons(x)}</td></tr>`).join("");
+}
+function prpoButtons(x){
+  let b=[];if((admin()||x.createdByUid===currentUser.uid)&&x.status==="Draft")b.push(`<button data-prpo-edit="${x.id}" class="text-blue-700 font-bold">Edit</button><button data-prpo-submit="${x.id}" class="text-indigo-700 font-bold">Submit</button>`);
+  if(can(ROLES.SECTION_HEAD)&&x.status===STATUS.PENDING_SECTION_HEAD)b.push(`<button data-prpo-review="${x.id}" class="text-blue-700 font-bold">Review</button>`);
+  if(isQAApprover()&&x.status===STATUS.PENDING_QA)b.push(`<button data-prpo-approve="${x.id}" class="text-green-700 font-bold">Approve</button>`);
+  if(reviewer()&&x.status!==STATUS.DRAFT&&x.status!==STATUS.APPROVED)b.push(`<button data-prpo-return="${x.id}" class="text-amber-700 font-bold">Return</button>`);
+  return b.join(" · ");
+}
+function openPrpo(old=null){
+  modal(`<div class="modal active fixed inset-0 bg-black/50 z-50 items-center justify-center p-4"><div class="bg-white rounded-2xl max-w-2xl w-full p-6"><div class="flex justify-between"><h3 class="font-extrabold text-xl">${old?"Edit":"Add"} PR / PO</h3><button data-modal-close>✕</button></div><form id="prpoForm" class="grid md:grid-cols-2 gap-4 mt-4"><input type="hidden" id="prpoId" value="${old?.id||""}"><div><label class="text-sm font-bold">Type</label><select id="ppType" class="w-full p-2 border rounded-lg"><option ${old?.type==="PR"?"selected":""}>PR</option><option ${old?.type==="PO"?"selected":""}>PO</option></select></div><div><label class="text-sm font-bold">Number *</label><input id="ppNumber" required class="w-full p-2 border rounded-lg" value="${esc(old?.number||"")}"></div><div class="md:col-span-2"><label class="text-sm font-bold">Description *</label><textarea id="ppDesc" required class="w-full p-2 border rounded-lg">${esc(old?.description||"")}</textarea></div><div><label class="text-sm font-bold">Supplier</label><input id="ppSupplier" class="w-full p-2 border rounded-lg" value="${esc(old?.supplier||"")}"></div><div><label class="text-sm font-bold">Value</label><input id="ppValue" class="w-full p-2 border rounded-lg" value="${esc(old?.value||"")}"></div><div><label class="text-sm font-bold">Currency</label><input id="ppCurrency" class="w-full p-2 border rounded-lg" value="${esc(old?.currency||"EGP")}"></div><div><label class="text-sm font-bold">Need Date</label><input id="ppNeed" type="date" class="w-full p-2 border rounded-lg" value="${esc(old?.needDate||"")}"></div><div><label class="text-sm font-bold">Due Date</label><input id="ppDue" type="date" class="w-full p-2 border rounded-lg" value="${esc(old?.dueDate||"")}"></div><div class="md:col-span-2 flex justify-end gap-2"><button type="button" data-modal-close class="px-4 py-2 border rounded-lg">Cancel</button><button class="px-5 py-2 bg-primary text-white rounded-lg font-bold">Save Draft</button></div></form></div></div>`);
+  document.querySelectorAll("[data-modal-close]").forEach(x=>x.onclick=closeModal);$("#prpoForm").onsubmit=async e=>{e.preventDefault();await savePrpo(old)}
+}
+async function savePrpo(old){
+  const d={type:$("#ppType").value,number:$("#ppNumber").value.trim(),description:$("#ppDesc").value.trim(),supplier:$("#ppSupplier").value.trim(),value:$("#ppValue").value.trim(),currency:$("#ppCurrency").value.trim(),needDate:$("#ppNeed").value,dueDate:$("#ppDue").value,updatedAt:serverTimestamp()};
+  if(!d.number||!d.description)return showMsg("Missing fields","Number and description are required.","error");
+  try{
+    if(old)await updateDoc(docRef("prpo",old.id),d);else await addDoc(colRef("prpo"),{...d,status:STATUS.DRAFT,createdByUid:currentUser.uid,createdByName:currentProfile.displayName||currentUser.email,createdAt:serverTimestamp()});
+    closeModal();await loadPrpo();showMsg("Saved","PR/PO saved as Draft.","success");
+  }catch(e){showMsg("Save failed",friendly(e),"error")}
+}
+async function submitPrpo(id){
+  const x=prpos.find(a=>a.id===id);
+  try{await updateDoc(docRef("prpo",id),{status:STATUS.PENDING_SECTION_HEAD,submittedAt:serverTimestamp(),updatedAt:serverTimestamp()});await audit("PR/PO Submitted",id,x.number,"Submitted for Section Head review.",STATUS.DRAFT,STATUS.PENDING_SECTION_HEAD);await loadPrpo()}catch(e){showMsg("Submit failed",friendly(e),"error")}
+}
 
-async function loadAudit(){try{const snap=await getDocs(query(colRef("audit"),orderBy("createdAt","desc"),limit(500)));auditLogs=snap.docs.map(d=>({id:d.id,...d.data()}));modal(`<div class="modal active fixed inset-0 bg-black/50 z-50 items-center justify-center p-4"><div class="bg-white rounded-2xl shadow-2xl max-w-6xl w-full max-h-[92vh] overflow-auto p-6"><div class="flex justify-between"><h3 class="text-xl font-extrabold">System Audit Trail</h3><button data-modal-close>✕</button></div><div class="mt-4 overflow-auto"><table class="min-w-[1100px] w-full divide-y"><thead class="bg-slate-50"><tr><th class="p-2 text-left text-xs">Timestamp</th><th class="p-2 text-left text-xs">User / Role</th><th class="p-2 text-left text-xs">Action</th><th class="p-2 text-left text-xs">Target</th><th class="p-2 text-left text-xs">Status</th><th class="p-2 text-left text-xs">Details</th></tr></thead><tbody>${auditLogs.map(x=>`<tr><td class="p-2 text-xs">${esc(nowLabel(x.createdAt))}</td><td class="p-2 text-xs">${esc(x.userName)}<div>${esc(x.userRole)}</div></td><td class="p-2 text-xs font-bold">${esc(x.action)}</td><td class="p-2 text-xs">${esc(x.targetName||x.studyName||x.targetId||"—")}</td><td class="p-2 text-xs">${esc(x.previousStatus\vert{}\vert{}"—")} → ${esc(x.newStatus||"—")}</td><td class="p-2 text-xs">${esc(x.details||"")}</td></tr>`).join("")}</tbody></table></div></div></div>`);document.querySelectorAll("[data-modal-close]").forEach(x=>x.onclick=closeModal)}catch(e){showMsg("Audit load failed",friendly(e),"error")}}
+async function loadAudit(){
+  try{
+    const snap=await getDocs(query(colRef("audit"),orderBy("createdAt","desc"),limit(500)));auditLogs=snap.docs.map(d=>({id:d.id,...d.data()}));
+    modal(`<div class="modal active fixed inset-0 bg-black/50 z-50 items-center justify-center p-4"><div class="bg-white rounded-2xl shadow-2xl max-w-6xl w-full max-h-[92vh] overflow-auto p-6"><div class="flex justify-between"><h3 class="text-xl font-extrabold">System Audit Trail</h3><button data-modal-close>✕</button></div><div class="mt-4 overflow-auto"><table class="min-w-[1100px] w-full divide-y"><thead class="bg-slate-50"><tr><th class="p-2 text-left text-xs">Timestamp</th><th class="p-2 text-left text-xs">User / Role</th><th class="p-2 text-left text-xs">Action</th><th class="p-2 text-left text-xs">Target</th><th class="p-2 text-left text-xs">Status</th><th class="p-2 text-left text-xs">Details</th></tr></thead><tbody>${auditLogs.map(x=>`<tr><td class="p-2 text-xs">${esc(nowLabel(x.createdAt))}</td><td class="p-2 text-xs">${esc(x.userName)}<div>${esc(x.userRole)}</div></td><td class="p-2 text-xs font-bold">${esc(x.action)}</td><td class="p-2 text-xs">${esc(x.targetName||x.studyName||x.targetId||"—")}</td><td class="p-2 text-xs">${esc(x.previousStatus\vert{}\vert{}"—")} → ${esc(x.newStatus||"—")}</td><td class="p-2 text-xs">${esc(x.details||"")}</td></tr>`).join("")}</tbody></table></div></div></div>`);
+    document.querySelectorAll("[data-modal-close]").forEach(x=>x.onclick=closeModal);
+  }catch(e){showMsg("Audit load failed",friendly(e),"error")}
+}
 
-async function loadUsers(){if(!admin())return;const snap=await getDocs(colRef("users"));users=snap.docs.map(d=>({id:d.id,...d.data()}));openUserModal()}
-function openUserModal(){modal(`<div class="modal active fixed inset-0 bg-black/50 z-50 items-center justify-center p-4"><div class="bg-white rounded-2xl shadow-2xl max-w-6xl w-full max-h-[94vh] overflow-auto p-6"><div class="flex justify-between"><h3 class="text-xl font-extrabold">User Management & Delegation</h3><button data-modal-close>✕</button></div><form id="userForm" class="grid md:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-xl mt-4"><input type="hidden" id="editUserId"><div><label class="text-xs font-bold">Email *</label><input id="newEmail" type="email" required class="w-full p-2 border rounded"></div><div><label class="text-xs font-bold">Display Name *</label><input id="newName" required class="w-full p-2 border rounded"></div><div><label class="text-xs font-bold">Role *</label><select id="newRole" class="w-full p-2 border rounded">${ROLE_LIST.map(x=>`<option>${x}</option>`).join("")}</select></div><div><label class="text-xs font-bold">Department</label><input id="newDept" class="w-full p-2 border rounded"></div><div><label class="text-xs font-bold">Temporary Password</label><input id="newPass" type="password" class="w-full p-2 border rounded"></div><div><label class="text-xs font-bold">Delegation Start</label><input id="delStart" type="date" class="w-full p-2 border rounded"></div><div><label class="text-xs font-bold">Delegation End</label><input id="delEnd" type="date" class="w-full p-2 border rounded"></div><div class="flex items-center gap-2 pt-5"><input id="delActive" type="checkbox"><label class="text-xs font-bold">QA Delegation Active</label></div><div class="md:col-span-4 flex flex-wrap justify-end gap-2"><button type="button" id="resetPasswordBtn" class="px-3 py-2 bg-amber-600 text-white rounded font-bold">Send Password Reset</button><button class="px-4 py-2 bg-primary text-white rounded font-bold">Save User</button></div></form><div class="overflow-auto mt-4"><table class="min-w-[1050px] w-full divide-y"><thead class="bg-slate-50"><tr><th class="p-2 text-left text-xs">User</th><th class="p-2 text-left text-xs">Role</th><th class="p-2 text-left text-xs">Password</th><th class="p-2 text-left text-xs">Delegation</th><th class="p-2 text-left text-xs">Status</th><th class="p-2 text-center text-xs">Manage</th></tr></thead><tbody id="usersBody"></tbody></table></div></div></div>`);document.querySelectorAll("[data-modal-close]").forEach(x=>x.onclick=closeModal);renderUsers();$("#userForm").onsubmit=saveUser;$("#resetPasswordBtn").onclick=sendReset}
-function renderUsers(){$("#usersBody").innerHTML=users.map(u=>{const exp=u.passwordChangedAt?(Date.now()-new Date(u.passwordChangedAt?.toDate?u.passwordChangedAt.toDate():u.passwordChangedAt).getTime()>90*86400000):false;const del=u.qaDelegation?.active?`${u.qaDelegation.startDate} → ${u.qaDelegation.endDate}`:"—";return`<tr><td class="p-2 text-xs font-bold">${esc(u.displayName||u.username)}<div class="font-normal text-slate-500">${esc(u.email)}</div></td><td class="p-2 text-xs">${esc(u.role)}</td><td class="p-2 text-xs">${exp?'<span class="text-red-600 font-bold">Expired</span>':'<span class="text-green-700 font-bold">Valid / 90 days</span>'}</td><td class="p-2 text-xs">${esc(del)}</td><td class="p-2 text-xs">${u.disabled?"Disabled":"Active"}</td><td class="p-2 text-center"><button data-user-edit="${u.id}" class="text-blue-700 font-bold mr-2">Edit</button><button data-user-toggle="${u.id}" class="text-amber-700 font-bold">${u.disabled?"Enable":"Disable"}</button></td></tr>`}).join("")}
-function editUser(id){const u=users.find(x=>x.id===id);if(!u)return;$("#editUserId").value=id;$("#newEmail").value=u.email\vert{}\vert{}"";$("#newName").value=u.displayName||"";$("#newRole").value=u.role\vert{}\vert{}ROLES.VIEWER;$("#newDept").value=u.department||"";$("#newPass").value="";$("#delStart").value=u.qaDelegation?.startDate||"";$("#delEnd").value=u.qaDelegation?.endDate\vert{}\vert{}"";$("#delActive").checked=!!u.qaDelegation?.active}
-async function saveUser(e){e.preventDefault();const id=$("#editUserId").value,email=$("#newEmail").value.trim().toLowerCase(),d={email,displayName:$("#newName").value.trim(),username:email.split("@")[0],role:$("#newRole").value,department:$("#newDept").value.trim(),qaDelegation:{active:$("#delActive").checked,startDate:$("#delStart").value,endDate:$("#delEnd").value},updatedAt:serverTimestamp()};try{if(id){await updateDoc(docRef("users",id),d);await audit("User Updated",id,d.displayName,`Role=${d.role}; Delegation=${d.qaDelegation.active}`)}else{const p=$("#newPass").value;if(p.length<8)throw Error("New user temporary password must be at least 8 characters.");const sec=initializeApp(firebaseConfig,"UserCreate_"+Date.now()),sa=getAuth(sec),cred=await createUserWithEmailAndPassword(sa,email,p);await setDoc(docRef("users",cred.user.uid),{...d,disabled:false,passwordChangedAt:serverTimestamp(),createdAt:serverTimestamp()});await signOut(sa);await deleteApp(sec);await audit("User Created",cred.user.uid,d.displayName,`Role=${d.role}`)}users=(await getDocs(colRef("users"))).docs.map(x=>({id:x.id,...x.data()}));renderUsers();showMsg("Saved","User profile saved.","success")}catch(e){showMsg("User operation failed",friendly(e),"error")}}
-async function sendReset(){const email=$("#newEmail").value.trim();if(!email)return showMsg("Email required","Enter an email address first.","error");try{await sendPasswordResetEmail(auth,email);showMsg("Reset sent","Password reset email sent.","success")}catch(e){showMsg("Reset failed",friendly(e),"error")}}
-async function toggleUser(id){const u=users.find(x=>x.id===id);if(!u||id===currentUser.uid)return;try{await updateDoc(docRef("users",id),{disabled:!u.disabled,updatedAt:serverTimestamp()});await audit(u.disabled?"User Enabled":"User Disabled",id,u.displayName||u.email,"Account status changed.");users=(await getDocs(colRef("users"))).docs.map(x=>({id:x.id,...x.data()}));renderUsers()}catch(e){showMsg("Operation failed",friendly(e),"error")}}
+async function loadUsers(){
+  if(!admin())return;const snap=await getDocs(colRef("users"));users=snap.docs.map(d=>({id:d.id,...d.data()}));openUserModal()
+}
+function openUserModal(){
+  modal(`<div class="modal active fixed inset-0 bg-black/50 z-50 items-center justify-center p-4"><div class="bg-white rounded-2xl shadow-2xl max-w-6xl w-full max-h-[94vh] overflow-auto p-6"><div class="flex justify-between"><h3 class="text-xl font-extrabold">User Management & Delegation</h3><button data-modal-close>✕</button></div><form id="userForm" class="grid md:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-xl mt-4"><input type="hidden" id="editUserId"><div><label class="text-xs font-bold">Email *</label><input id="newEmail" type="email" required class="w-full p-2 border rounded"></div><div><label class="text-xs font-bold">Display Name *</label><input id="newName" required class="w-full p-2 border rounded"></div><div><label class="text-xs font-bold">Role *</label><select id="newRole" class="w-full p-2 border rounded">${ROLE_LIST.map(x=>`<option>${x}</option>`).join("")}</select></div><div><label class="text-xs font-bold">Department</label><input id="newDept" class="w-full p-2 border rounded"></div><div><label class="text-xs font-bold">Temporary Password</label><input id="newPass" type="password" class="w-full p-2 border rounded"></div><div><label class="text-xs font-bold">Delegation Start</label><input id="delStart" type="date" class="w-full p-2 border rounded"></div><div><label class="text-xs font-bold">Delegation End</label><input id="delEnd" type="date" class="w-full p-2 border rounded"></div><div class="flex items-center gap-2 pt-5"><input id="delActive" type="checkbox"><label class="text-xs font-bold">QA Delegation Active</label></div><div class="md:col-span-4 flex flex-wrap justify-end gap-2"><button type="button" id="resetPasswordBtn" class="px-3 py-2 bg-amber-600 text-white rounded font-bold">Send Password Reset</button><button class="px-4 py-2 bg-primary text-white rounded font-bold">Save User</button></div></form><div class="overflow-auto mt-4"><table class="min-w-[1050px] w-full divide-y"><thead class="bg-slate-50"><tr><th class="p-2 text-left text-xs">User</th><th class="p-2 text-left text-xs">Role</th><th class="p-2 text-left text-xs">Password</th><th class="p-2 text-left text-xs">Delegation</th><th class="p-2 text-left text-xs">Status</th><th class="p-2 text-center text-xs">Manage</th></tr></thead><tbody id="usersBody"></tbody></table></div></div></div>`);
+  document.querySelectorAll("[data-modal-close]").forEach(x=>x.onclick=closeModal);renderUsers();$("#userForm").onsubmit=saveUser;$("#resetPasswordBtn").onclick=sendReset;
+}
+function renderUsers(){
+  $("#usersBody").innerHTML=users.map(u=>{
+    const exp=u.passwordChangedAt?(Date.now()-new Date(u.passwordChangedAt?.toDate?u.passwordChangedAt.toDate():u.passwordChangedAt).getTime()>90*86400000):false;
+    const del=u.qaDelegation?.active?`${u.qaDelegation.startDate} → ${u.qaDelegation.endDate}`:"—";
+    return `<tr><td class="p-2 text-xs font-bold">${esc(u.displayName||u.username)}<div class="font-normal text-slate-500">${esc(u.email)}</div></td><td class="p-2 text-xs">${esc(u.role)}</td><td class="p-2 text-xs">${exp?'<span class="text-red-600 font-bold">Expired</span>':'<span class="text-green-700 font-bold">Valid / 90 days</span>'}</td><td class="p-2 text-xs">${esc(del)}</td><td class="p-2 text-xs">${u.disabled?"Disabled":"Active"}</td><td class="p-2 text-center"><button data-user-edit="${u.id}" class="text-blue-700 font-bold mr-2">Edit</button><button data-user-toggle="${u.id}" class="text-amber-700 font-bold">${u.disabled?"Enable":"Disable"}</button></td></tr>`;
+  }).join("");
+}
+function editUser(id){
+  const u=users.find(x=>x.id===id);if(!u)return;
+  $("#editUserId").value=id;$("#newEmail").value=u.email\vert{}\vert{}"";$("#newName").value=u.displayName||"";$("#newRole").value=u.role\vert{}\vert{}ROLES.VIEWER;$("#newDept").value=u.department||"";$("#newPass").value="";$("#delStart").value=u.qaDelegation?.startDate||"";$("#delEnd").value=u.qaDelegation?.endDate\vert{}\vert{}"";$("#delActive").checked=!!u.qaDelegation?.active;
+}
+async function saveUser(e){
+  e.preventDefault();
+  const id=$("#editUserId").value,email=$("#newEmail").value.trim().toLowerCase(),d={email,displayName:$("#newName").value.trim(),username:email.split("@")[0],role:$("#newRole").value,department:$("#newDept").value.trim(),qaDelegation:{active:$("#delActive").checked,startDate:$("#delStart").value,endDate:$("#delEnd").value},updatedAt:serverTimestamp()};
+  try{
+    if(id){await updateDoc(docRef("users",id),d);await audit("User Updated",id,d.displayName,`Role=${d.role}; Delegation=${d.qaDelegation.active}`)}
+    else{
+      const p=$("#newPass").value;if(p.length<8)throw Error("New user temporary password must be at least 8 characters.");
+      const sec=initializeApp(firebaseConfig,"UserCreate_"+Date.now()),sa=getAuth(sec),cred=await createUserWithEmailAndPassword(sa,email,p);
+      await setDoc(docRef("users",cred.user.uid),{...d,disabled:false,passwordChangedAt:serverTimestamp(),createdAt:serverTimestamp()});
+      await signOut(sa);await deleteApp(sec);await audit("User Created",cred.user.uid,d.displayName,`Role=${d.role}`);
+    }
+    users=(await getDocs(colRef("users"))).docs.map(x=>({id:x.id,...x.data()}));renderUsers();showMsg("Saved","User profile saved.","success");
+  }catch(e){showMsg("User operation failed",friendly(e),"error")}
+}
+async function sendReset(){
+  const email=$("#newEmail").value.trim();if(!email)return showMsg("Email required","Enter an email address first.","error");
+  try{await sendPasswordResetEmail(auth,email);showMsg("Reset sent","Password reset email sent.","success")}catch(e){showMsg("Reset failed",friendly(e),"error")}
+}
+async function toggleUser(id){
+  const u=users.find(x=>x.id===id);if(!u||id===currentUser.uid)return;
+  try{await updateDoc(docRef("users",id),{disabled:!u.disabled,updatedAt:serverTimestamp()});await audit(u.disabled?"User Enabled":"User Disabled",id,u.displayName||u.email,"Account status changed.");users=(await getDocs(colRef("users"))).docs.map(x=>({id:x.id,...x.data()}));renderUsers()}catch(e){showMsg("Operation failed",friendly(e),"error")}
+}
 
 async function loadDashboard(){
   try{
@@ -580,27 +687,6 @@ async function loadDashboard(){
 function tickClock(){$("dashboardClock").textContent=new Date().toLocaleString()}
 setInterval(tickClock,1000);tickClock();
 
-// --- LOGIN EVENT HANDLER FIX ---
-$("#loginForm").onsubmit = async (e) => {
-  e.preventDefault();
-  const email = $("#username").value.trim();
-  const password = $("#password").value;
-  const errBox = $("#loginError");
-  errBox.classList.add("hidden");
-  try {
-    const cred = await signInWithEmailAndPassword(auth, email, password);
-    currentUser = cred.user;
-    currentProfile = await loadProfile(currentUser);
-    configureNav();
-    showView("home");
-    setupActivity();
-  } catch (err) {
-    errBox.textContent = friendly(err);
-    errBox.classList.remove("hidden");
-  }
-};
-
-// Global click event bindings
 document.addEventListener("click",async e=>{
   const b=e.target.closest("button");if(!b)return;
   if(b.id==="homeNav")showView("home");
@@ -630,44 +716,75 @@ document.addEventListener("click",async e=>{
   if(b.dataset.moduleReview)await moduleReview(b.dataset.moduleReview);
   if(b.dataset.moduleApprove)await moduleApprove(b.dataset.moduleApprove);
   if(b.dataset.moduleReturn)await moduleReturn(b.dataset.moduleReturn);
-  if(b.dataset.moduleFiles)await filesFor(b.dataset.moduleFiles,currentModule===MODULES.CAL?"calibration":"qualification");
   if(b.dataset.moduleExec)await toggleModuleExecution(b.dataset.moduleExec,b.dataset.exec==="1");
   if(b.dataset.printCal)printCalibration(b.dataset.printCal);
+  if(b.dataset.moduleFiles)await filesFor(b.dataset.moduleFiles,currentModule===MODULES.CAL?"calibration":"qualification");
   if(b.dataset.sopFile)await openSop(b.dataset.sopFile);
   if(b.dataset.sopDelete)await deleteSop(b.dataset.sopDelete);
   if(b.dataset.prpoEdit)openPrpo(prpos.find(x=>x.id===b.dataset.prpoEdit));
   if(b.dataset.prpoSubmit)await submitPrpo(b.dataset.prpoSubmit);
-  if(b.dataset.prpoReview)await prpoWorkflow(b.dataset.prpoReview,STATUS.PENDING_QA,"Reviewed","PR/PO Reviewed");
-  if(b.dataset.prpoApprove)await prpoWorkflow(b.dataset.prpoApprove,STATUS.APPROVED,"Approved","PR/PO Approved");
-  if(b.dataset.prpoReturn)await prpoWorkflow(b.dataset.prpoReturn,STATUS.DRAFT,"Returned","PR/PO Returned");
   if(b.dataset.userEdit)editUser(b.dataset.userEdit);
   if(b.dataset.userToggle)await toggleUser(b.dataset.userToggle);
-  if(b.dataset.kpi)showView(b.dataset.kpi);
+  if(b.dataset.kpi==="studies")showView("studies");
+  if(b.dataset.kpi==="cal")showView("cal");
+  if(b.dataset.kpi==="qual")showView("qual");
+  if(b.dataset.kpi==="sop")showView("sop");
+  if(b.dataset.kpi==="prpo")showView("prpo");
 });
 
-// Excel import & File uploads
+document.addEventListener("input",e=>{
+  if(["searchInput","modSearchInput","sopSearch","prpoSearch"].includes(e.target.id)){
+    if(currentView==="studies")renderStudies();
+    if(currentView==="cal"||currentView==="qual")renderModuleTable();
+    if(currentView==="sop")renderSops();
+    if(currentView==="prpo")renderPrpo();
+  }
+});
+document.addEventListener("change",e=>{
+  if(["filterStage","filterStatus","filterScale","modFilter1","modFilter2","modFilterStatus","sopTypeFilter","prpoType","prpoStatus"].includes(e.target.id)){
+    if(currentView==="studies")renderStudies();
+    if(currentView==="cal"||currentView==="qual")renderModuleTable();
+    if(currentView==="sop")renderSops();
+    if(currentView==="prpo")renderPrpo();
+  }
+});
+
+$("tabProcess").onclick=()=>{currentCategory=CATS.PROCESS;currentStudySubtab="all";$("tabProcess").className="tab active px-4 py-2 rounded-lg font-bold";$("tabHoldTime").className="tab px-4 py-2 rounded-lg font-bold";$("tabCleaning").className="tab px-4 py-2 rounded-lg font-bold";renderStudies()};
+$("tabHoldTime").onclick=()=>{currentCategory=CATS.HOLD;currentStudySubtab="all";$("tabHoldTime").className="tab active px-4 py-2 rounded-lg font-bold";$("tabProcess").className="tab px-4 py-2 rounded-lg font-bold";$("tabCleaning").className="tab px-4 py-2 rounded-lg font-bold";renderStudies()};
+$("tabCleaning").onclick=()=>{currentCategory=CATS.CLEANING;currentStudySubtab="all";$("tabCleaning").className="tab active px-4 py-2 rounded-lg font-bold";$("tabProcess").className="tab px-4 py-2 rounded-lg font-bold";$("tabHoldTime").className="tab px-4 py-2 rounded-lg font-bold";renderStudies()};
+$("clearFiltersBtn").onclick=()=>{["searchInput","filterStage","filterStatus","filterScale"].forEach(id=>$(id).value="All");$("searchInput").value="";renderStudies()};
+$("modClearFiltersBtn").onclick=()=>{["modSearchInput","modFilter1","modFilter2","modFilterStatus"].forEach(id=>$(id).value="All");$("modSearchInput").value="";renderModuleTable()};
+
+document.querySelectorAll("[data-cal-tab]").forEach(b=>b.onclick=()=>{document.querySelectorAll("[data-cal-tab]").forEach(x=>x.classList.remove("active","subtab"));b.classList.add("active","subtab");currentModuleTab=b.dataset.calTab;renderModuleTable()});
+document.querySelectorAll("[data-qual-tab]").forEach(b=>b.onclick=()=>{document.querySelectorAll("[data-qual-tab]").forEach(x=>x.classList.remove("active","subtab"));b.classList.add("active","subtab");currentModuleTab=b.dataset.qualTab;renderModuleTable()});
 $("excelImportInput").onchange=importModuleExcel;
 $("sopInput").onchange=uploadSop;
 
-// Auth state observer
-onAuthStateChanged(auth, async user => {
-  if(user){
-    try{
-      currentUser=user;
-      currentProfile=await loadProfile(user);
-      configureNav();
-      showView("home");
-      setupActivity();
-    }catch(e){
-      showMsg("Authentication Error", friendly(e), "error");
-      await signOut(auth);
-      resetUI();
-    }
-  }else{
-    currentUser=null;
-    currentProfile=null;
-    resetUI();
-  }
+$("loginForm").onsubmit=async e=>{
+  e.preventDefault();const u=$("#username").value.trim(),p=$("#password").value;$("#loginError").classList.add("hidden");
+  try{
+    const cred=await signInWithEmailAndPassword(auth,u,p);currentUser=cred.user;currentProfile=await loadProfile(currentUser);
+    if(currentProfile.passwordExpired){showMsg("Password Expired","Your password has expired after 90 days. Please contact an Administrator to reset your credentials.","error");await signOut(auth);return;}
+    setupActivity();configureNav();showView("home");await audit("User Logined",currentUser.uid,currentProfile.displayName||currentUser.email,"Successful local credential login.");
+  }catch(err){$("#loginError").textContent=friendly(err);$("#loginError").classList.remove("hidden")}
+};
+$("azureSsoBtn").onclick=async()=>{
+  if(!msalInstance)return showMsg("SSO Unavailable","MSAL Azure Active Directory client is not configured.","error");
+  try{
+    const resp=await msalInstance.loginPopup({scopes:["User.Read"]});if(!resp?.account)return;
+    const email=resp.account.username||resp.account.name;
+    const snap=await getDocs(query(colRef("users"),where("email","==",email.toLowerCase()),limit(1)));
+    if(snap.empty)throw Error(`No ValidApp profile found for Microsoft account: ${email}`);
+    const rawSnap=snap.docs[0];currentProfile={id:rawSnap.id,...rawSnap.data()};
+    currentUser={uid:currentProfile.id,email:currentProfile.email||email};
+    setupActivity();configureNav();showView("home");await audit("Azure SSO Login",currentUser.uid,currentProfile.displayName||currentUser.email,"Successful Microsoft 365 login.");
+  }catch(e){showMsg("Microsoft SSO Failed",friendly(e),"error")}
+};
+
+onAuthStateChanged(auth,async u=>{
+  if(u){
+    currentUser=u;try{currentProfile=await loadProfile(u);setupActivity();configureNav();showView(currentView)}catch(e){resetUI();showMsg("Access Restricted",e.message,"error");signOut(auth)}
+  }else{currentUser=null;currentProfile=null;resetUI()}
 });
 </script>
 </body>
