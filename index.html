@@ -488,10 +488,12 @@ async function openStoredFile(f,download){
   try{const {data,error}=await supabaseClient.storage.from("documents").createSignedUrl(f.storagePath,120,{download:download?f.name:false});if(error)throw Error(error.message);if(download){const a=document.createElement("a");a.href=data.signedUrl;a.download=f.name;a.click()}else window.open(data.signedUrl,"_blank","noopener")}catch(e){showMsg("File access failed",friendly(e),"error")}
 }
 async function showHistory(id){
-  const snap=await getDocs(query(colRef("reviews"),where("studyId","==",id)));const arr=snap.docs.map(d=>d.data()).sort((a,b)=>(b.createdAt?.seconds||0)-(a.createdAt?.seconds||0));
-  modal(`<div class="modal active fixed inset-0 bg-black/50 z-50 items-center justify-center p-4"><div class="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-auto p-6"><div class="flex justify-between"><h3 class="font-extrabold text-lg">Workflow History</h3><button data-modal-close>✕</button></div><div class="mt-4 space-y-3">${arr.map(x=>`<div class="border-l-4 border-blue-500 pl-3"><b>${esc(x.action\vert{}\vert{}"Review")} • ${esc(x.reviewerRole||"")}</b><div class="text-xs text-slate-500">${esc(x.reviewerName)} •${esc(nowLabel(x.createdAt))}</div><div class="text-sm mt-1 whitespace-pre-wrap">${esc(x.comment||"No comment")}</div></div>`).join("")||"<p class='text-sm text-slate-500'>No history.</p>"}</div></div></div>`);
-  document.querySelectorAll("[data-modal-close]").forEach(x=>x.onclick=closeModal);
+    const snap=await getDocs(query(colRef("reviews"),where("studyId","==",id)));
+    const arr=snap.docs.map(d=>d.data()).sort((a,b)=>(b.createdAt?.seconds||0)-(a.createdAt?.seconds||0));
+    modal(`<div class="modal active fixed inset-0 bg-black/50 z-50 items-center justify-center p-4"><div class="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-auto p-6"><div class="flex justify-between"><h3 class="font-extrabold text-lg">Workflow History</h3><button data-modal-close>✕</button></div><div class="mt-4 space-y-3">${arr.map(x=>`<div class="border-l-4 border-blue-500 pl-3"><b>${esc(x.action\vert{}\vert{}"Review")} • ${esc(x.reviewerRole||"")}</b><div class="text-xs text-slate-500">${esc(x.reviewerName)} •${esc(nowLabel(x.createdAt))}</div><div class="text-sm mt-1 whitespace-pre-wrap">${esc(x.comment||"No comment")}</div></div>`).join("")||"<p class='text-sm text-slate-500'>No history.</p>"}</div></div></div>`);
+    document.querySelectorAll("[data-modal-close]").forEach(x=>x.onclick=closeModal);
 }
+```[cite: 13]
 
 async function loadModule(){
   const cal=currentModule===MODULES.CAL;$("#moduleTitle").textContent=cal?"Calibration":"Qualification";$("#moduleDescription").textContent=cal?"Calibration monthly and department plans, due dates and execution tracking":"Qualification monthly plan, utilities and systems with due-date monitoring";
