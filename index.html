@@ -45,7 +45,7 @@ body{font-family:Inter,Arial,sans-serif;background:#f1f5f9}
         <svg viewBox="0 0 64 64" class="w-full h-full" aria-label="ODF and capsule logo">
           <rect x="2" y="2" width="60" height="60" rx="16" fill="white" opacity=".98"/>
           <path d="M13 24h22a8 8 0 0 1 8 8v4a8 8 0 0 1-8 8H13z" fill="#1e40af"/>
-          <path d="M13 24h22a8 8 0 0 1 8 8v4a8 8 0 0 1-8 8H13z" fill="#3b82f6"/>
+          <path d="M13 24h22a8 8 0 0 1 8 8H13z" fill="#3b82f6"/>
           <path d="M40 16h7a8 8 0 0 1 0 16h-7z" fill="#10b981"/>
           <path d="M47 16h4a8 8 0 0 1 0 16h-4z" fill="#93c5fd"/>
           <path d="M14 48h36" stroke="#1e40af" stroke-width="3" stroke-linecap="round"/>
@@ -201,7 +201,7 @@ import {getFirestore,collection,doc,getDoc,getDocs,setDoc,addDoc,updateDoc,delet
 
 const MY_FIREBASE_CONFIG={apiKey:"AIzaSyDEV8rEluViDZiA5nnv7BiIU78rgq5enA",authDomain:"validapp-db.firebaseapp.com",projectId:"validapp-db",storageBucket:"validapp-db.firebasestorage.app",messagingSenderId:"702664233017",appId:"1:702664233017:web:25fbede2f3c7244cdbfde8",measurementId:"G-7FTDYP0XWS"};
 const SUPABASE_URL="https://lnyignnyhihrkjauhzsk.supabase.co";
-const SUPABASE_ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxueWlnbm55aGlocmtqYXVoc3prIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjY2Mzg0MDAsImV4cCI6MjA0MjIxNDQwMH0.X9J2Q3K7L8M4N5P6Q7R8S9T0U1V2W3X4Y5Z6";
+const SUPABASE_ANON_KEY="sb_publishable__0Xw5joGtNrlh38qYOhrpw_vMALXzrV";
 const EMAILJS_PUBLIC_KEY="tx8P6mYyi6C6APSXn",EMAILJS_SERVICE_ID="service_nyq8c6p",EMAILJS_TEMPLATE_ID="template_008bbdj";
 if(window.emailjs) window.emailjs.init(EMAILJS_PUBLIC_KEY);
 const msalConfig={auth:{clientId:"22315588-6d90-4c55-87be-3e293fc5a7a9",authority:"https://login.microsoftonline.com/a0463def-3037-44e8-8e17-e94af8f05069",redirectUri:window.location.origin+window.location.pathname},cache:{cacheLocation:"localStorage",storeAuthStateInCookie:false}};
@@ -226,7 +226,7 @@ let records=[],moduleRecords=[],users=[],sops=[],prpos=[],auditLogs=[],filesByPa
 let inactivityTimer=null,lastActivity=Date.now(),passwordExpired=false;
 
 const $=id=>document.getElementById(id);
-const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const colRef=n=>collection(db,"artifacts",appId,"public","data",n);
 const docRef=(n,id)=>doc(db,"artifacts",appId,"public","data",n,id);
 const nowLabel=v=>{if(!v)return"—";const d=v?.toDate?v.toDate():new Date(v);return Number.isNaN(d.getTime())?"—":d.toLocaleString()};
@@ -267,6 +267,8 @@ function isDelegatedDeputy(){
 function delegationLabel(){return isDelegatedDeputy()?`QA Manager Delegation Active (${currentProfile.qaDelegation.startDate} → ${currentProfile.qaDelegation.endDate})`:""}
 
 async function loadProfile(u){
+  // Backward-compatible profile lookup: existing ValidApp users may have their
+  // Firestore profile keyed by UID, email, or username from an older version.
   let s=await getDoc(docRef("users",u.uid));
   if(!s.exists() && u.email) s=await getDoc(docRef("users",u.email.toLowerCase()));
   if(!s.exists() && u.email) s=await getDoc(docRef("users",u.email.split("@")[0].toLowerCase()));
@@ -285,10 +287,12 @@ async function loadProfile(u){
   const p={id:s.id,...raw,role:normalizedRole};
   const changed=p.passwordChangedAt?.toDate?p.passwordChangedAt.toDate():p.passwordChangedAt?new Date(p.passwordChangedAt):null;
   p.passwordExpired=!!changed&&!Number.isNaN(changed.getTime())&&(Date.now()-changed.getTime()>90*24*60*60*1000);
+  // If this is an older profile keyed by email/username, keep it usable and
+  // transparently migrate it to the Firebase Auth UID after successful login.
   if(s.id!==u.uid){try{await setDoc(docRef("users",u.uid),{...raw,email:u.email||raw.email,role:normalizedRole,username:raw.username||u.email?.split("@")[0],migratedFrom:s.id,updatedAt:serverTimestamp()},{merge:true})}catch(e){console.warn("Profile migration skipped:",e)}}
   return p;
 }
-function updateActivity(){lastActivity=Date.now();if(inactivityTimer)clearTimeout(inactivityTimer);inactivityTimer=setTimeout(()=>{if(currentUser){showMsg("Session expired","You were automatically logged out after 15 minutes without activity.","error");setTimeout(()=>signOut(auth),700)}},15*60*1000)}
+async function updateActivity(){lastActivity=Date.now();if(inactivityTimer)clearTimeout(inactivityTimer);inactivityTimer=setTimeout(()=>{if(currentUser){showMsg("Session expired","You were automatically logged out after 15 minutes without activity.","error");setTimeout(()=>signOut(auth),700)}},15*60*1000)}
 function setupActivity(){["click","keydown","mousemove","scroll","touchstart"].forEach(e=>document.addEventListener(e,updateActivity,{passive:true}));updateActivity()}
 function resetUI(){ $("loginSection").classList.remove("hidden");$("dashboardSection").classList.add("hidden");$("userInfo").classList.add("hidden");$("userInfo").classList.remove("flex");}
 function nav(id){document.querySelectorAll(".nav-btn").forEach(x=>x.classList.remove("active"));if($(id))$(id).classList.add("active")}
@@ -379,14 +383,14 @@ async function saveStudy(old){
   const data={productName:$("#productName").value.trim(),studyCategory:$("#studyCategory").value,subCategory:$("#subCategory").value.trim(),productType:$("#productType").value.trim(),date:$("#studyDate").value,stage:$("#stage").value,scale:$("#scale").value,version:$("#version").value.trim(),reason:$("#reason").value.trim(),notes:$("#notes").value.trim(),requireOtherDeptReview:$("#requireOtherDeptReview").checked,updatedAt:serverTimestamp()};
   if(!data.productName||!data.date||!data.reason||!data.version)return showMsg("Missing fields","Complete all required fields.","error");
   try{
-    if(old){await updateDoc(docRef("records",old.id),data);showMsg("Saved","Draft/study updated.","success")}
-    else{await addDoc(colRef("records"),{...data,status:STATUS.DRAFT,action:ACTIONS.IN_PLAN,createdByUid:currentUser.uid,createdByName:currentProfile.displayName||currentUser.email,createdAt:serverTimestamp()});showMsg("Draft created","The study is saved as Draft.","success")}
+    if(old){await updateDoc(docRef("records",old.id),data);showMsg("Saved","Draft/study updated. No audit entry is created while the study remains Draft.","success")}
+    else{await addDoc(colRef("records"),{...data,status:STATUS.DRAFT,action:ACTIONS.IN_PLAN,createdByUid:currentUser.uid,createdByName:currentProfile.displayName||currentUser.email,createdAt:serverTimestamp()});showMsg("Draft created","The study is saved as Draft. Audit trail starts when it is submitted.","success")}
     closeModal();loadStudies();
   }catch(e){showMsg("Save failed",friendly(e),"error")}
 }
 async function submitStudy(id){
   const r=records.find(x=>x.id===id);if(!r)return;
-  try{const next=STATUS.PENDING_SECTION_HEAD;await updateDoc(docRef("records",id),{status:next,submittedAt:serverTimestamp(),updatedAt:serverTimestamp()});await audit("Study Submitted",id,r.productName,"Draft submitted for controlled review.",STATUS.DRAFT,next);await notifyEmails("Study Submitted",r.productName,next,"A study has been submitted for Section Head review.");await loadStudies();showMsg("Submitted","Study submitted to Section Head.","success")}catch(e){showMsg("Submission failed",friendly(e),"error")}
+  try{const next=STATUS.PENDING_SECTION_HEAD;await updateDoc(docRef("records",id),{status:next,submittedAt:serverTimestamp(),updatedAt:serverTimestamp()});await audit("Study Submitted",id,r.productName,"Draft submitted for controlled review.",STATUS.DRAFT,next);await notifyEmails("Study Submitted",r.productName,next,"A study has been submitted for Section Head review.");await loadStudies();showMsg("Submitted","Study submitted to Section Head. Audit trail has now started.","success")}catch(e){showMsg("Submission failed",friendly(e),"error")}
 }
 async function workflow(id,target,comment="",actionName="Workflow Progressed"){
   const r=records.find(x=>x.id===id);if(!r)return;const old=r.status;
@@ -396,29 +400,10 @@ async function workflow(id,target,comment="",actionName="Workflow Progressed"){
   await updateDoc(docRef("records",id),u);await addDoc(colRef("reviews"),{studyId:id,studyName:r.productName,reviewerUid:currentUser.uid,reviewerName:currentProfile.displayName||currentUser.email,reviewerRole:role(),comment,action:actionName,createdAt:serverTimestamp()});
   await audit(actionName,id,r.productName,comment||`${role()} action`,old,target,{delegatedApproval:isDelegatedDeputy()});await notifyEmails(actionName,r.productName,target,comment||`${old} → ${target}`);await loadStudies();
 }
-async function returnStudy(id){
-  const r=records.find(x=>x.id===id);if(!r)return;
-  confirmAction("Return for Revision", `Return "${r.productName}" to the Creator?`, async c=>{
-    try{await workflow(id,STATUS.DRAFT,c,"Returned for Revision");}catch(e){console.error(e);alert(e.message);}
-  });
-}
-async function reviewStudy(id){
-  const r=records.find(x=>x.id===id);if(!r)return;
-  confirmAction("Complete Review", `Complete review for "${r.productName}"?`, async c=>{
-    try{await workflow(id,STATUS.PENDING_DEPUTY,c,"Review Completed");}catch(e){console.error(e);alert(e.message);}
-  });
-}
-async function approveStudy(id){
-  const r=records.find(x=>x.id===id);if(!r)return;
-  confirmAction(isDelegatedDeputy()?"Approve as QA Manager Delegate":"Approve Study", `Approve "${r.productName}"?`, async c=>{
-    try{await workflow(id,STATUS.APPROVED,c,"Approved");}catch(e){console.error(e);alert(e.message);}
-  });
-}
-async function rejectStudy(id){
-  confirmAction("Reject Study","Rejection requires a documented reason.",async c=>{
-    try{await workflow(id,STATUS.REJECTED,c,"Study Rejected");showMsg("Rejected","Study rejected.","success")}catch(e){showMsg("Rejection failed",friendly(e),"error")}
-  },true,"Rejection reason *");
-}
+async function returnStudy(id){const r=records.find(x=>x.id===id);if(!r)return;confirmAction("Return for Revision",`Return "${r.productName}" to the Creator?`,async c=>{try{await workflow(id,STATUS.RETURNED,c,"Study Returned");showMsg("Returned","Study returned for revision.","success")}catch(e){showMsg("Return failed",friendly(e),"error")}},true)}
+async function reviewStudy(id){const r=records.find(x=>x.id===id);if(!r)return;confirmAction("Complete Review",`Complete review for "${r.productName}"?`,async c=>{try{await workflow(id,nextStatus(r),c,"Review Completed");showMsg("Review completed","Study advanced to the next workflow stage.","success")}catch(e){showMsg("Review failed",friendly(e),"error")}})},
+async function approveStudy(id){const r=records.find(x=>x.id===id);if(!r)return;confirmAction(isDelegatedDeputy()?"Approve as QA Manager Delegate":"Approve Study",`Approve "${r.productName}"?`,async()=>{try{await workflow(id,STATUS.APPROVED,isDelegatedDeputy()?"Approved under active QA Manager delegation":"QA Manager Approval","Study Approved");showMsg("Approved",isDelegatedDeputy()?"Study approved by QA Deputy under active delegation.":"Study approved by QA Manager.","success")}catch(e){showMsg("Approval failed",friendly(e),"error")}})},
+async function rejectStudy(id){confirmAction("Reject Study","Rejection requires a documented reason.",async c=>{try{await workflow(id,STATUS.REJECTED,c,"Study Rejected");showMsg("Rejected","Study rejected.","success")}catch(e){showMsg("Rejection failed",friendly(e),"error")}},true,"Rejection reason *")}
 async function setStudyAction(id,a){
   const r=records.find(x=>x.id===id);if(!r)return;
   try{await updateDoc(docRef("records",id),{action:a,executedAt:a===ACTIONS.EXECUTED?serverTimestamp():null,lastActionByUid:currentUser.uid,lastActionByName:currentProfile.displayName||currentUser.email,updatedAt:serverTimestamp()});await audit(a===ACTIONS.EXECUTED?"Study Executed":"Study Returned to Plan",id,r.productName,`Execution status changed to ${a}`,r.status,r.status);await notifyEmails(`Study ${a}`,r.productName,r.status,`Execution status changed to ${a}.`);await loadStudies();showMsg("Updated",`Study is now marked "${a}".`,"success")}catch(e){showMsg("Execution update failed",friendly(e),"error")}
@@ -451,7 +436,7 @@ async function openStoredFile(f,download){
 }
 async function showHistory(id){
   const snap=await getDocs(query(colRef("reviews"),where("studyId","==",id)));const arr=snap.docs.map(d=>d.data()).sort((a,b)=>(b.createdAt?.seconds||0)-(a.createdAt?.seconds||0));
-  modal(`<div class="modal active fixed inset-0 bg-black/50 z-50 items-center justify-center p-4"><div class="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-auto p-6"><div class="flex justify-between"><h3 class="font-extrabold text-lg">Workflow History</h3><button data-modal-close>✕</button></div><div class="mt-4 space-y-3">${arr.map(x=>`<div class="border-l-4 border-blue-500 pl-3"><b>${esc(x.action\vert{}\vert{}"Review")} • ${esc(x.reviewerRole||"")}</b><div class="text-xs text-slate-500">${esc(x.reviewerName)} •${esc(nowLabel(x.createdAt))}</div><div class="text-sm mt-1 whitespace-pre-wrap">${esc(x.comment||"No comment")}</div></div>`).join("")||"<p class='text-sm text-slate-500'>No history.</p>"}</div></div></div>`);
+  modal(`<div class="modal active fixed inset-0 bg-black/50 z-50 items-center justify-center p-4"><div class="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-auto p-6"><div class="flex justify-between"><h3 class="font-extrabold text-lg">Workflow History</h3><button data-modal-close>✕</button></div><div class="mt-4 space-y-3">${arr.map(x=>`<div class="border-l-4 border-blue-500 pl-3"><b>${esc(x.action||"Review")} • ${esc(x.reviewerRole||"")}</b><div class="text-xs text-slate-500">${esc(x.reviewerName)} • ${esc(nowLabel(x.createdAt))}</div><div class="text-sm mt-1 whitespace-pre-wrap">${esc(x.comment||"No comment")}</div></div>`).join("")||"<p class='text-sm text-slate-500'>No history.</p>"}</div></div></div>`);
   document.querySelectorAll("[data-modal-close]").forEach(x=>x.onclick=closeModal);
 }
 
@@ -516,76 +501,22 @@ async function saveModule(old){
   const cal=currentModule===MODULES.CAL,data=cal?{certificateNo:$("#calCertificateNo").value.trim(),department:$("#calDept").value.trim(),instrument:$("#calInstrument").value.trim(),code:$("#calCode").value.trim(),manufacturer:$("#calManuf").value.trim(),model:$("#calModel").value.trim(),serialNumber:$("#calSN").value.trim(),location:$("#calLocation").value.trim(),calRange:$("#calRange").value.trim(),acceptanceLimits:$("#calLimits").value.trim(),interval:$("#calInterval").value.trim(),monthYear:$("#calMonthYear").value.trim(),calDate:$("#calDate").value,dueDate:$("#calDueDate").value,isAddendum:$("#calAdd").checked,isOutOfCalibration:$("#calOut").checked,name:$("#calInstrument").value.trim(),reference:$("#calCertificateNo").value.trim()}:{name:$("#qualName").value.trim(),reference:$("#qualRef").value.trim(),qualificationType:$("#qualType").value,stage:$("#qualStage").value,plannedDate:$("#qualDate").value,dueDate:$("#qualDueDate").value,equipmentSystemInfo:$("#qualInfo").value.trim(),description:$("#qualDesc").value.trim()};
   if(cal&&(!data.certificateNo||!data.instrument||!data.code))return showMsg("Missing fields","Certificate No., Instrument and Code are required.","error");
   if(!cal&&(!data.name||!data.reference))return showMsg("Missing fields","Name and Reference are required.","error");
-  try{const c=cal?"calibration":"qualification";if(old){await updateDoc(docRef(c,old.id),{...data,updatedAt:serverTimestamp()})}else await addDoc(colRef(c),{...data,status:STATUS.DRAFT,executedTracker:false,createdByUid:currentUser.uid,createdByName:currentProfile.displayName||currentUser.email,createdAt:serverTimestamp(),updatedAt:serverTimestamp()});closeModal();await loadModule();showMsg("Saved","Record saved as Draft.","success")}catch(e){showMsg("Save failed",friendly(e),"error")}
+  try{const c=cal?"calibration":"qualification";if(old){await updateDoc(docRef(c,old.id),{...data,updatedAt:serverTimestamp()})}else await addDoc(colRef(c),{...data,status:STATUS.DRAFT,executedTracker:false,createdByUid:currentUser.uid,createdByName:currentProfile.displayName||currentUser.email,createdAt:serverTimestamp(),updatedAt:serverTimestamp()});closeModal();await loadModule();showMsg("Saved","Record saved as Draft. Workflow audit begins on submission.","success")}catch(e){showMsg("Save failed",friendly(e),"error")}
 }
-async function submitModule(id){
-  const c=currentModule===MODULES.CAL?"calibration":"qualification",r=moduleRecords.find(x=>x.id===id);if(!r)return;
-  try{
-    await updateDoc(docRef(c,id),{status:STATUS.PENDING_SECTION_HEAD,submittedAt:serverTimestamp(),updatedAt:serverTimestamp()});
-    await audit(`${currentModule} Submitted`,id,r.name||r.instrument||r.certificateNo,"Submitted for Section Head review.",STATUS.DRAFT,STATUS.PENDING_SECTION_HEAD);
-    await notifyEmails(`${currentModule} Submitted`,r.name||r.instrument||r.certificateNo,STATUS.PENDING_SECTION_HEAD,"Submitted for Section Head review.");
-    await loadModule();showMsg("Submitted","Record submitted to Section Head.","success");
-  }catch(e){showMsg("Submit failed",friendly(e),"error")}
-}
-async function moduleReview(id){
-  const r=moduleRecords.find(x=>x.id===id);if(!r)return;
-  confirmAction("Complete Review",`Complete review for ${r.name||r.instrument||r.certificateNo}?`,async c=>{
-    try{
-      const target=r.status===STATUS.PENDING_SECTION_HEAD?STATUS.PENDING_QA:STATUS.COMPLETED;
-      await updateModuleWorkflow(id,target,c,"Module Review Completed");
-      showMsg("Review completed","Record advanced.","success");
-    }catch(e){showMsg("Review failed",friendly(e),"error")}
-  });
-}
-async function updateModuleWorkflow(id,target,comment,actionName){
-  const c=currentModule===MODULES.CAL?"calibration":"qualification",r=moduleRecords.find(x=>x.id===id);const old=r.status;
-  await updateDoc(docRef(c,id),{status:target,updatedAt:serverTimestamp(),lastActionByUid:currentUser.uid,lastActionByName:currentProfile.displayName||currentUser.email,approvedByUid:target===STATUS.APPROVED?currentUser.uid:null,approvedAsDelegate:target===STATUS.APPROVED&&isDelegatedDeputy()});
-  await audit(actionName,id,r.name||r.instrument||r.certificateNo,comment||"",old,target,{delegatedApproval:isDelegatedDeputy()});
-  await notifyEmails(actionName,r.name||r.instrument||r.certificateNo,target,comment||"");
-  await loadModule();
-}
-async function moduleApprove(id){
-  const r=moduleRecords.find(x=>x.id===id);
-  confirmAction(isDelegatedDeputy()?"Approve as QA Manager Delegate":"Approve",`Approve ${r.name||r.instrument||r.certificateNo}?`,async()=>{
-    try{
-      await updateModuleWorkflow(id,STATUS.APPROVED,isDelegatedDeputy()?"Approved under active delegation":"Approved","Module Approved");
-      showMsg("Approved","Record approved.","success");
-    }catch(e){showMsg("Approval failed",friendly(e),"error")}
-  });
-}
-async function moduleReturn(id){
-  const r=moduleRecords.find(x=>x.id===id);
-  confirmAction("Return for Revision",`Return ${r.name||r.instrument||r.certificateNo}?`,async c=>{
-    try{
-      await updateModuleWorkflow(id,STATUS.RETURNED,c,"Module Returned");
-      showMsg("Returned","Record returned.","success");
-    }catch(e){showMsg("Return failed",friendly(e),"error")}
-  },true);
-}
-async function toggleModuleExecution(id,checked){
-  const c=currentModule===MODULES.CAL?"calibration":"qualification",r=moduleRecords.find(x=>x.id===id);if(!r)return;
-  try{
-    await updateDoc(docRef(c,id),{executedTracker:checked,executedAt:checked?serverTimestamp():null,updatedAt:serverTimestamp(),lastActionByUid:currentUser.uid,lastActionByName:currentProfile.displayName||currentUser.email});
-    await audit(`${currentModule} ${checked?"Executed":"Returned to Plan"}`,id,r.name||r.instrument||r.certificateNo,`Execution status: ${checked?"Executed":"In Plan"}`,r.status,r.status);
-    await notifyEmails(`${currentModule} Execution Status`,r.name||r.instrument||r.certificateNo,r.status,`Execution status changed to ${checked?"Executed":"In Plan"}.`);
-    await loadModule();showMsg("Execution updated",checked?"Item is now Executed.":"Item is now In Plan.","success");
-  }catch(e){showMsg("Execution failed",friendly(e),"error")}
-}
+async function submitModule(id){const c=currentModule===MODULES.CAL?"calibration":"qualification",r=moduleRecords.find(x=>x.id===id);if(!r)return;try{await updateDoc(docRef(c,id),{status:STATUS.PENDING_SECTION_HEAD,submittedAt:serverTimestamp(),updatedAt:serverTimestamp()});await audit(`${currentModule} Submitted`,id,r.name||r.instrument||r.certificateNo,"Submitted for Section Head review.",STATUS.DRAFT,STATUS.PENDING_SECTION_HEAD);await notifyEmails(`${currentModule} Submitted`,r.name||r.instrument||r.certificateNo,STATUS.PENDING_SECTION_HEAD,"Submitted for Section Head review.");await loadModule();showMsg("Submitted","Record submitted to Section Head.","success")}catch(e){showMsg("Submit failed",friendly(e),"error")}}
+async function moduleReview(id){const r=moduleRecords.find(x=>x.id===id);if(!r)return;confirmAction("Complete Review",`Complete review for ${r.name||r.instrument||r.certificateNo}?`,async c=>{try{const target=r.status===STATUS.PENDING_SECTION_HEAD?STATUS.PENDING_QA:STATUS.COMPLETED;await updateModuleWorkflow(id,target,c,"Module Review Completed");showMsg("Review completed","Record advanced.","success")}catch(e){showMsg("Review failed",friendly(e),"error")}})}
+async function updateModuleWorkflow(id,target,comment,actionName){const c=currentModule===MODULES.CAL?"calibration":"qualification",r=moduleRecords.find(x=>x.id===id);const old=r.status;await updateDoc(docRef(c,id),{status:target,updatedAt:serverTimestamp(),lastActionByUid:currentUser.uid,lastActionByName:currentProfile.displayName||currentUser.email,approvedByUid:target===STATUS.APPROVED?currentUser.uid:null,approvedAsDelegate:target===STATUS.APPROVED&&isDelegatedDeputy()});await audit(actionName,id,r.name||r.instrument||r.certificateNo,comment||"",old,target,{delegatedApproval:isDelegatedDeputy()});await notifyEmails(actionName,r.name||r.instrument||r.certificateNo,target,comment||"");await loadModule()}
+async function moduleApprove(id){const r=moduleRecords.find(x=>x.id===id);confirmAction(isDelegatedDeputy()?"Approve as QA Manager Delegate":"Approve",`Approve ${r.name||r.instrument||r.certificateNo}?`,async()=>{try{await updateModuleWorkflow(id,STATUS.APPROVED,isDelegatedDeputy()?"Approved under active delegation":"Approved","Module Approved");showMsg("Approved","Record approved.","success")}catch(e){showMsg("Approval failed",friendly(e),"error")}})}
+async function moduleReturn(id){const r=moduleRecords.find(x=>x.id===id);confirmAction("Return for Revision",`Return ${r.name||r.instrument||r.certificateNo}?`,async c=>{try{await updateModuleWorkflow(id,STATUS.RETURNED,c,"Module Returned");showMsg("Returned","Record returned.","success")}catch(e){showMsg("Return failed",friendly(e),"error")}},true)}
+async function toggleModuleExecution(id,checked){const c=currentModule===MODULES.CAL?"calibration":"qualification",r=moduleRecords.find(x=>x.id===id);if(!r)return;try{await updateDoc(docRef(c,id),{executedTracker:checked,executedAt:checked?serverTimestamp():null,updatedAt:serverTimestamp(),lastActionByUid:currentUser.uid,lastActionByName:currentProfile.displayName||currentUser.email});await audit(`${currentModule} ${checked?"Executed":"Returned to Plan"}`,id,r.name||r.instrument||r.certificateNo,`Execution status: ${checked?"Executed":"In Plan"}`,r.status,r.status);await notifyEmails(`${currentModule} Execution Status`,r.name||r.instrument||r.certificateNo,r.status,`Execution status changed to ${checked?"Executed":"In Plan"}.`);await loadModule();showMsg("Execution updated",checked?"Item is now Executed.":"Item is now In Plan.","success")}catch(e){showMsg("Execution failed",friendly(e),"error")}}
 async function importModuleExcel(ev){
-  const file=ev.target.files[0];if(!file)return;
-  try{
-    const wb=XLSX.read(new Uint8Array(await file.arrayBuffer()),{type:"array"});let rows=[];wb.SheetNames.forEach(s=>rows.push(...XLSX.utils.sheet_to_json(wb.Sheets[s])));const c=currentModule===MODULES.CAL?"calibration":"qualification";let count=0;
-    for(const row of rows){
-      const x={};Object.keys(row).forEach(k=>x[k.toLowerCase().replace(/[^a-z0-9]/g,"")]=row[k]);let p;
-      if(currentModule===MODULES.CAL)p={certificateNo:String(x.certificateno||x.certno||x.reference||""),department:String(x.department||x.dept||""),instrument:String(x.instrument||x.name||""),code:String(x.code||x.instrumentcode||""),manufacturer:String(x.manufacturer||x.manuf||""),model:String(x.model||""),serialNumber:String(x.serialnumber||x.serialno||x.sn||""),location:String(x.location||""),calRange:String(x.calrange||x.range||""),acceptanceLimits:String(x.acceptancelimits||x.limits||""),interval:String(x.interval||""),monthYear:String(x.monthyear||""),calDate:String(x.caldate||x.date||""),dueDate:String(x.duedate||""),isAddendum:["true","yes","1"].includes(String(x.isaddendum||x.addendum||"").toLowerCase()),isOutOfCalibration:["true","yes","1"].includes(String(x.isoutofcalibration||x.outofcal||x.out||"").toLowerCase()),name:String(x.instrument||x.name||"Imported Instrument"),reference:String(x.certificateno||x.certno||x.reference||"IMP-"+Date.now())};
-      else p={name:String(x.name||x.equipmentname||x.systemname||""),reference:String(x.reference||x.refid||x.protocol||""),qualificationType:["equipment","utilities","system"].includes(String(x.qualificationtype||x.type||"").toLowerCase())?String(x.qualificationtype||x.type).toLowerCase():"equipment",stage:String(x.stage||x.qualificationstage||"IQ").toUpperCase(),plannedDate:String(x.planneddate||x.date||""),dueDate:String(x.duedate||""),equipmentSystemInfo:String(x.equipmentsysteminfo||x.info||x.details||""),description:String(x.description||x.scope||"")};
-      if((currentModule===MODULES.CAL&&(p.instrument||p.code))||(currentModule===MODULES.QUAL&&(p.name&&p.reference))){
-        await addDoc(colRef(c),{...p,status:STATUS.DRAFT,executedTracker:false,createdByUid:currentUser.uid,createdByName:currentProfile.displayName||currentUser.email,createdAt:serverTimestamp(),updatedAt:serverTimestamp()});count++;
-      }
-    }
-    await audit(`${currentModule} Excel/Macro Imported`,"","",`Imported ${count} draft records.`);await loadModule();showMsg("Import complete",`${count} records imported as Draft.`,"success");
-  }catch(e){showMsg("Import failed",friendly(e),"error")}ev.target.value=""
-}
+  const file=ev.target.files[0];if(!file)return;try{const wb=XLSX.read(new Uint8Array(await file.arrayBuffer()),{type:"array"});let rows=[];wb.SheetNames.forEach(s=>rows.push(...XLSX.utils.sheet_to_json(wb.Sheets[s])));const c=currentModule===MODULES.CAL?"calibration":"qualification";let count=0;
+  for(const row of rows){const x={};Object.keys(row).forEach(k=>x[k.toLowerCase().replace(/[^a-z0-9]/g,"")]=row[k]);let p;
+    if(currentModule===MODULES.CAL)p={certificateNo:String(x.certificateno||x.certno||x.reference||""),department:String(x.department||x.dept||""),instrument:String(x.instrument||x.name||""),code:String(x.code||x.instrumentcode||""),manufacturer:String(x.manufacturer||x.manuf||""),model:String(x.model||""),serialNumber:String(x.serialnumber||x.serialno||x.sn||""),location:String(x.location||""),calRange:String(x.calrange||x.range||""),acceptanceLimits:String(x.acceptancelimits||x.limits||""),interval:String(x.interval||""),monthYear:String(x.monthyear||""),calDate:String(x.caldate||x.date||""),dueDate:String(x.duedate||""),isAddendum:["true","yes","1"].includes(String(x.isaddendum||x.addendum||"").toLowerCase()),isOutOfCalibration:["true","yes","1"].includes(String(x.isoutofcalibration||x.outofcal||x.out||"").toLowerCase()),name:String(x.instrument||x.name||"Imported Instrument"),reference:String(x.certificateno||x.certno||x.reference||"IMP-"+Date.now())};
+    else p={name:String(x.name||x.equipmentname||x.systemname||""),reference:String(x.reference||x.refid||x.protocol||""),qualificationType:["equipment","utilities","system"].includes(String(x.qualificationtype||x.type||"").toLowerCase())?String(x.qualificationtype||x.type).toLowerCase():"equipment",stage:String(x.stage||x.qualificationstage||"IQ").toUpperCase(),plannedDate:String(x.planneddate||x.date||""),dueDate:String(x.duedate||""),equipmentSystemInfo:String(x.equipmentsysteminfo||x.info||x.details||""),description:String(x.description||x.scope||"")};
+    if((currentModule===MODULES.CAL&&(p.instrument||p.code))||(currentModule===MODULES.QUAL&&(p.name&&p.reference))){await addDoc(colRef(c),{...p,status:STATUS.DRAFT,executedTracker:false,createdByUid:currentUser.uid,createdByName:currentProfile.displayName||currentUser.email,createdAt:serverTimestamp(),updatedAt:serverTimestamp()});count++}
+  }
+  await audit(`${currentModule} Excel/Macro Imported`,"","",`Imported ${count} draft records.`);await loadModule();showMsg("Import complete",`${count} records imported as Draft.`,`success`)}catch(e){showMsg("Import failed",friendly(e),"error")}ev.target.value=""}
 function printCalibration(id){
   const r=moduleRecords.find(x=>x.id===id);if(!r)return;const prepared=r.createdByName||"Creator",reviewed=r.reviewedByName||"Section Head",approved=r.approvedByName||(r.approvedAsDelegate?"QA Deputy Manager (Delegate)":"QA Manager");
   const {jsPDF}=window.jspdf;const pdf=new jsPDF();pdf.setFontSize(18);pdf.text("ValidApp - Calibration Monthly Plan",20,20);pdf.setFontSize(10);pdf.text(`Generated: ${new Date().toLocaleString()}`,20,28);let y=42;
@@ -596,26 +527,8 @@ async function loadSops(){
   if(!isSopUser())return;try{const snap=await getDocs(query(colRef("sops"),orderBy("createdAt","desc")));sops=snap.docs.map(d=>({id:d.id,...d.data()}));renderSops()}catch(e){showMsg("SOP load failed",friendly(e),"error")}
 }
 function renderSops(){const q=$("sopSearch").value.trim().toLowerCase(),t=$("sopTypeFilter").value;const arr=sops.filter(x=>(!q||`${x.title} ${x.name}`.toLowerCase().includes(q))&&(t==="All"||x.type===t));$("sopList").innerHTML=arr.map(x=>`<div class="border rounded-xl p-3 flex flex-wrap justify-between gap-3"><div><b>${esc(x.title||x.name)}</b><div class="text-xs text-slate-500">${esc(x.type||"SOP")} • ${esc(x.name)} • ${esc(nowLabel(x.createdAt))}</div></div><div class="flex gap-3"><button data-sop-file="${x.id}" class="text-primary font-bold">Open</button><button data-sop-delete="${x.id}" class="text-red-600 font-bold">Delete</button></div></div>`).join("")||`<div class="text-sm text-slate-500">No SOPs found.</div>`}
-async function uploadSop(ev){
-  const f=ev.target.files[0];if(!f)return;if(!isSopUser())return;
-  try{
-    const title=prompt("SOP title:",f.name)||f.name,type=prompt("Document type: SOP / Work Instruction / Form / Other","SOP")||"SOP",id=crypto.randomUUID(),path=`${appId}/sops/${id}_${f.name.replace(/[^a-zA-Z0-9._-]/g,"_")}`;
-    const {error}=await supabaseClient.storage.from("documents").upload(path,f,{upsert:false});if(error)throw Error(error.message);
-    const ref=await addDoc(colRef("sops"),{title,type,name:f.name,storagePath:path,uploadedByUid:currentUser.uid,uploadedByName:currentProfile.displayName||currentUser.email,createdAt:serverTimestamp()});
-    await audit("SOP Uploaded",ref.id,title,`Type: ${type}`);await loadSops();showMsg("Uploaded","SOP uploaded successfully.","success");
-  }catch(e){showMsg("SOP upload failed",friendly(e),"error")}ev.target.value=""
-}
-async function deleteSop(id){
-  const s=sops.find(x=>x.id===id);if(!s)return;
-  confirmAction("Delete SOP",`Delete "${s.title||s.name}"?`,async()=>{
-    try{
-      await supabaseClient.storage.from("documents").remove([s.storagePath]);
-      await updateDoc(docRef("sops",id),{deletedAt:serverTimestamp()});
-      await audit("SOP Deleted",id,s.title||s.name,"Controlled SOP marked deleted.");
-      await loadSops();
-    }catch(e){showMsg("Delete failed",friendly(e),"error")}
-  });
-}
+async function uploadSop(ev){const f=ev.target.files[0];if(!f)return;if(!isSopUser())return;try{const title=prompt("SOP title:",f.name)||f.name,type=prompt("Document type: SOP / Work Instruction / Form / Other","SOP")||"SOP",id=crypto.randomUUID(),path=`${appId}/sops/${id}_${f.name.replace(/[^a-zA-Z0-9._-]/g,"_")}`;const {error}=await supabaseClient.storage.from("documents").upload(path,f,{upsert:false});if(error)throw Error(error.message);const ref=await addDoc(colRef("sops"),{title,type,name:f.name,storagePath:path,uploadedByUid:currentUser.uid,uploadedByName:currentProfile.displayName||currentUser.email,createdAt:serverTimestamp()});await audit("SOP Uploaded",ref.id,title,`Type: ${type}`);await loadSops();showMsg("Uploaded","SOP uploaded successfully.","success")}catch(e){showMsg("SOP upload failed",friendly(e),"error")}ev.target.value=""}
+async function deleteSop(id){const s=sops.find(x=>x.id===id);if(!s)return;confirmAction("Delete SOP",`Delete "${s.title||s.name}"?`,async()=>{try{await supabaseClient.storage.from("documents").remove([s.storagePath]);await updateDoc(docRef("sops",id),{deletedAt:serverTimestamp()});await audit("SOP Deleted",id,s.title||s.name,"Controlled SOP marked deleted.");await loadSops()}catch(e){showMsg("Delete failed",friendly(e),"error")})}
 async function openSop(id){const s=sops.find(x=>x.id===id);if(s)await openStoredFile(s,false)}
 
 async function loadPrpo(){try{const snap=await getDocs(query(colRef("prpo"),orderBy("createdAt","desc")));prpos=snap.docs.map(d=>({id:d.id,...d.data()}));renderPrpo()}catch(e){showMsg("PR/PO load failed",friendly(e),"error")}}
@@ -626,21 +539,14 @@ async function savePrpo(old){const d={type:$("#ppType").value,number:$("#ppNumbe
 async function submitPrpo(id){const x=prpos.find(a=>a.id===id);try{await updateDoc(docRef("prpo",id),{status:STATUS.PENDING_SECTION_HEAD,submittedAt:serverTimestamp(),updatedAt:serverTimestamp()});await audit("PR/PO Submitted",id,x.number,"Submitted for Section Head review.",STATUS.DRAFT,STATUS.PENDING_SECTION_HEAD);await loadPrpo()}catch(e){showMsg("Submit failed",friendly(e),"error")}}
 async function prpoWorkflow(id,target,comment,action){const x=prpos.find(a=>a.id===id),old=x.status;await updateDoc(docRef("prpo",id),{status:target,updatedAt:serverTimestamp(),approvedAsDelegate:target===STATUS.APPROVED&&isDelegatedDeputy()});await audit(action,id,x.number,comment||"",old,target,{delegatedApproval:isDelegatedDeputy()});await notifyEmails(action,x.number,target,comment||"");await loadPrpo()}
 
-async function loadAudit(){try{const snap=await getDocs(query(colRef("audit"),orderBy("createdAt","desc"),limit(500)));auditLogs=snap.docs.map(d=>({id:d.id,...d.data()}));modal(`<div class="modal active fixed inset-0 bg-black/50 z-50 items-center justify-center p-4"><div class="bg-white rounded-2xl shadow-2xl max-w-6xl w-full max-h-[92vh] overflow-auto p-6"><div class="flex justify-between"><h3 class="text-xl font-extrabold">System Audit Trail</h3><button data-modal-close>✕</button></div><div class="mt-4 overflow-auto"><table class="min-w-[1100px] w-full divide-y"><thead class="bg-slate-50"><tr><th class="p-2 text-left text-xs">Timestamp</th><th class="p-2 text-left text-xs">User / Role</th><th class="p-2 text-left text-xs">Action</th><th class="p-2 text-left text-xs">Target</th><th class="p-2 text-left text-xs">Status</th><th class="p-2 text-left text-xs">Details</th></tr></thead><tbody>${auditLogs.map(x=>`<tr><td class="p-2 text-xs">${esc(nowLabel(x.createdAt))}</td><td class="p-2 text-xs">${esc(x.userName)}<div>${esc(x.userRole)}</div></td><td class="p-2 text-xs font-bold">${esc(x.action)}</td><td class="p-2 text-xs">${esc(x.targetName||x.studyName||x.targetId||"—")}</td><td class="p-2 text-xs">${esc(x.previousStatus\vert{}\vert{}"—")} → ${esc(x.newStatus||"—")}</td><td class="p-2 text-xs">${esc(x.details||"")}</td></tr>`).join("")}</tbody></table></div></div></div>`);document.querySelectorAll("[data-modal-close]").forEach(x=>x.onclick=closeModal)}catch(e){showMsg("Audit load failed",friendly(e),"error")}}
+async function loadAudit(){try{const snap=await getDocs(query(colRef("audit"),orderBy("createdAt","desc"),limit(500)));auditLogs=snap.docs.map(d=>({id:d.id,...d.data()}));modal(`<div class="modal active fixed inset-0 bg-black/50 z-50 items-center justify-center p-4"><div class="bg-white rounded-2xl shadow-2xl max-w-6xl w-full max-h-[92vh] overflow-auto p-6"><div class="flex justify-between"><h3 class="text-xl font-extrabold">System Audit Trail</h3><button data-modal-close>✕</button></div><div class="mt-4 overflow-auto"><table class="min-w-[1100px] w-full divide-y"><thead class="bg-slate-50"><tr><th class="p-2 text-left text-xs">Timestamp</th><th class="p-2 text-left text-xs">User / Role</th><th class="p-2 text-left text-xs">Action</th><th class="p-2 text-left text-xs">Target</th><th class="p-2 text-left text-xs">Status</th><th class="p-2 text-left text-xs">Details</th></tr></thead><tbody>${auditLogs.map(x=>`<tr><td class="p-2 text-xs">${esc(nowLabel(x.createdAt))}</td><td class="p-2 text-xs">${esc(x.userName)}<div>${esc(x.userRole)}</div></td><td class="p-2 text-xs font-bold">${esc(x.action)}</td><td class="p-2 text-xs">${esc(x.targetName||x.studyName||x.targetId||"—")}</td><td class="p-2 text-xs">${esc(x.previousStatus||"—")} → ${esc(x.newStatus||"—")}</td><td class="p-2 text-xs">${esc(x.details||"")}</td></tr>`).join("")}</tbody></table></div></div></div>`);document.querySelectorAll("[data-modal-close]").forEach(x=>x.onclick=closeModal)}catch(e){showMsg("Audit load failed",friendly(e),"error")}}
 
 async function loadUsers(){if(!admin())return;const snap=await getDocs(colRef("users"));users=snap.docs.map(d=>({id:d.id,...d.data()}));openUserModal()}
 function openUserModal(){modal(`<div class="modal active fixed inset-0 bg-black/50 z-50 items-center justify-center p-4"><div class="bg-white rounded-2xl shadow-2xl max-w-6xl w-full max-h-[94vh] overflow-auto p-6"><div class="flex justify-between"><h3 class="text-xl font-extrabold">User Management & Delegation</h3><button data-modal-close>✕</button></div><form id="userForm" class="grid md:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-xl mt-4"><input type="hidden" id="editUserId"><div><label class="text-xs font-bold">Email *</label><input id="newEmail" type="email" required class="w-full p-2 border rounded"></div><div><label class="text-xs font-bold">Display Name *</label><input id="newName" required class="w-full p-2 border rounded"></div><div><label class="text-xs font-bold">Role *</label><select id="newRole" class="w-full p-2 border rounded">${ROLE_LIST.map(x=>`<option>${x}</option>`).join("")}</select></div><div><label class="text-xs font-bold">Department</label><input id="newDept" class="w-full p-2 border rounded"></div><div><label class="text-xs font-bold">Temporary Password</label><input id="newPass" type="password" class="w-full p-2 border rounded"></div><div><label class="text-xs font-bold">Delegation Start</label><input id="delStart" type="date" class="w-full p-2 border rounded"></div><div><label class="text-xs font-bold">Delegation End</label><input id="delEnd" type="date" class="w-full p-2 border rounded"></div><div class="flex items-center gap-2 pt-5"><input id="delActive" type="checkbox"><label class="text-xs font-bold">QA Delegation Active</label></div><div class="md:col-span-4 flex flex-wrap justify-end gap-2"><button type="button" id="resetPasswordBtn" class="px-3 py-2 bg-amber-600 text-white rounded font-bold">Send Password Reset</button><button class="px-4 py-2 bg-primary text-white rounded font-bold">Save User</button></div></form><div class="overflow-auto mt-4"><table class="min-w-[1050px] w-full divide-y"><thead class="bg-slate-50"><tr><th class="p-2 text-left text-xs">User</th><th class="p-2 text-left text-xs">Role</th><th class="p-2 text-left text-xs">Password</th><th class="p-2 text-left text-xs">Delegation</th><th class="p-2 text-left text-xs">Status</th><th class="p-2 text-center text-xs">Manage</th></tr></thead><tbody id="usersBody"></tbody></table></div></div></div>`);document.querySelectorAll("[data-modal-close]").forEach(x=>x.onclick=closeModal);renderUsers();$("#userForm").onsubmit=saveUser;$("#resetPasswordBtn").onclick=sendReset}
 function renderUsers(){$("#usersBody").innerHTML=users.map(u=>{const exp=u.passwordChangedAt?(Date.now()-new Date(u.passwordChangedAt?.toDate?u.passwordChangedAt.toDate():u.passwordChangedAt).getTime()>90*86400000):false;const del=u.qaDelegation?.active?`${u.qaDelegation.startDate} → ${u.qaDelegation.endDate}`:"—";return`<tr><td class="p-2 text-xs font-bold">${esc(u.displayName||u.username)}<div class="font-normal text-slate-500">${esc(u.email)}</div></td><td class="p-2 text-xs">${esc(u.role)}</td><td class="p-2 text-xs">${exp?'<span class="text-red-600 font-bold">Expired</span>':'<span class="text-green-700 font-bold">Valid / 90 days</span>'}</td><td class="p-2 text-xs">${esc(del)}</td><td class="p-2 text-xs">${u.disabled?"Disabled":"Active"}</td><td class="p-2 text-center"><button data-user-edit="${u.id}" class="text-blue-700 font-bold mr-2">Edit</button><button data-user-toggle="${u.id}" class="text-amber-700 font-bold">${u.disabled?"Enable":"Disable"}</button></td></tr>`}).join("")}
-function editUser(id){const u=users.find(x=>x.id===id);if(!u)return;$("#editUserId").value=id;$("#newEmail").value=u.email\vert{}\vert{}"";$("#newName").value=u.displayName||"";$("#newRole").value=u.role\vert{}\vert{}ROLES.VIEWER;$("#newDept").value=u.department||"";$("#newPass").value="";$("#delStart").value=u.qaDelegation?.startDate||"";$("#delEnd").value=u.qaDelegation?.endDate\vert{}\vert{}"";$("#delActive").checked=!!u.qaDelegation?.active}
-async function saveUser(e){
-  e.preventDefault();const id=$("#editUserId").value,email=$("#newEmail").value.trim().toLowerCase(),d={email,displayName:$("#newName").value.trim(),username:email.split("@")[0],role:$("#newRole").value,department:$("#newDept").value.trim(),qaDelegation:{active:$("#delActive").checked,startDate:$("#delStart").value,endDate:$("#delEnd").value},updatedAt:serverTimestamp()};
-  try{
-    if(id){await updateDoc(docRef("users",id),d);await audit("User Updated",id,d.displayName,`Role=${d.role}; Delegation=${d.qaDelegation.active}`)}
-    else{const p=$("#newPass").value;if(p.length<8)throw Error("New user temporary password must be at least 8 characters.");const sec=initializeApp(firebaseConfig,"UserCreate_"+Date.now()),sa=getAuth(sec),cred=await createUserWithEmailAndPassword(sa,email,p);await setDoc(docRef("users",cred.user.uid),{...d,disabled:false,passwordChangedAt:serverTimestamp(),createdAt:serverTimestamp()});await signOut(sa);await deleteApp(sec);await audit("User Created",cred.user.uid,d.displayName,`Role=${d.role}`)}
-    users=(await getDocs(colRef("users"))).docs.map(x=>({id:x.id,...x.data()}));renderUsers();showMsg("Saved","User profile saved.","success");
-  }catch(e){showMsg("User operation failed",friendly(e),"error")}
-}
-async function sendReset(){const email=$("#newEmail").value.trim();if(!email)return showMsg("Email required","Enter an email address first.","error");try{await sendPasswordResetEmail(auth,email);showMsg("Reset sent","Password reset email sent.","success")}catch(e){showMsg("Reset failed",friendly(e),"error")}}
+function editUser(id){const u=users.find(x=>x.id===id);if(!u)return;$("#editUserId").value=id;$("#newEmail").value=u.email||"";$("#newName").value=u.displayName||"";$("#newRole").value=u.role||ROLES.VIEWER;$("#newDept").value=u.department||"";$("#newPass").value="";$("#delStart").value=u.qaDelegation?.startDate||"";$("#delEnd").value=u.qaDelegation?.endDate||"";$("#delActive").checked=!!u.qaDelegation?.active}
+async function saveUser(e){e.preventDefault();const id=$("#editUserId").value,email=$("#newEmail").value.trim().toLowerCase(),d={email,displayName:$("#newName").value.trim(),username:email.split("@")[0],role:$("#newRole").value,department:$("#newDept").value.trim(),qaDelegation:{active:$("#delActive").checked,startDate:$("#delStart").value,endDate:$("#delEnd").value},updatedAt:serverTimestamp()};try{if(id){await updateDoc(docRef("users",id),d);await audit("User Updated",id,d.displayName,`Role=${d.role}; Delegation=${d.qaDelegation.active}`)}else{const p=$("#newPass").value;if(p.length<8)throw Error("New user temporary password must be at least 8 characters.");const sec=initializeApp(firebaseConfig,"UserCreate_"+Date.now()),sa=getAuth(sec),cred=await createUserWithEmailAndPassword(sa,email,p);await setDoc(docRef("users",cred.user.uid),{...d,disabled:false,passwordChangedAt:serverTimestamp(),createdAt:serverTimestamp()});await signOut(sa);await deleteApp(sec);await audit("User Created",cred.user.uid,d.displayName,`Role=${d.role}`)}users=(await getDocs(colRef("users"))).docs.map(x=>({id:x.id,...x.data()}));renderUsers();showMsg("Saved","User profile saved. Password age is controlled at 90 days.","success")}catch(e){showMsg("User operation failed",friendly(e),"error")}}
+async function sendReset(){const email=$("#newEmail").value.trim();if(!email)return showMsg("Email required","Enter an email address first.","error");try{await sendPasswordResetEmail(auth,email);showMsg("Reset sent","Password reset email sent. The user's 90-day password timer must be reset in the profile after the user completes the reset.","success")}catch(e){showMsg("Reset failed",friendly(e),"error")}}
 async function toggleUser(id){const u=users.find(x=>x.id===id);if(!u||id===currentUser.uid)return;try{await updateDoc(docRef("users",id),{disabled:!u.disabled,updatedAt:serverTimestamp()});await audit(u.disabled?"User Enabled":"User Disabled",id,u.displayName||u.email,"Account status changed.");users=(await getDocs(colRef("users"))).docs.map(x=>({id:x.id,...x.data()}));renderUsers()}catch(e){showMsg("Operation failed",friendly(e),"error")}}
 
 async function loadDashboard(){
@@ -660,90 +566,44 @@ function tickClock(){$("dashboardClock").textContent=new Date().toLocaleString()
 setInterval(tickClock,1000);tickClock();
 
 document.addEventListener("click",async e=>{
-  const b=e.target.closest("button");if(!b)return;
-  if(b.id==="homeNav")showView("home");
-  if(b.id==="studiesNav")showView("studies");
-  if(b.id==="calibrationNav")showView("cal");
-  if(b.id==="qualificationNav")showView("qual");
-  if(b.id==="sopNav")showView("sop");
-  if(b.id==="prpoNav")showView("prpo");
-  if(b.id==="userManagementBtn")await loadUsers();
-  if(b.id==="auditTrailBtn")await loadAudit();
-  if(b.id==="logoutBtn")await signOut(auth);
-  if(b.id==="addRecordBtn")openStudy();
-  if(b.id==="addModuleBtn")openModule();
-  if(b.id==="addPrpoBtn")openPrpo();
-  if(b.dataset.studySub){currentStudySubtab=b.dataset.studySub;renderStudies()}
-  if(b.dataset.editStudy)openStudy(records.find(x=>x.id===b.dataset.editStudy));
-  if(b.dataset.submitStudy)await submitStudy(b.dataset.submitStudy);
-  if(b.dataset.reviewStudy)await reviewStudy(b.dataset.reviewStudy);
-  if(b.dataset.approveStudy)await approveStudy(b.dataset.approveStudy);
-  if(b.dataset.returnStudy)await returnStudy(b.dataset.returnStudy);
-  if(b.dataset.rejectStudy)await rejectStudy(b.dataset.rejectStudy);
-  if(b.dataset.studyAction)await setStudyAction(b.dataset.studyAction,b.dataset.action);
-  if(b.dataset.filesStudy)await filesFor(b.dataset.filesStudy,MODULES.STUDIES);
-  if(b.dataset.historyStudy)await showHistory(b.dataset.historyStudy);
-  if(b.dataset.moduleEdit)openModule(moduleRecords.find(x=>x.id===b.dataset.moduleEdit));
-  if(b.dataset.moduleSubmit)await submitModule(b.dataset.moduleSubmit);
-  if(b.dataset.moduleReview)await moduleReview(b.dataset.moduleReview);
-  if(b.dataset.moduleApprove)await moduleApprove(b.dataset.moduleApprove);
-  if(b.dataset.moduleReturn)await moduleReturn(b.dataset.moduleReturn);
-  if(b.dataset.moduleExec)await toggleModuleExecution(b.dataset.moduleExec,b.dataset.exec==="1");
-  if(b.dataset.moduleFiles)await filesFor(b.dataset.moduleFiles,currentModule);
-  if(b.dataset.printCal)printCalibration(b.dataset.printCal);
-  if(b.dataset.sopFile)await openSop(b.dataset.sopFile);
-  if(b.dataset.sopDelete)await deleteSop(b.dataset.sopDelete);
-  if(b.dataset.userEdit)editUser(b.dataset.userEdit);
-  if(b.dataset.userToggle)await toggleUser(b.dataset.userToggle);
-  if(b.dataset.kpi)showView(b.dataset.kpi);
-  if(b.dataset.dashboardRefresh)loadDashboard();
+ const b=e.target.closest("button");if(!b)return;
+ if(b.dataset.kpi)showView(b.dataset.kpi);
+ if(b.id==="homeNav")showView("home");if(b.id==="studiesNav")showView("studies");if(b.id==="calibrationNav")showView("cal");if(b.id==="qualificationNav")showView("qual");if(b.id==="sopNav")showView("sop");if(b.id==="prpoNav")showView("prpo");
+ if(b.id==="userManagementBtn")await loadUsers();if(b.id==="auditTrailBtn")await loadAudit();if(b.id==="logoutBtn")await signOut(auth);
+ if(b.dataset.editStudy){const r=records.find(x=>x.id===b.dataset.editStudy);openStudy(r)}
+ if(b.dataset.submitStudy)await submitStudy(b.dataset.submitStudy);if(b.dataset.studyAction)await setStudyAction(b.dataset.studyAction,b.dataset.action);
+ if(b.dataset.reviewStudy)await reviewStudy(b.dataset.reviewStudy);if(b.dataset.approveStudy)await approveStudy(b.dataset.approveStudy);if(b.dataset.rejectStudy)await rejectStudy(b.dataset.rejectStudy);if(b.dataset.returnStudy)await returnStudy(b.dataset.returnStudy);
+ if(b.dataset.filesStudy)await filesFor(b.dataset.filesStudy,"study");if(b.dataset.historyStudy)await showHistory(b.dataset.historyStudy);
+ if(b.dataset.moduleEdit)openModule(moduleRecords.find(x=>x.id===b.dataset.moduleEdit));if(b.dataset.moduleSubmit)await submitModule(b.dataset.moduleSubmit);if(b.dataset.moduleReview)await moduleReview(b.dataset.moduleReview);if(b.dataset.moduleApprove)await moduleApprove(b.dataset.moduleApprove);if(b.dataset.moduleReturn)await moduleReturn(b.dataset.moduleReturn);if(b.dataset.moduleExec)await toggleModuleExecution(b.dataset.moduleExec,b.dataset.exec==="1");if(b.dataset.moduleFiles)await filesFor(b.dataset.moduleFiles,currentModule);if(b.dataset.printCal)printCalibration(b.dataset.printCal);
+ if(b.dataset.sopFile)await openSop(b.dataset.sopFile);if(b.dataset.sopDelete)await deleteSop(b.dataset.sopDelete);
+ if(b.dataset.prpoEdit)openPrpo(prpos.find(x=>x.id===b.dataset.prpoEdit));if(b.dataset.prpoSubmit)await submitPrpo(b.dataset.prpoSubmit);
+ if(b.dataset.prpoReview){const x=prpos.find(a=>a.id===b.dataset.prpoReview);confirmAction("Review PR/PO",`Complete review of ${x.number}?`,async c=>{await prpoWorkflow(x.id,STATUS.PENDING_QA,c,"PR/PO Review Completed")})}
+ if(b.dataset.prpoApprove){const x=prpos.find(a=>a.id===b.dataset.prpoApprove);confirmAction("Approve PR/PO",`Approve ${x.number}?`,async()=>{await prpoWorkflow(x.id,STATUS.APPROVED,isDelegatedDeputy()?"Approved under delegation":"QA Manager Approval","PR/PO Approved")})}
+ if(b.dataset.prpoReturn){const x=prpos.find(a=>a.id===b.dataset.prpoReturn);confirmAction("Return PR/PO",`Return ${x.number}?`,async c=>{await prpoWorkflow(x.id,STATUS.RETURNED,c,"PR/PO Returned")},true)}
+ if(b.dataset.userEdit)editUser(b.dataset.userEdit);if(b.dataset.userToggle)await toggleUser(b.dataset.userToggle);
 });
+document.addEventListener("click",e=>{const b=e.target.closest("[data-study-sub]");if(b){currentStudySubtab=b.dataset.studySub;renderStudies()}});
+document.addEventListener("click",e=>{const b=e.target.closest("[data-cal-tab],[data-qual-tab]");if(b){currentModuleTab=b.dataset.calTab||b.dataset.qualTab;document.querySelectorAll(".subtab").forEach(x=>x.classList.remove("active"));b.classList.add("active");renderModuleTable();if(currentModuleTab==="monthly")renderMonthTabs()}})
+function renderMonthTabs(){const months=["January","February","March","April","May","June","July","August","September","October","November","December"];$("#moduleMonthTabs").classList.remove("hidden");$("#moduleMonthTabs").innerHTML=months.map(m=>`<button class="px-2 py-1 text-xs rounded ${m===currentMonth?"bg-white text-slate-900":"text-white"}" data-month="${m}">${m.slice(0,3)}</button>`).join("")}
+document.addEventListener("click",e=>{const b=e.target.closest("[data-month]");if(b){currentMonth=b.dataset.month;renderModuleTable()}})
+$("addRecordBtn").onclick=()=>openStudy();$("addModuleBtn").onclick=()=>openModule();$("excelImportInput").onchange=importModuleExcel;$("sopInput").onchange=uploadSop;$("addPrpoBtn").onclick=()=>openPrpo();
+["searchInput","filterStage","filterStatus","filterScale"].forEach(id=>$(id).addEventListener("input",renderStudies));$("clearFiltersBtn").onclick=()=>{["searchInput"].forEach(id=>$(id).value="");["filterStage","filterStatus","filterScale"].forEach(id=>$(id).value="All");renderStudies()};
+["modSearchInput","modFilter1","modFilter2","modFilterStatus"].forEach(id=>$(id).addEventListener("input",renderModuleTable));$("modClearFiltersBtn").onclick=()=>{["modSearchInput"].forEach(id=>$(id).value="");["modFilter1","modFilter2","modFilterStatus"].forEach(id=>$(id).value="All");renderModuleTable()};
+$("sopSearch").oninput=renderSops;$("sopTypeFilter").onchange=renderSops;$("prpoSearch").oninput=renderPrpo;$("prpoType").onchange=renderPrpo;$("prpoStatus").onchange=renderPrpo;
+document.addEventListener("click",e=>{if(e.target.closest("[data-dashboard-refresh]"))loadDashboard()});
 
-document.addEventListener("change",async e=>{
-  const t=e.target;
-  if(t.id==="excelImportInput")await importModuleExcel(e);
-  if(t.id==="sopInput")await uploadSop(e);
-});
+$("loginForm").onsubmit=async e=>{e.preventDefault();try{await signInWithEmailAndPassword(auth,$("username").value.trim(),$("password").value)}catch(err){console.error("Firebase login error:",err);const m={"auth/invalid-credential":"Invalid email or password.","auth/invalid-email":"Please enter a valid email address.","auth/user-disabled":"This Firebase account is disabled.","auth/too-many-requests":"Too many login attempts. Please wait and try again.","auth/network-request-failed":"Network connection failed. Check your internet connection.","auth/operation-not-allowed":"Email/password sign-in is not enabled in Firebase Authentication."};$("loginError").textContent=m[err?.code]||err?.message||"Sign-in failed.";$("loginError").classList.remove("hidden")}};
+$("azureSsoBtn").onclick=async()=>{try{if(!msalInstance) throw Error("Microsoft 365 sign-in is unavailable. Use the local Firebase account login.");const r=await msalInstance.loginPopup({scopes:["User.Read","openid","profile","email"]});$("username").value=r.account.username;$("password").focus()}catch(e){$("loginError").textContent="Microsoft 365 authentication failed.";$("loginError").classList.remove("hidden")}};
+$("sopUploadLabel").classList.toggle("hidden",!isSopUser());
 
-$("tabProcess").onclick=()=>{currentCategory=CATS.PROCESS;currentStudySubtab="all";document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));$("tabProcess").classList.add("active");renderStudies()};
-$("tabHoldTime").onclick=()=>{currentCategory=CATS.HOLD;currentStudySubtab="all";document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));$("tabHoldTime").classList.add("active");renderStudies()};
-$("tabCleaning").onclick=()=>{currentCategory=CATS.CLEANING;currentStudySubtab="all";document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));$("tabCleaning").classList.add("active");renderStudies()};
-
-["searchInput","filterStage","filterStatus","filterScale"].forEach(id=>$(id).oninput=renderStudies);$("clearFiltersBtn").onclick=()=>{["searchInput","filterStage","filterStatus","filterScale"].forEach(id=>$(id).value="All");$("searchInput").value="";renderStudies()};
-["modSearchInput","modFilter1","modFilter2","modFilterStatus"].forEach(id=>$(id).oninput=renderModuleTable);$("modClearFiltersBtn").onclick=()=>{["modSearchInput","modFilter1","modFilter2","modFilterStatus"].forEach(id=>$(id).value="All");$("modSearchInput").value="";renderModuleTable()};
-["sopSearch","sopTypeFilter"].forEach(id=>$(id).oninput=renderSops);
-["prpoSearch","prpoType","prpoStatus"].forEach(id=>$(id).oninput=renderPrpo);
-
-document.querySelectorAll(".module-tab").forEach(b=>b.onclick=e=>{
-  const p=b.parentElement;p.querySelectorAll(".module-tab").forEach(x=>x.classList.remove("active"));b.classList.add("active");
-  currentModuleTab=b.dataset.calTab||b.dataset.qualTab||"all";renderModuleTable();
-});
-
-$("azureSsoBtn").onclick=async()=>{
-  if(!msalInstance)return showMsg("SSO unavailable","MSAL instance is not configured.","error");
-  try{const res=await msalInstance.loginPopup({scopes:["User.Read"]});const credential=window.firebase.auth.OAuthProvider.credential("microsoft.com",{accessToken:res.accessToken});const cred=await signInWithCredential(auth,credential);currentUser=cred.user;currentProfile=await loadProfile(currentUser);configureNav();showView("home");setupActivity()}catch(e){showMsg("Microsoft Sign-In failed",friendly(e),"error")}
-};
-
-$("loginForm").onsubmit=async e=>{
-  e.preventDefault();const err=$("loginError");err.classList.add("hidden");
-  try{
-    const cred=await signInWithEmailAndPassword(auth,$("username").value.trim(),$("password").value);
-    currentUser=cred.user;currentProfile=await loadProfile(currentUser);
-    if(currentProfile.passwordExpired){
-      const np=prompt("Your password has expired (90-day policy). Enter a new password (min 8 chars):");
-      if(!np||np.length<8)throw Error("Password change required. Minimum 8 characters.");
-      await updatePassword(currentUser,np);await updateDoc(docRef("users",currentUser.uid),{passwordChangedAt:serverTimestamp()});
-      showMsg("Password updated","Your password has been successfully renewed.","success");
-    }
-    configureNav();showView("home");setupActivity();
-  }catch(e){err.textContent=friendly(e);err.classList.remove("hidden")}
-};
-
-onAuthStateChanged(auth,async u=>{
-  if(u){
-    try{currentUser=u;currentProfile=await loadProfile(u);configureNav();showView(currentView);setupActivity()}
-    catch(e){resetUI();showMsg("Access Error",friendly(e),"error");signOut(auth)}
-  }else{currentUser=null;currentProfile=null;resetUI()}
+onAuthStateChanged(auth,async user=>{
+ if(!user){currentUser=null;currentProfile=null;resetUI();return}
+ try{
+  currentUser=user;currentProfile=await loadProfile(user);passwordExpired=currentProfile.passwordExpired;
+  $("loginSection").classList.add("hidden");$("dashboardSection").classList.remove("hidden");$("sopNav").classList.toggle("hidden",!isSopUser());configureNav();setupActivity();
+  if(passwordExpired){modal(`<div class="modal active fixed inset-0 bg-black/50 z-[95] items-center justify-center p-4"><div class="bg-white rounded-2xl p-6 max-w-md w-full"><h3 class="font-extrabold text-lg">Password Expired</h3><p class="text-sm text-slate-600 mt-2">Your password is older than 90 days. Reset it before continuing.</p><button id="expiredReset" class="mt-4 w-full bg-primary text-white py-2 rounded-lg font-bold">Send Password Reset Email</button></div></div>`);$("#expiredReset").onclick=async()=>{await sendPasswordResetEmail(auth,currentUser.email);showMsg("Reset sent","Reset your password, then sign in again.");await signOut(auth)}}
+  else {await audit("Login","","","Session established.");showView("home")}
+ }catch(e){await signOut(auth);$("loginError").textContent=e.message;$("loginError").classList.remove("hidden")}
 });
 </script>
 </body>
