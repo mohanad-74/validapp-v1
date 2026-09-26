@@ -114,9 +114,15 @@
     let currentProfile = null;
     let currentModule = MODULES.STUDIES;
     let currentCategory = CATEGORIES.PROCESS;
+    
+    // Module Navigation States
     let currentCalibrationTab = 'all'; 
     let currentCalibrationTabDept = 'QA'; 
     let currentCalibrationMonth = 'January'; 
+
+    let currentQualificationTab = 'all'; // 'all', 'monthly', 'utilities', 'system', 'machine'
+    let currentQualificationMonth = 'January';
+
     let records = [];
     let moduleRecords = [];
     let selectedModuleIds = new Set();
@@ -316,25 +322,6 @@
 
           showMessage('Deleted', 'Study successfully deleted.', 'success');
           await loadData();
-        } catch (e) {
-          showMessage('Deletion failed', friendlyError(e), 'error');
-        }
-      });
-    }
-
-    async function deleteModuleRecord(id) {
-      const r = moduleRecords.find(x => x.id === id); if (!r) return;
-      if (r.status !== STATUS.DRAFT) return showMessage('Cannot Delete', 'Only unsubmitted (Draft) records can be deleted.', 'error');
-      
-      confirmAction('Delete Record', `Are you sure you want to delete the draft record "${r.name || r.instrument || r.certificateNo}"?`, async () => {
-        try {
-          const collectionName = currentModule === MODULES.CALIBRATION ? 'calibration' : 'qualification';
-          await deleteDoc(docRef(collectionName, id));
-          await logAudit(`${currentModule} Record Deleted`, id, r.name || r.instrument, 'Draft record deleted.', STATUS.DRAFT, 'Deleted');
-
-          selectedModuleIds.delete(id);
-          showMessage('Deleted', 'Record successfully deleted.', 'success');
-          await loadModule(currentModule);
         } catch (e) {
           showMessage('Deletion failed', friendlyError(e), 'error');
         }
@@ -770,6 +757,7 @@
           isAddendum: $('calIsAddendum').checked,
           isOutOfCalibration: $('calIsOutOfCalibration').checked,
           action: $('calAction').value,
+          executedTracker: false, // Calibration execution tracker checkbox state
           name: $('calInstrument').value.trim(),
           reference: $('calCertificateNo').value.trim(),
           status: STATUS.DRAFT,
@@ -796,6 +784,7 @@
           plannedDate: $('qualDate').value,
           dueDate: $('qualDueDate').value,
           action: $('qualAction').value,
+          executedTracker: false, // Qualification execution tracker checkbox state
           description: $('qualDescription').value.trim(),
           status: STATUS.DRAFT,
           createdByUid: currentUser.uid,
@@ -880,6 +869,7 @@
                 isAddendum: isAdd === 'true' || isAdd === 'yes' || isAdd === '1',
                 isOutOfCalibration: isOut === 'true' || isOut === 'yes' || isOut === '1',
                 action: parsedAction,
+                executedTracker: false,
                 name: instrument || 'Imported Instrument',
                 reference: certNo || 'IMP-' + Date.now(),
                 status: STATUS.DRAFT,
@@ -911,6 +901,7 @@
                 plannedDate: String(cleanRow['planneddate'] || cleanRow['date'] || ''),
                 dueDate: String(cleanRow['duedate'] || ''),
                 action: parsedAction,
+                executedTracker: false,
                 description: String(cleanRow['description'] || cleanRow['scope'] || ''),
                 status: STATUS.DRAFT,
                 createdByUid: currentUser.uid,
@@ -978,12 +969,18 @@
 
     function renderModuleTable() { 
       $('moduleTitle').textContent = currentModule; 
-      $('moduleDescription').textContent = currentModule === MODULES.CALIBRATION ? 'Calibration records' : 'Qualification lifecycle - Qualification records';
+      $('moduleDescription').textContent = currentModule === MODULES.CALIBRATION ? 'Calibration records & plans' : 'Qualification lifecycle & plans';
       
       const isCalibration = currentModule === MODULES.CALIBRATION;
+      const isQualification = currentModule === MODULES.QUALIFICATION;
+
+      // Toggle sub-bars visibility
       $('calibrationSubTabs').classList.toggle('hidden', !isCalibration);
       $('deptSubTabs').classList.toggle('hidden', !isCalibration || currentCalibrationTab !== 'dept');
       $('monthlySubTabs').classList.toggle('hidden', !isCalibration || currentCalibrationTab !== 'monthly');
+
+      $('qualificationSubTabs').classList.toggle('hidden', !isQualification);
+      $('qualMonthlySubTabs').classList.toggle('hidden', !isQualification || currentQualificationTab !== 'monthly');
 
       if ($('excelImportBtnText')) {
         $('excelImportBtnText').textContent = isCalibration ? 'Import Calibration Excel/Macro' : 'Import Qualification Excel/Macro';
@@ -1013,7 +1010,7 @@
           if (currentCalibrationTab === 'dept') {
             if (!r.department || r.department.toLowerCase() !== currentCalibrationTabDept.toLowerCase()) return false;
           } else if (currentCalibrationTab === 'monthly') {
-            const dateStr = (r.monthYear || r.calDate || '').toLowerCase();
+            const dateStr = (r.monthYear || r.dueDate || r.calDate || '').toLowerCase();
             const monthMatch = dateStr.includes(currentCalibrationMonth.toLowerCase()) || dateStr.includes(currentCalibrationMonth.slice(0, 3).toLowerCase());
             if (!monthMatch) return false;
           } else if (currentCalibrationTab === 'addendum') {
@@ -1021,9 +1018,21 @@
           } else if (currentCalibrationTab === 'out') {
             if (!r.isOutOfCalibration) return false;
           }
-        } else {
+        } else if (isQualification) {
           if (f1 !== 'All' && r.qualificationType !== f1) matchF1 = false;
           if (f2 !== 'All' && r.stage !== f2) matchF2 = false;
+
+          if (currentQualificationTab === 'monthly') {
+            const dateStr = (r.plannedDate || r.dueDate || '').toLowerCase();
+            const monthMatch = dateStr.includes(currentQualificationMonth.toLowerCase()) || dateStr.includes(currentQualificationMonth.slice(0, 3).toLowerCase());
+            if (!monthMatch) return false;
+          } else if (currentQualificationTab === 'utilities') {
+            if (r.qualificationType !== 'utilities') return false;
+          } else if (currentQualificationTab === 'system') {
+            if (r.qualificationType !== 'system') return false;
+          } else if (currentQualificationTab === 'machine') {
+            if (r.qualificationType !== 'equipment') return false;
+          }
         }
 
         const matchStatus = st === 'All' || r.status === st;
@@ -1042,6 +1051,7 @@
             <th class="px-4 py-3 text-left text-xs">Dept / Location</th>
             <th class="px-4 py-3 text-left text-xs">Cal / Due Date</th>
             <th class="px-4 py-3 text-left text-xs">Action & Status</th>
+            <th class="px-4 py-3 text-center text-xs">Execution Tracker</th>
             <th class="px-4 py-3 text-center text-xs">Actions</th>
           </tr>
         `;
@@ -1053,6 +1063,7 @@
             <th class="px-4 py-3 text-left text-xs">Type & Subtype</th>
             <th class="px-4 py-3 text-left text-xs">Stage / Info</th>
             <th class="px-4 py-3 text-left text-xs">Action & Status</th>
+            <th class="px-4 py-3 text-center text-xs">Execution Tracker</th>
             <th class="px-4 py-3 text-center text-xs">Actions</th>
           </tr>
         `;
@@ -1063,6 +1074,11 @@
         const review = (can(ROLES.SECTION_HEAD) && r.status === STATUS.PENDING_SECTION_HEAD) || (can(ROLES.QA_MANAGER) && r.status === STATUS.PENDING_QA); 
         const isChecked = selectedModuleIds.has(r.id);
         
+        // Qualification execution tracker action condition: creator can check items
+        // Calibration execution tracker action condition: after approval (or active/draft/completed), creator can check execution tracker
+        const canCheckExecution = isAdmin() || isCreator() || owner;
+        const trackerCheckbox = `<input type="checkbox" data-tracker-id="${esc(r.id)}" ${r.executedTracker ? 'checked' : ''} ${!canCheckExecution || isViewer() ? 'disabled' : ''} class="w-4 h-4 text-primary rounded cursor-pointer">`;
+
         if (isCalibration) {
           const flags = [];
           if (r.isAddendum) flags.push(`<span class="bg-purple-100 text-purple-800 px-1.5 py-0.5 rounded text-[10px] font-semibold">Addendum</span>`);
@@ -1075,6 +1091,7 @@
             <td class="px-4 py-3 text-xs"><span class="font-semibold text-primary">${esc(r.department || '—')}</span><div class="text-gray-400">${esc(r.location || '—')}</div></td>
             <td class="px-4 py-3 text-xs">Cal: ${esc(r.calDate || r.monthYear || '—')}<div class="text-red-500">Due: ${esc(r.dueDate || '—')}</div></td>
             <td class="px-4 py-3 space-y-1">${statusBadge(r.status)}<div class="flex flex-wrap gap-1 mt-1">${actionBadge(r.action)} ${flags.join('')}</div></td>
+            <td class="px-4 py-3 text-center">${trackerCheckbox}</td>
             <td class="px-4 py-3 text-center">
               <button data-module-files="${esc(r.id)}" class="text-gray-600 text-xs font-semibold mr-2 hover:underline">Files</button>
               ${owner && [STATUS.DRAFT, STATUS.RETURNED].includes(r.status) ? `<button data-module-edit="${esc(r.id)}" class="text-purple-600 text-xs font-semibold mr-2 hover:underline">Edit</button>` : ''}
@@ -1090,6 +1107,7 @@
             <td class="px-4 py-3 text-xs uppercase font-semibold text-blue-600">${esc(r.qualificationType)}<div class="text-gray-500 normal-case font-normal">${esc(r.utilitySubtype || '—')}</div></td>
             <td class="px-4 py-3 text-xs"><span class="bg-gray-100 font-semibold px-1 py-0.5 rounded">${esc(r.stage)}</span><div class="text-gray-500 truncate max-w-[150px]">${esc(r.equipmentSystemInfo || '')}</div></td>
             <td class="px-4 py-3 space-y-1">${statusBadge(r.status)}<div class="mt-1">${actionBadge(r.action)}</div></td>
+            <td class="px-4 py-3 text-center">${trackerCheckbox}</td>
             <td class="px-4 py-3 text-center">
               <button data-module-files="${esc(r.id)}" class="text-gray-600 text-xs font-semibold mr-2 hover:underline">Files</button>
               ${owner && [STATUS.DRAFT, STATUS.RETURNED].includes(r.status) ? `<button data-module-edit="${esc(r.id)}" class="text-purple-600 text-xs font-semibold mr-2 hover:underline">Edit</button>` : ''}
@@ -1103,6 +1121,22 @@
 
       $('moduleEmptyState').classList.toggle('hidden', displayRecords.length !== 0);
       updateModuleBulkBar();
+    }
+
+    async function toggleExecutionTracker(recordId, isChecked) {
+      const collectionName = currentModule === MODULES.CALIBRATION ? 'calibration' : 'qualification';
+      try {
+        await updateDoc(docRef(collectionName, recordId), {
+          executedTracker: isChecked,
+          updatedAt: serverTimestamp()
+        });
+        const r = moduleRecords.find(x => x.id === recordId);
+        if (r) r.executedTracker = isChecked;
+        await logAudit(`${currentModule} Tracker Updated`, recordId, r?.name || r?.certificateNo, `Execution tracker set to: ${isChecked}`);
+      } catch (e) {
+        showMessage('Update Failed', friendlyError(e), 'error');
+        await loadModule(currentModule);
+      }
     }
 
     function updateModuleBulkBar() {
@@ -1330,6 +1364,7 @@
       $('tabHoldTime').addEventListener('click', () => { currentCategory = CATEGORIES.HOLD_TIME; setCategoryTabs(); renderStudies(); });
       $('tabCleaning').addEventListener('click', () => { currentCategory = CATEGORIES.CLEANING; setCategoryTabs(); renderStudies(); });
 
+      // Calibration Sub-Tabs Event Listeners
       document.querySelectorAll('.cal-sub-tab').forEach(btn => {
         btn.addEventListener('click', e => {
           document.querySelectorAll('.cal-sub-tab').forEach(b => {
@@ -1372,6 +1407,35 @@
         });
       });
 
+      // Qualification Sub-Tabs Event Listeners
+      document.querySelectorAll('.qual-sub-tab').forEach(btn => {
+        btn.addEventListener('click', e => {
+          document.querySelectorAll('.qual-sub-tab').forEach(b => {
+            b.classList.remove('bg-white', 'text-primary', 'shadow-sm');
+            b.classList.add('text-gray-600');
+          });
+          const target = e.currentTarget;
+          target.classList.add('bg-white', 'text-primary', 'shadow-sm');
+          target.classList.remove('text-gray-600');
+          currentQualificationTab = target.dataset.qualTab;
+          renderModuleTable();
+        });
+      });
+
+      document.querySelectorAll('.qual-monthly-sub-tab').forEach(btn => {
+        btn.addEventListener('click', e => {
+          document.querySelectorAll('.qual-monthly-sub-tab').forEach(b => {
+            b.classList.remove('bg-white', 'text-purple-800', 'shadow-sm');
+            b.classList.add('text-purple-100');
+          });
+          const target = e.currentTarget;
+          target.classList.add('bg-white', 'text-purple-800', 'shadow-sm');
+          target.classList.remove('text-purple-100');
+          currentQualificationMonth = target.dataset.qualMonthTab;
+          renderModuleTable();
+        });
+      });
+
       $('qualType').addEventListener('change', e => {
         const val = e.target.value;
         $('utilitySubtypeGroup').classList.toggle('hidden', val !== 'utilities');
@@ -1406,6 +1470,13 @@
       }
 
       document.addEventListener('change', e => {
+        // Handle execution tracker checkbox changes
+        if (e.target && e.target.dataset.trackerId) {
+          const recordId = e.target.dataset.trackerId;
+          const isChecked = e.target.checked;
+          toggleExecutionTracker(recordId, isChecked);
+        }
+
         if (e.target && e.target.id === 'selectAllModule') {
           const checked = e.target.checked;
           const q = $('modSearchInput').value.trim().toLowerCase();
@@ -1650,7 +1721,7 @@
         <div class="flex justify-between items-center mb-4 flex-wrap gap-3">
           <div>
             <h2 id="moduleTitle" class="text-2xl font-bold">Module</h2>
-            <p id="moduleDescription" class="text-gray-500 text-sm">Calibration records</p>
+            <p id="moduleDescription" class="text-gray-500 text-sm">Calibration and qualification tracking</p>
           </div>
           <div class="flex items-center gap-3">
             <div id="excelImportContainer">
@@ -1668,7 +1739,7 @@
           <div class="flex bg-gray-200 p-1 rounded-lg overflow-x-auto gap-1">
             <button data-cal-tab="all" class="cal-sub-tab bg-white text-primary px-3 py-1.5 rounded-md text-xs font-semibold shadow-sm"><i class="fas fa-list mr-1"></i>All Items</button>
             <button data-cal-tab="dept" class="cal-sub-tab text-gray-600 px-3 py-1.5 rounded-md text-xs font-semibold"><i class="fas fa-building mr-1"></i>By Department</button>
-            <button data-cal-tab="monthly" class="cal-sub-tab text-gray-600 px-3 py-1.5 rounded-md text-xs font-semibold"><i class="fas fa-calendar-alt mr-1"></i>Monthly Filter</button>
+            <button data-cal-tab="monthly" class="cal-sub-tab text-gray-600 px-3 py-1.5 rounded-md text-xs font-semibold"><i class="fas fa-calendar-alt mr-1"></i>Monthly Plan</button>
             <button data-cal-tab="addendum" class="cal-sub-tab text-gray-600 px-3 py-1.5 rounded-md text-xs font-semibold"><i class="fas fa-file-medical mr-1"></i>Addendum of Calibration</button>
             <button data-cal-tab="out" class="cal-sub-tab text-gray-600 px-3 py-1.5 rounded-md text-xs font-semibold"><i class="fas fa-exclamation-triangle mr-1"></i>Out of Calibration</button>
           </div>
@@ -1696,6 +1767,33 @@
             <button data-month-tab="October" class="monthly-sub-tab text-indigo-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Oct</button>
             <button data-month-tab="November" class="monthly-sub-tab text-indigo-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Nov</button>
             <button data-month-tab="December" class="monthly-sub-tab text-indigo-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Dec</button>
+          </div>
+        </div>
+
+        <!-- Qualification Primary Sub-Tabs Bar -->
+        <div id="qualificationSubTabs" class="hidden flex flex-col gap-2 mb-3">
+          <div class="flex bg-gray-200 p-1 rounded-lg overflow-x-auto gap-1">
+            <button data-qual-tab="all" class="qual-sub-tab bg-white text-primary px-3 py-1.5 rounded-md text-xs font-semibold shadow-sm"><i class="fas fa-list mr-1"></i>All Items</button>
+            <button data-qual-tab="monthly" class="qual-sub-tab text-gray-600 px-3 py-1.5 rounded-md text-xs font-semibold"><i class="fas fa-calendar-alt mr-1"></i>Monthly Plan of Qualification</button>
+            <button data-qual-tab="utilities" class="qual-sub-tab text-gray-600 px-3 py-1.5 rounded-md text-xs font-semibold"><i class="fas fa-tint mr-1"></i>Utilities</button>
+            <button data-qual-tab="system" class="qual-sub-tab text-gray-600 px-3 py-1.5 rounded-md text-xs font-semibold"><i class="fas fa-network-wired mr-1"></i>System</button>
+            <button data-qual-tab="machine" class="qual-sub-tab text-gray-600 px-3 py-1.5 rounded-md text-xs font-semibold"><i class="fas fa-cogs mr-1"></i>Machine / Equipment</button>
+          </div>
+
+          <div id="qualMonthlySubTabs" class="hidden flex bg-purple-900 p-1.5 rounded-lg overflow-x-auto gap-1">
+            <span class="text-white text-xs font-bold px-2 py-1 flex items-center"><i class="fas fa-calendar mr-1"></i>Month:</span>
+            <button data-qual-month-tab="January" class="qual-monthly-sub-tab bg-white text-purple-800 px-2.5 py-1 rounded text-xs font-semibold shadow-sm">Jan</button>
+            <button data-qual-month-tab="February" class="qual-monthly-sub-tab text-purple-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Feb</button>
+            <button data-qual-month-tab="March" class="qual-monthly-sub-tab text-purple-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Mar</button>
+            <button data-qual-month-tab="April" class="qual-monthly-sub-tab text-purple-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Apr</button>
+            <button data-qual-month-tab="May" class="qual-monthly-sub-tab text-purple-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">May</button>
+            <button data-qual-month-tab="June" class="qual-monthly-sub-tab text-purple-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Jun</button>
+            <button data-qual-month-tab="July" class="qual-monthly-sub-tab text-purple-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Jul</button>
+            <button data-qual-month-tab="August" class="qual-monthly-sub-tab text-purple-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Aug</button>
+            <button data-qual-month-tab="September" class="qual-monthly-sub-tab text-purple-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Sep</button>
+            <button data-qual-month-tab="October" class="qual-monthly-sub-tab text-purple-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Oct</button>
+            <button data-qual-month-tab="November" class="qual-monthly-sub-tab text-purple-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Nov</button>
+            <button data-qual-month-tab="December" class="qual-monthly-sub-tab text-purple-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Dec</button>
           </div>
         </div>
 
@@ -1795,25 +1893,18 @@
           <div><label class="block text-xs font-semibold mb-1">Scale *</label><select id="scale" class="w-full p-2 border rounded text-sm"><option value="Lab Scale">Lab Scale</option><option value="Pilot Scale">Pilot Scale</option><option value="Commercial Scale">Commercial Scale</option></select></div>
           <div><label class="block text-xs font-semibold mb-1">Action *</label><select id="studyAction" class="w-full p-2 border rounded text-sm"><option value="Executed">Executed</option><option value="In Plan">In Plan</option></select></div>
         </div>
-        <div><label class="block text-xs font-semibold mb-1">Reason / Objective *</label><textarea id="reason" class="w-full p-2 border rounded text-sm" rows="2" required placeholder="Enter study objective or reason..."></textarea></div>
-        <div><label class="block text-xs font-semibold mb-1">Notes / Description</label><textarea id="notes" class="w-full p-2 border rounded text-sm" rows="2" placeholder="Additional notes or comments..."></textarea></div>
-        <div class="border-t pt-3">
-          <label class="block text-xs font-semibold mb-1">Reviewer Department (Optional)</label>
-          <input type="text" id="reviewerDepartment" class="w-full p-2 border rounded text-sm" placeholder="e.g. QC, Production, Engineering">
-          <div class="mt-2 flex items-center gap-2">
-            <input type="checkbox" id="requireOtherDeptReview" class="rounded">
-            <label for="requireOtherDeptReview" class="text-xs font-medium">Require cross-department review before Deputy QA</label>
-          </div>
+        <div><label class="block text-xs font-semibold mb-1">Reason / Scope *</label><textarea id="reason" class="w-full p-2 border rounded text-sm" rows="2" required></textarea></div>
+        <div><label class="block text-xs font-semibold mb-1">Notes / Additional Info</label><textarea id="notes" class="w-full p-2 border rounded text-sm" rows="2"></textarea></div>
+        <div class="border-t pt-3 flex items-center justify-between">
+          <div class="flex items-center gap-2"><input type="checkbox" id="requireOtherDeptReview" class="w-4 h-4 text-primary"><label for="requireOtherDeptReview" class="text-xs font-semibold">Requires Other Dept Review</label></div>
+          <input type="text" id="reviewerDepartment" class="p-2 border rounded text-sm w-48" placeholder="Reviewer Department">
         </div>
-        <div class="flex justify-end gap-2 pt-2">
-          <button type="button" data-close class="px-4 py-2 border rounded text-sm">Cancel</button>
-          <button type="submit" class="px-4 py-2 bg-primary text-white rounded text-sm font-semibold hover:bg-blue-800">Save Study</button>
-        </div>
+        <div class="flex justify-end gap-2 pt-2"><button type="button" data-close class="px-4 py-2 border rounded text-sm">Cancel</button><button type="submit" class="px-4 py-2 bg-primary text-white rounded text-sm font-semibold">Save Study</button></div>
       </form>
     </div>
   </div>
 
-  <!-- Module Record Modal (Calibration / Qualification) -->
+  <!-- Record Modal (Module: Calibration & Qualification) -->
   <div id="moduleModal" class="modal fixed inset-0 bg-gray-900/60 z-50 items-center justify-center p-4">
     <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 space-y-4">
       <div class="flex justify-between items-center"><h3 id="moduleModalTitle" class="text-lg font-bold">Add Record</h3><button data-close><i class="fas fa-times"></i></button></div>
@@ -1825,7 +1916,7 @@
         <div id="calibrationFields" class="space-y-4">
           <div class="grid md:grid-cols-2 gap-4">
             <div><label class="block text-xs font-semibold mb-1">Certificate No *</label><input type="text" id="calCertificateNo" class="w-full p-2 border rounded text-sm"></div>
-            <div><label class="block text-xs font-semibold mb-1">Department</label><input type="text" id="calDept" class="w-full p-2 border rounded text-sm" placeholder="e.g. QA, QC, Production"></div>
+            <div><label class="block text-xs font-semibold mb-1">Department *</label><input type="text" id="calDept" class="w-full p-2 border rounded text-sm" placeholder="e.g. QA, QC, Production"></div>
             <div><label class="block text-xs font-semibold mb-1">Instrument Name *</label><input type="text" id="calInstrument" class="w-full p-2 border rounded text-sm"></div>
             <div><label class="block text-xs font-semibold mb-1">Manufacturer</label><input type="text" id="calManuf" class="w-full p-2 border rounded text-sm"></div>
             <div><label class="block text-xs font-semibold mb-1">Model</label><input type="text" id="calModel" class="w-full p-2 border rounded text-sm"></div>
@@ -1837,156 +1928,137 @@
             <div><label class="block text-xs font-semibold mb-1">Interval</label><input type="text" id="calInterval" class="w-full p-2 border rounded text-sm" placeholder="e.g. Annual, 6 Months"></div>
             <div><label class="block text-xs font-semibold mb-1">Calibration Date</label><input type="date" id="calDate" class="w-full p-2 border rounded text-sm"></div>
             <div><label class="block text-xs font-semibold mb-1">Due Date</label><input type="date" id="calDueDate" class="w-full p-2 border rounded text-sm"></div>
-            <div><label class="block text-xs font-semibold mb-1">Month / Year Label</label><input type="text" id="calMonthYear" class="w-full p-2 border rounded text-sm" placeholder="e.g. January 2026"></div>
+            <div><label class="block text-xs font-semibold mb-1">Month / Year (for Monthly Plan)</label><input type="text" id="calMonthYear" class="w-full p-2 border rounded text-sm" placeholder="e.g. January 2026"></div>
+            <div><label class="block text-xs font-semibold mb-1">Action</label><select id="calAction" class="w-full p-2 border rounded text-sm"><option value="Executed">Executed</option><option value="In Plan">In Plan</option></select></div>
           </div>
-          <div class="flex flex-wrap gap-4 pt-2">
-            <label class="flex items-center gap-2 text-xs font-medium"><input type="checkbox" id="calIsAddendum" class="rounded"> Is Addendum of Calibration</label>
-            <label class="flex items-center gap-2 text-xs font-medium"><input type="checkbox" id="calIsOutOfCalibration" class="rounded text-red-600"> Is Out of Calibration</label>
+          <div class="flex gap-6 pt-2">
+            <label class="flex items-center gap-2 text-xs font-semibold"><input type="checkbox" id="calIsAddendum" class="w-4 h-4 text-primary"> Addendum of Calibration</label>
+            <label class="flex items-center gap-2 text-xs font-semibold"><input type="checkbox" id="calIsOutOfCalibration" class="w-4 h-4 text-red-600"> Out of Calibration</label>
           </div>
-          <div><label class="block text-xs font-semibold mb-1">Action *</label><select id="calAction" class="w-full p-2 border rounded text-sm"><option value="Executed">Executed</option><option value="In Plan">In Plan</option></select></div>
         </div>
 
         <!-- Qualification Fields -->
-        <div id="qualificationFields" class="space-y-4 hidden">
+        <div id="qualificationFields" class="hidden space-y-4">
           <div class="grid md:grid-cols-2 gap-4">
-            <div><label class="block text-xs font-semibold mb-1">Name / Identifier *</label><input type="text" id="qualName" class="w-full p-2 border rounded text-sm"></div>
+            <div><label class="block text-xs font-semibold mb-1">Item Name *</label><input type="text" id="qualName" class="w-full p-2 border rounded text-sm"></div>
             <div><label class="block text-xs font-semibold mb-1">Reference ID / Protocol *</label><input type="text" id="qualReference" class="w-full p-2 border rounded text-sm"></div>
             <div>
               <label class="block text-xs font-semibold mb-1">Qualification Type *</label>
               <select id="qualType" class="w-full p-2 border rounded text-sm">
-                <option value="equipment">Equipment Qualification</option>
-                <option value="utilities">Utilities Qualification</option>
-                <option value="system">Computerized System</option>
+                <option value="equipment">Machine / Equipment</option>
+                <option value="utilities">Utilities</option>
+                <option value="system">System</option>
               </select>
             </div>
             <div id="utilitySubtypeGroup" class="hidden">
               <label class="block text-xs font-semibold mb-1">Utility Subtype</label>
               <select id="qualUtilityType" class="w-full p-2 border rounded text-sm">
                 <option value="HVAC">HVAC</option>
-                <option value="Water System">Water System (PW/WFI/PS)</option>
+                <option value="WFI">WFI (Water for Injection)</option>
+                <option value="PW">Purified Water (PW)</option>
                 <option value="Compressed Air">Compressed Air</option>
                 <option value="Pure Steam">Pure Steam</option>
               </select>
             </div>
-            <div id="equipmentGroup" class="md:col-span-2">
-              <label class="block text-xs font-semibold mb-1">Equipment Details</label>
-              <input type="text" id="qualEquipmentInfo" class="w-full p-2 border rounded text-sm" placeholder="Make, model, or equipment tag">
+            <div id="equipmentGroup">
+              <label class="block text-xs font-semibold mb-1">Equipment Info</label>
+              <input type="text" id="qualEquipmentInfo" class="w-full p-2 border rounded text-sm" placeholder="Manufacturer / Model / S/N">
             </div>
-            <div id="systemGroup" class="md:col-span-2 hidden">
-              <label class="block text-xs font-semibold mb-1">System Software / Version</label>
-              <input type="text" id="qualSystemInfo" class="w-full p-2 border rounded text-sm" placeholder="Software version, data integrity compliance">
+            <div id="systemGroup" class="hidden">
+              <label class="block text-xs font-semibold mb-1">System Info</label>
+              <input type="text" id="qualSystemInfo" class="w-full p-2 border rounded text-sm" placeholder="Software / Computerized System">
             </div>
             <div>
               <label class="block text-xs font-semibold mb-1">Stage *</label>
               <select id="qualStage" class="w-full p-2 border rounded text-sm">
-                <option value="DQ">DQ (Design Qualification)</option>
-                <option value="IQ">IQ (Installation Qualification)</option>
-                <option value="OQ">OQ (Operational Qualification)</option>
-                <option value="PQ">PQ (Performance Qualification)</option>
-                <option value="PERIODIC PQ">Periodic PQ</option>
+                <option value="DQ">DQ</option>
+                <option value="IQ">IQ</option>
+                <option value="OQ">OQ</option>
+                <option value="PQ">PQ</option>
+                <option value="Periodic PQ">Periodic PQ</option>
               </select>
             </div>
             <div><label class="block text-xs font-semibold mb-1">Planned Date</label><input type="date" id="qualDate" class="w-full p-2 border rounded text-sm"></div>
             <div><label class="block text-xs font-semibold mb-1">Due Date</label><input type="date" id="qualDueDate" class="w-full p-2 border rounded text-sm"></div>
-            <div><label class="block text-xs font-semibold mb-1">Action *</label><select id="qualAction" class="w-full p-2 border rounded text-sm"><option value="Executed">Executed</option><option value="In Plan">In Plan</option></select></div>
+            <div><label class="block text-xs font-semibold mb-1">Action</label><select id="qualAction" class="w-full p-2 border rounded text-sm"><option value="Executed">Executed</option><option value="In Plan">In Plan</option></select></div>
           </div>
-          <div><label class="block text-xs font-semibold mb-1">Description / Scope</label><textarea id="qualDescription" class="w-full p-2 border rounded text-sm" rows="2" placeholder="Scope of qualification..."></textarea></div>
+          <div><label class="block text-xs font-semibold mb-1">Description / Scope</label><textarea id="qualDescription" class="w-full p-2 border rounded text-sm" rows="2"></textarea></div>
         </div>
 
-        <div class="flex justify-end gap-2 pt-2">
-          <button type="button" data-close class="px-4 py-2 border rounded text-sm">Cancel</button>
-          <button type="submit" class="px-4 py-2 bg-primary text-white rounded text-sm font-semibold hover:bg-blue-800">Save Record</button>
-        </div>
+        <div class="flex justify-end gap-2 pt-2"><button type="button" data-close class="px-4 py-2 border rounded text-sm">Cancel</button><button type="submit" class="px-4 py-2 bg-primary text-white rounded text-sm font-semibold">Save Record</button></div>
       </form>
     </div>
   </div>
 
-  <!-- File Management Modal -->
+  <!-- File Manager Modal -->
   <div id="fileModal" class="modal fixed inset-0 bg-gray-900/60 z-50 items-center justify-center p-4">
-    <div class="bg-white rounded-xl shadow-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto p-6 space-y-4">
-      <div class="flex justify-between items-center"><h3 class="text-lg font-bold">Attached Documents</h3><button data-close><i class="fas fa-times"></i></button></div>
-      <div id="uploadFileContainer" class="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center">
+    <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 space-y-4">
+      <div class="flex justify-between items-center"><h3 class="text-lg font-bold">Document Attachments</h3><button data-close><i class="fas fa-times"></i></button></div>
+      <div id="uploadFileContainer" class="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center space-y-2">
+        <i class="fas fa-cloud-upload-alt text-3xl text-gray-400"></i>
+        <div class="text-sm font-semibold">Attach documents (PDF, Word, Excel, Images up to 25MB)</div>
+        <input type="file" id="fileInput" class="hidden" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.xlsm,.jpg,.jpeg,.png">
+        <button type="button" onclick="document.getElementById('fileInput').click()" class="px-4 py-2 bg-secondary text-white rounded text-xs font-semibold hover:bg-blue-600">Browse Files</button>
+        <div id="uploadProgress" class="text-xs text-blue-600 font-semibold"></div>
         <input type="hidden" id="fileParentId">
         <input type="hidden" id="fileModule">
-        <input type="file" id="fileInput" class="hidden" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.xlsm,.jpg,.jpeg,.png">
-        <label for="fileInput" class="cursor-pointer text-primary font-semibold text-sm hover:underline"><i class="fas fa-cloud-upload-alt mr-2 text-lg"></i>Click to upload documents</label>
-        <p class="text-xs text-gray-400 mt-1">PDF, Word, Excel, Images (Max 25MB)</p>
-        <div id="uploadProgress" class="text-xs text-blue-600 mt-2 font-semibold"></div>
       </div>
-      <div id="fileList" class="space-y-2 max-h-[300px] overflow-y-auto"></div>
-      <div class="flex justify-end"><button data-close class="px-4 py-2 bg-gray-200 rounded text-sm font-semibold">Close</button></div>
+      <div id="fileList" class="space-y-2 max-h-60 overflow-y-auto"></div>
+      <div class="flex justify-end"><button data-close class="px-4 py-2 border rounded text-sm">Close</button></div>
     </div>
   </div>
 
-  <!-- Review History Modal -->
+  <!-- History Modal -->
   <div id="historyModal" class="modal fixed inset-0 bg-gray-900/60 z-50 items-center justify-center p-4">
     <div class="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 space-y-4">
-      <div class="flex justify-between items-center"><h3 class="text-lg font-bold">Review History & Audit Trail</h3><button data-close><i class="fas fa-times"></i></button></div>
+      <div class="flex justify-between items-center"><h3 class="text-lg font-bold">Review & Audit History</h3><button data-close><i class="fas fa-times"></i></button></div>
       <div id="historyBody" class="space-y-3"></div>
-      <div class="flex justify-end"><button data-close class="px-4 py-2 bg-gray-200 rounded text-sm font-semibold">Close</button></div>
+      <div class="flex justify-end"><button data-close class="px-4 py-2 border rounded text-sm">Close</button></div>
     </div>
   </div>
 
-  <!-- Audit Logs Modal -->
+  <!-- Audit Trail Modal -->
   <div id="auditModal" class="modal fixed inset-0 bg-gray-900/60 z-50 items-center justify-center p-4">
     <div class="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto p-6 space-y-4">
       <div class="flex justify-between items-center"><h3 class="text-lg font-bold">System Audit Trail</h3><button data-close><i class="fas fa-times"></i></button></div>
-      <div class="overflow-y-auto max-h-[60vh] border rounded-lg">
-        <table class="min-w-full divide-y">
-          <thead class="bg-gray-50 sticky top-0">
-            <tr>
-              <th class="px-3 py-2 text-left text-xs">Timestamp</th>
-              <th class="px-3 py-2 text-left text-xs">User</th>
-              <th class="px-3 py-2 text-left text-xs">Action</th>
-              <th class="px-3 py-2 text-left text-xs">Target / Study</th>
-              <th class="px-3 py-2 text-left text-xs">Details</th>
-            </tr>
-          </thead>
-          <tbody id="auditTableBody" class="divide-y text-xs"></tbody>
+      <div class="overflow-y-auto max-h-96">
+        <table class="min-w-full divide-y text-xs">
+          <thead class="bg-gray-50 sticky top-0"><tr><th class="px-3 py-2 text-left">Timestamp</th><th class="px-3 py-2 text-left">User</th><th class="px-3 py-2 text-left">Action</th><th class="px-3 py-2 text-left">Target ID / Name</th><th class="px-3 py-2 text-left">Details</th></tr></thead>
+          <tbody id="auditTableBody" class="divide-y"></tbody>
         </table>
       </div>
-      <div class="flex justify-end"><button data-close class="px-4 py-2 bg-gray-200 rounded text-sm font-semibold">Close</button></div>
+      <div class="flex justify-end"><button data-close class="px-4 py-2 border rounded text-sm">Close</button></div>
     </div>
   </div>
 
   <!-- User Management Modal -->
   <div id="userModal" class="modal fixed inset-0 bg-gray-900/60 z-50 items-center justify-center p-4">
-    <div class="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto p-6 space-y-4">
-      <div class="flex justify-between items-center"><h3 class="text-lg font-bold">User Management & Roles</h3><button data-close><i class="fas fa-times"></i></button></div>
-      <form id="userForm" class="border p-4 rounded-lg bg-gray-50 space-y-3">
+    <div class="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto p-6 space-y-4">
+      <div class="flex justify-between items-center"><h3 class="text-lg font-bold">User Access Management</h3><button data-close><i class="fas fa-times"></i></button></div>
+      <form id="userForm" class="bg-gray-50 p-4 rounded-lg border space-y-3">
         <input type="hidden" id="editUserId">
-        <h4 class="font-semibold text-sm">Add / Edit User Profile</h4>
-        <div class="grid md:grid-cols-2 gap-3">
-          <div><label class="block text-xs font-semibold mb-1">Email *</label><input type="email" id="newEmail" class="w-full p-2 border rounded text-sm" required></div>
-          <div><label class="block text-xs font-semibold mb-1">Display Name *</label><input type="text" id="newDisplayName" class="w-full p-2 border rounded text-sm" required></div>
-          <div><label class="block text-xs font-semibold mb-1">Role *</label><select id="newRole" class="w-full p-2 border rounded text-sm"></select></div>
-          <div><label class="block text-xs font-semibold mb-1">Department</label><input type="text" id="newDepartment" class="w-full p-2 border rounded text-sm" placeholder="e.g. QA, QC, Production"></div>
-          <div><label class="block text-xs font-semibold mb-1">Password (min 8 chars for new users)</label><input type="password" id="newPassword" class="w-full p-2 border rounded text-sm"></div>
-          <div class="flex items-center gap-2 pt-5">
-            <input type="checkbox" id="newDisabled" class="rounded">
-            <label for="newDisabled" class="text-xs font-medium text-red-600">Disable Account</label>
+        <div class="grid md:grid-cols-4 gap-3">
+          <div><label class="block text-xs font-semibold mb-1">Email *</label><input type="email" id="newEmail" class="w-full p-2 border rounded text-xs" required></div>
+          <div><label class="block text-xs font-semibold mb-1">Display Name *</label><input type="text" id="newDisplayName" class="w-full p-2 border rounded text-xs" required></div>
+          <div><label class="block text-xs font-semibold mb-1">Role *</label><select id="newRole" class="w-full p-2 border rounded text-xs"></select></div>
+          <div><label class="block text-xs font-semibold mb-1">Department</label><input type="text" id="newDepartment" class="w-full p-2 border rounded text-xs" placeholder="e.g. QA, QC"></div>
+        </div>
+        <div class="grid md:grid-cols-2 gap-3 items-center">
+          <div><label class="block text-xs font-semibold mb-1">Password (New Users)</label><input type="password" id="newPassword" class="w-full p-2 border rounded text-xs" placeholder="Min 8 characters"></div>
+          <div class="flex items-center gap-4 pt-4">
+            <label class="flex items-center gap-1 text-xs font-semibold"><input type="checkbox" id="newDisabled" class="w-4 h-4 text-red-600"> Disable Account</label>
+            <button type="button" id="sendResetBtn" class="text-blue-600 text-xs font-semibold hover:underline">Send Password Reset</button>
           </div>
         </div>
-        <div class="flex justify-end gap-2">
-          <button type="button" id="sendResetBtn" class="px-3 py-1.5 bg-amber-600 text-white rounded text-xs font-semibold hover:bg-amber-700">Send Password Reset</button>
-          <button type="submit" class="px-4 py-1.5 bg-primary text-white rounded text-xs font-semibold hover:bg-blue-800">Save User</button>
-        </div>
+        <div class="flex justify-end gap-2"><button type="submit" class="px-4 py-2 bg-primary text-white rounded text-xs font-semibold">Save User</button></div>
       </form>
-      <div class="overflow-y-auto max-h-[40vh] border rounded-lg">
+      <div class="overflow-y-auto max-h-60">
         <table class="min-w-full divide-y">
-          <thead class="bg-gray-50 sticky top-0">
-            <tr>
-              <th class="px-3 py-2 text-left text-xs">User / Email</th>
-              <th class="px-3 py-2 text-left text-xs">Role</th>
-              <th class="px-3 py-2 text-left text-xs">Department</th>
-              <th class="px-3 py-2 text-left text-xs">Status</th>
-              <th class="px-3 py-2 text-center text-xs">Actions</th>
-            </tr>
-          </thead>
-          <tbody id="userTableBody" class="divide-y text-xs"></tbody>
+          <thead class="bg-gray-50 sticky top-0"><tr><th class="px-3 py-2 text-left text-xs">User</th><th class="px-3 py-2 text-left text-xs">Role</th><th class="px-3 py-2 text-left text-xs">Department</th><th class="px-3 py-2 text-left text-xs">Status</th><th class="px-3 py-2 text-center text-xs">Actions</th></tr></thead>
+          <tbody id="userTableBody" class="divide-y text-sm"></tbody>
         </table>
       </div>
-      <div class="flex justify-end"><button data-close class="px-4 py-2 bg-gray-200 rounded text-sm font-semibold">Close</button></div>
+      <div class="flex justify-end"><button data-close class="px-4 py-2 border rounded text-sm">Close</button></div>
     </div>
   </div>
 </body>
