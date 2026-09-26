@@ -24,7 +24,6 @@
     import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
     import { getFirestore, collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, query, where, orderBy, limit, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-    // --- Firebase Configurations ---
     const MY_FIREBASE_CONFIG = {
       apiKey: "AIzaSyDEV8rEluViDZiA5nnv7BiIU78rgq5en8A",
       authDomain: "validapp-db.firebaseapp.com",
@@ -35,11 +34,9 @@
       measurementId: "G-7FTDYP0XWS"
     };
 
-    // --- Supabase Configuration ---
     const SUPABASE_URL = "https://lnyignnyhihrkjauhzsk.supabase.co";
     const SUPABASE_ANON_KEY = "sb_publishable__0Xw5joGtNrlh38qYOhrpw_vMALXzrV";
 
-    // --- EmailJS Configuration ---
     const EMAILJS_PUBLIC_KEY = "tx8P6mYyi6C6APSXn";
     const EMAILJS_SERVICE_ID = "service_nyq8c6p";
     const EMAILJS_TEMPLATE_ID = "template_008bbdj";
@@ -58,13 +55,11 @@
     };
 
     const msalInstance = new msal.PublicClientApplication(msalConfig);
-
     const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : MY_FIREBASE_CONFIG;
     const appId = typeof __app_id !== 'undefined' ? __app_id : 'validapp-default';
     const app = initializeApp(firebaseConfig);
     const auth = getAuth(app);
     const db = getFirestore(app);
-
     const supabaseClient = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
     const ROLES = Object.freeze({
@@ -90,40 +85,20 @@
       COMPLETED: 'Completed'
     });
 
-    const ACTIONS = Object.freeze({
-      EXECUTED: 'Executed',
-      IN_PLAN: 'In Plan'
-    });
-
+    const ACTIONS = Object.freeze({ EXECUTED: 'Executed', IN_PLAN: 'In Plan' });
     const CATEGORIES = Object.freeze({ PROCESS: 'Process Validation', HOLD_TIME: 'Hold Time Study', CLEANING: 'Cleaning Validation' });
-    const MODULES = Object.freeze({ STUDIES: 'Studies', CALIBRATION: 'Calibration', QUALIFICATION: 'Qualification' });
-
-    const ALLOWED_FILE_TYPES = Object.freeze({
-      'application/pdf': '.pdf',
-      'application/msword': '.doc',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
-      'application/vnd.ms-excel': '.xls',
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
-      'application/vnd.ms-excel.sheet.macroEnabled.12': '.xlsm',
-      'image/jpeg': '.jpg/.jpeg',
-      'image/png': '.png'
-    });
-    const MAX_FILE_SIZE = 25 * 1024 * 1024;
+    const MODULES = Object.freeze({ HOME: 'Home', STUDIES: 'Studies', CALIBRATION: 'Calibration', QUALIFICATION: 'Qualification', SOPS: 'SOPs', PRPO: 'PR & PO' });
 
     let currentUser = null;
     let currentProfile = null;
-    let currentModule = MODULES.STUDIES;
+    let currentModule = MODULES.HOME;
     let currentCategory = CATEGORIES.PROCESS;
-    
-    let currentCalibrationTab = 'all'; 
-    let currentCalibrationTabDept = 'QA'; 
-    let currentCalibrationMonth = 'January'; 
-
-    let currentQualificationTab = 'all'; 
-    let currentQualificationMonth = 'January';
+    let currentStudySubTab = 'all'; // 'all', 'draft', or specific subcategory filter
 
     let records = [];
     let moduleRecords = [];
+    let sopsRecords = [];
+    let prpoRecords = [];
     let selectedModuleIds = new Set();
     let filesByParent = [];
     let users = [];
@@ -146,15 +121,7 @@
     const isCreator = () => can(ROLES.CREATOR);
     const isReviewer = () => can(ROLES.SECTION_HEAD, ROLES.REVIEWER, ROLES.DEPUTY, ROLES.QA_MANAGER);
     const isViewer = () => can(ROLES.VIEWER);
-
-    function nextStatusForReview(r) {
-      if (r.status === STATUS.PENDING_SECTION_HEAD) {
-        return r.requireOtherDeptReview ? STATUS.PENDING_REVIEWER : STATUS.PENDING_DEPUTY;
-      }
-      if (r.status === STATUS.PENDING_REVIEWER) return STATUS.PENDING_DEPUTY;
-      if (r.status === STATUS.PENDING_DEPUTY) return STATUS.PENDING_QA;
-      return STATUS.PENDING_QA;
-    }
+    const canManageSops = () => can(ROLES.CREATOR, ROLES.SECTION_HEAD, ROLES.DEPUTY, ROLES.QA_MANAGER, ROLES.ADMIN);
 
     async function sendEmailNotification(recipientEmail, actionTaken, username, productDetails, currentStatus, auditDetails) {
       if (!window.emailjs || !recipientEmail) return;
@@ -168,9 +135,7 @@
           current_status: currentStatus || 'N/A',
           audit_details: auditDetails || 'No additional details provided.'
         });
-      } catch (err) {
-        console.error('EmailJS dispatch failed:', err);
-      }
+      } catch (err) { console.error('EmailJS dispatch failed:', err); }
     }
      
     function showMessage(title = 'Information', text = '', type = 'info') {
@@ -232,9 +197,7 @@
     function configureNavigation() {
       $('userManagementBtn').classList.toggle('hidden', !isAdmin());
       $('auditTrailBtn').classList.toggle('hidden', !can(ROLES.ADMIN, ROLES.QA_MANAGER, ROLES.DEPUTY));
-      $('calibrationNav').classList.toggle('hidden', !(isAdmin() || isCreator() || isReviewer() || isViewer()));
-      $('qualificationNav').classList.toggle('hidden', !(isAdmin() || isCreator() || isReviewer() || isViewer()));
-      $('addRecordBtn').classList.toggle('hidden', !(isAdmin() || isCreator()));
+      $('sopsNav').classList.toggle('hidden', !canManageSops());
       $('currentUserDisplay').textContent = currentProfile?.displayName || currentProfile?.username || currentUser.email;
       $('currentUserRole').textContent = currentProfile?.role || 'Unassigned';
       $('currentUserDepartment').textContent = currentProfile?.department || '—';
@@ -252,22 +215,51 @@
     async function loadData() {
       if (!currentProfile) return;
       try {
-        let q;
-        if (isAdmin()) q = query(colRef('records'), orderBy('createdAt', 'desc'));
-        else if (isCreator()) q = query(colRef('records'), where('createdByUid', '==', currentUser.uid));
-        else if (can(ROLES.SECTION_HEAD)) q = query(colRef('records'), where('status', '==', STATUS.PENDING_SECTION_HEAD));
-        else if (can(ROLES.REVIEWER)) q = query(colRef('records'), where('status', '==', STATUS.PENDING_REVIEWER));
-        else if (can(ROLES.DEPUTY)) q = query(colRef('records'), where('status', '==', STATUS.PENDING_DEPUTY));
-        else if (can(ROLES.QA_MANAGER)) q = query(colRef('records'), where('status', '==', STATUS.PENDING_QA));
-        else q = query(colRef('records'), where('status', '==', STATUS.APPROVED));
+        let q = query(colRef('records'), orderBy('createdAt', 'desc'));
         const snap = await getDocs(q);
         records = snap.docs.map(d => ({id:d.id, ...d.data()}));
-        records.sort((a,b) => String(b.createdAt?.seconds || '').localeCompare(String(a.createdAt?.seconds || '')));
-        renderStudies();
+        
+        // Load Calibration & Qualification counts for Dashboard
+        const calSnap = await getDocs(colRef('calibration'));
+        moduleRecords = calSnap.docs.map(d => ({id:d.id, ...d.data()}));
+        
+        const prpoSnap = await getDocs(colRef('prpo'));
+        prpoRecords = prpoSnap.docs.map(d => ({id:d.id, ...d.data()}));
+
+        if (currentModule === MODULES.HOME) {
+          renderDashboard();
+        } else if (currentModule === MODULES.STUDIES) {
+          renderStudies();
+        }
       } catch (e) {
         console.error(e);
-        showMessage('Data access error', 'The records could not be loaded.', 'error');
       }
+    }
+
+    function renderDashboard() {
+      $('dashTotalStudies').textContent = records.length;
+      $('dashPendingReviews').textContent = records.filter(r => r.status.includes('Pending')).length;
+      $('dashCalibrations').textContent = moduleRecords.length;
+      $('dashPrpoCount').textContent = prpoRecords.length;
+
+      $('homeQuickStats').innerHTML = `
+        <div class="bg-white p-6 rounded-xl shadow border border-gray-100 flex items-center justify-between">
+          <div><div class="text-xs text-gray-500 font-semibold uppercase">Total Validation Studies</div><div class="text-3xl font-ext500 font-bold text-primary mt-1">${records.length}</div></div>
+          <div class="bg-blue-100 text-primary p-4 rounded-xl text-2xl"><i class="fas fa-flask"></i></div>
+        </div>
+        <div class="bg-white p-6 rounded-xl shadow border border-gray-100 flex items-center justify-between">
+          <div><div class="text-xs text-gray-500 font-semibold uppercase">Pending Reviews</div><div class="text-3xl font-bold text-amber-600 mt-1">${records.filter(r => r.status.includes('Pending')).length}</div></div>
+          <div class="bg-amber-100 text-amber-600 p-4 rounded-xl text-2xl"><i class="fas fa-clock"></i></div>
+        </div>
+        <div class="bg-white p-6 rounded-xl shadow border border-gray-100 flex items-center justify-between">
+          <div><div class="text-xs text-gray-500 font-semibold uppercase">Calibrations Logged</div><div class="text-3xl font-bold text-emerald-600 mt-1">${moduleRecords.length}</div></div>
+          <div class="bg-emerald-100 text-emerald-600 p-4 rounded-xl text-2xl"><i class="fas fa-sliders-h"></i></div>
+        </div>
+        <div class="bg-white p-6 rounded-xl shadow border border-gray-100 flex items-center justify-between">
+          <div><div class="text-xs text-gray-500 font-semibold uppercase">PR & PO Active Items</div><div class="text-3xl font-bold text-purple-600 mt-1">${prpoRecords.length}</div></div>
+          <div class="bg-purple-100 text-purple-600 p-4 rounded-xl text-2xl"><i class="fas fa-shopping-cart"></i></div>
+        </div>
+      `;
     }
 
     function recordActionButtons(r) {
@@ -287,10 +279,10 @@
         buttons.push(`<button class="text-red-600 hover:text-red-800 text-xs font-semibold" data-delete-study="${esc(r.id)}"><i class="fas fa-trash-alt mr-1"></i>Delete / Cancel</button>`);
       }
       
-      // Execution Action for approved planned items (e.g. Creator / Admin can toggle action execution status)
+      // Execution Action Button (Requirement: Creator can click if study was in plan then executed -> updates automatically and logs in audit/mail)
       if (r.status === STATUS.APPROVED && (isAdmin() || owner)) {
         if (r.action !== ACTIONS.EXECUTED) {
-          buttons.push(`<button class="text-emerald-600 hover:text-emerald-800 font-bold text-xs bg-emerald-50 px-2 py-1 rounded border border-emerald-200" data-execute-study="${esc(r.id)}"><i class="fas fa-check-circle mr-1"></i>Take Action (Execute)</button>`);
+          buttons.push(`<button class="text-emerald-600 hover:text-emerald-800 font-bold text-xs bg-emerald-50 px-2 py-1 rounded border border-emerald-200" data-execute-study="${esc(r.id)}"><i class="fas fa-check-circle mr-1"></i>Execute Study</button>`);
         } else {
           buttons.push(`<button class="text-indigo-600 hover:text-indigo-800 text-xs bg-indigo-50 px-2 py-1 rounded border border-indigo-200" data-revert-study="${esc(r.id)}"><i class="fas fa-undo mr-1"></i>Mark In Plan</button>`);
         }
@@ -317,19 +309,10 @@
           lastActionByName: currentProfile?.displayName || currentUser.email
         });
         await logAudit('Study Action Executed', id, r.productName, `Action updated to: ${newActionVal}`, r.status, r.status);
-        await sendEmailNotification(
-          currentUser.email,
-          `Action Status Updated (${newActionVal}): ${r.productName}`,
-          currentProfile?.displayName || currentUser.email,
-          r.productName,
-          r.status,
-          `Item action successfully updated to ${newActionVal}.`
-        );
+        await sendEmailNotification(currentUser.email, `Action Status Updated (${newActionVal}): ${r.productName}`, currentProfile?.displayName || currentUser.email, r.productName, r.status, `Item action successfully updated to ${newActionVal}.`);
         showMessage('Success', `Study action status updated to "${newActionVal}".`, 'success');
         await loadData();
-      } catch (e) {
-        showMessage('Action failed', friendlyError(e), 'error');
-      }
+      } catch (e) { showMessage('Action failed', friendlyError(e), 'error'); }
     }
 
     async function deleteStudy(id) {
@@ -339,22 +322,59 @@
       confirmAction('Delete / Cancel Study', `Are you sure you want to delete the unsubmitted study "${r.productName}"?`, async () => {
         try {
           await deleteDoc(docRef('records', id));
-          await logAudit('Study Deleted / Cancelled', id, r.productName, 'Draft study deleted by creator before review submission.', STATUS.DRAFT, 'Deleted');
-          
-          await sendEmailNotification(
-            currentUser.email,
-            `Study Deleted / Cancelled: ${r.productName}`,
-            currentProfile?.displayName || currentUser.email,
-            r.productName,
-            'Deleted',
-            'Unsubmitted draft study was deleted/cancelled.'
-          );
-
+          // Requirement: Draft studies bypass audit trail until submitted
           showMessage('Deleted', 'Study successfully deleted.', 'success');
           await loadData();
-        } catch (e) {
-          showMessage('Deletion failed', friendlyError(e), 'error');
-        }
+        } catch (e) { showMessage('Deletion failed', friendlyError(e), 'error'); }
+      });
+    }
+
+    function renderStudySubTabs() {
+      const subTabsContainer = $('studySubTabsContainer');
+      subTabsContainer.innerHTML = '';
+      
+      let tabs = [];
+      if (currentCategory === CATEGORIES.HOLD_TIME) {
+        tabs = [
+          { id: 'all', label: 'All Hold Time' },
+          { id: 'draft', label: 'Draft Studies' },
+          { id: 'Bulk hold time study for ODF', label: 'Bulk Hold Time for ODF' },
+          { id: 'Bulk hold time study for Capsule', label: 'Bulk Hold Time for Capsule' },
+          { id: 'Dispensed API hold time', label: 'Dispensed API Hold Time' }
+        ];
+      } else if (currentCategory === CATEGORIES.CLEANING) {
+        tabs = [
+          { id: 'all', label: 'All Cleaning' },
+          { id: 'draft', label: 'Draft Studies' },
+          { id: 'Cleaning validation for ODF equipment', label: 'ODF Equipment' },
+          { id: 'Cleaning validation for capsule equipment', label: 'Capsule Equipment' },
+          { id: 'CHT', label: 'CHT' },
+          { id: 'DHT', label: 'DHT' },
+          { id: 'Campaign length', label: 'Campaign Length' },
+          { id: 'Results of new Equipment', label: 'New Equipment Results' }
+        ];
+      } else {
+        tabs = [
+          { id: 'all', label: 'All Process' },
+          { id: 'draft', label: 'Draft Studies' },
+          { id: 'Process validation of ODF products', label: 'ODF Products' },
+          { id: 'Process validation of HGC products', label: 'HGC Products' },
+          { id: 'process verification', label: 'Process Verification' }
+        ];
+      }
+
+      subTabsContainer.innerHTML = tabs.map(t => `
+        <button data-subtab="${esc(t.id)}" class="study-sub-tab px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${currentStudySubTab === t.id ? 'bg-primary text-white shadow' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}">
+          ${esc(t.label)}
+        </button>
+      `).join('');
+
+      subTabsContainer.querySelectorAll('button[data-subtab]').forEach(btn => {
+        btn.addEventListener('click', e => {
+          currentStudySubTab = e.currentTarget.dataset.subtab;
+          renderStudySubTabs();
+          renderStudies();
+        });
       });
     }
 
@@ -367,13 +387,19 @@
       
       let filtered = records.filter(r => r.studyCategory === category && (!q || `${r.productName||''} ${r.productType||''}`.toLowerCase().includes(q)) && (stage === 'All' || r.stage === stage) && (status === 'All' || r.status === status) && (scale === 'All' || r.scale === scale));
       
+      if (currentStudySubTab === 'draft') {
+        filtered = filtered.filter(r => r.status === STATUS.DRAFT);
+      } else if (currentStudySubTab !== 'all') {
+        filtered = filtered.filter(r => (r.subCategory || r.stage || '').toLowerCase() === currentStudySubTab.toLowerCase());
+      }
+
       if (isViewer()) {
         filtered = filtered.filter(r => r.status === STATUS.APPROVED);
       }
 
       $('dataTableBody').innerHTML = filtered.map(r => `<tr class="hover:bg-gray-50">
         <td class="px-4 py-3 font-medium text-gray-900">${esc(r.productName)}<div class="text-xs text-gray-500">${esc(r.productType)}</div></td>
-        <td class="px-4 py-3 text-xs">${esc(r.studyCategory)}</td>
+        <td class="px-4 py-3 text-xs">${esc(r.studyCategory)}<div class="text-[10px] text-primary font-semibold">${esc(r.subCategory || '')}</div></td>
         <td class="px-4 py-3 text-xs">${esc(r.date || r.studyDate)}<div class="font-semibold mt-1">${esc(r.stage)}</div></td>
         <td class="px-4 py-3 text-xs">${esc(r.scale)}<div class="mt-1 flex items-center gap-1"><span class="bg-blue-100 text-blue-800 px-1 rounded">${esc(r.version)}</span> ${actionBadge(r.action)}</div></td>
         <td class="px-4 py-3 text-xs max-w-[220px] truncate" title="${esc(r.reason)}">${esc(r.reason)}<div class="text-gray-400 truncate">${esc(r.notes || '')}</div></td>
@@ -399,8 +425,7 @@
       $('studyAction').value = record?.action || ACTIONS.IN_PLAN;
       $('reason').value = record?.reason || '';
       $('notes').value = record?.notes || '';
-      $('reviewerDepartment').value = record?.reviewerDepartment || '';
-      $('requireOtherDeptReview').checked = !!record?.requireOtherDeptReview;
+      $('subCategoryInput').value = record?.subCategory || currentStudySubTab !== 'all' ? currentStudySubTab : '';
       $('recordModal').classList.add('active');
     }
 
@@ -410,10 +435,9 @@
       const id = $('recordId').value;
       const data = {
         productName: $('productName').value.trim(), studyCategory: $('studyCategory').value, productType: $('productType').value,
+        subCategory: $('subCategoryInput').value.trim() || currentStudySubTab,
         date: $('studyDate').value, stage: $('stage').value, version: $('version').value.trim(), scale: $('scale').value,
-        action: $('studyAction').value,
-        reason: $('reason').value.trim(), notes: $('notes').value.trim(), reviewerDepartment: $('reviewerDepartment').value.trim(),
-        requireOtherDeptReview: $('requireOtherDeptReview').checked, updatedAt: serverTimestamp()
+        action: $('studyAction').value, reason: $('reason').value.trim(), notes: $('notes').value.trim(), updatedAt: serverTimestamp()
       };
       if (!data.productName || !data.date || !data.reason || !data.version) return showMessage('Missing fields', 'Complete all required fields.', 'error');
       try {
@@ -424,11 +448,11 @@
         } else {
           const payload = {...data, status: STATUS.DRAFT, createdByUid: currentUser.uid, createdByName: currentProfile.displayName || currentUser.email, createdAt: serverTimestamp()};
           const refDoc = await addDoc(colRef('records'), payload);
-          await logAudit('Study Created', refDoc.id, data.productName, 'Created as Draft.', '', STATUS.DRAFT);
+          // Requirement: Draft studies bypass audit trail until submitted
           showMessage('Success', 'New study created as Draft.', 'success');
         }
         closeModals(); await loadData();
-      } catch (err) { console.error(err); showMessage('Save failed', friendlyError(err), 'error'); }
+      } catch (err) { showMessage('Save failed', friendlyError(err), 'error'); }
     }
 
     async function updateWorkflow(id, targetStatus, comment='') {
@@ -441,16 +465,7 @@
       await updateDoc(docRef('records', id), updates);
       await addDoc(colRef('reviews'), {studyId:id, studyName:r.productName, reviewerUid:currentUser.uid, reviewerName:currentProfile.displayName || currentUser.email, reviewerRole:actorRole, comment, createdAt:serverTimestamp()});
       await logAudit('Workflow Progressed', id, r.productName, comment || `Advanced by ${actorRole}`, old, targetStatus);
-      
-      await sendEmailNotification(
-        currentUser.email,
-        `ValidApp Status Update: ${r.productName}`,
-        currentProfile?.displayName || currentUser.email,
-        r.productName,
-        targetStatus,
-        comment || `Study transitioned from ${old} to ${targetStatus}.`
-      );
-      
+      await sendEmailNotification(currentUser.email, `ValidApp Status Update: ${r.productName}`, currentProfile?.displayName || currentUser.email, r.productName, targetStatus, comment || `Study transitioned from ${old} to ${targetStatus}.`);
       await loadData();
     }
 
@@ -462,16 +477,7 @@
           await updateDoc(docRef('records', id), {status:STATUS.RETURNED, updatedAt:serverTimestamp()});
           await addDoc(colRef('reviews'), {studyId:id, studyName:r.productName, reviewerUid:currentUser.uid, reviewerName:currentProfile.displayName || currentUser.email, reviewerRole:currentProfile.role, action:'Returned', comment:reason.trim(), createdAt:serverTimestamp()});
           await logAudit('Study Returned', id, r.productName, reason.trim(), r.status, STATUS.RETURNED);
-          
-          await sendEmailNotification(
-            currentUser.email,
-            `Study Returned for Revision: ${r.productName}`,
-            currentProfile?.displayName || currentUser.email,
-            r.productName,
-            STATUS.RETURNED,
-            reason.trim()
-          );
-
+          await sendEmailNotification(currentUser.email, `Study Returned for Revision: ${r.productName}`, currentProfile?.displayName || currentUser.email, r.productName, STATUS.RETURNED, reason.trim());
           closeModals(); showMessage('Returned','Study returned to Creator.','success'); await loadData();
         } catch(e){ showMessage('Return failed', friendlyError(e),'error'); }
       }, true, 'Return reason *');
@@ -481,17 +487,9 @@
       const r = records.find(x=>x.id===id); if (!r) return;
       try { 
         await updateDoc(docRef('records',id),{status:STATUS.PENDING_SECTION_HEAD,submittedAt:serverTimestamp(),updatedAt:serverTimestamp()}); 
-        await logAudit('Study Submitted',id,r.productName,'Submitted for review.',r.status,STATUS.PENDING_SECTION_HEAD); 
-        
-        await sendEmailNotification(
-          currentUser.email,
-          `Study Submitted: ${r.productName}`,
-          currentProfile?.displayName || currentUser.email,
-          r.productName,
-          STATUS.PENDING_SECTION_HEAD,
-          'Submitted for Section Head review.'
-        );
-
+        // Requirement: Now that it is submitted, record entry in audit trail
+        await logAudit('Study Submitted',id,r.productName,'Submitted for review from Draft.',STATUS.DRAFT,STATUS.PENDING_SECTION_HEAD); 
+        await sendEmailNotification(currentUser.email, `Study Submitted: ${r.productName}`, currentProfile?.displayName || currentUser.email, r.productName, STATUS.PENDING_SECTION_HEAD, 'Submitted for Section Head review.');
         showMessage('Submitted','Submitted to Section Head.','success'); 
         await loadData(); 
       }
@@ -499,9 +497,6 @@
     }
 
     function friendlyError(e) {
-      const code = e?.code || '';
-      if (code.includes('permission-denied')) return 'Permission denied.';
-      if (code.includes('network')) return 'Network connection failed.';
       return e?.message || 'An unexpected error occurred.';
     }
 
@@ -509,10 +504,6 @@
       const field = (module === 'study' || module === MODULES.STUDIES) ? 'studyId' : 'parentId';
       const snap = await getDocs(query(colRef('studyFiles'), where(field, '==', parentId)));
       filesByParent = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => String(b.createdAt?.seconds || '').localeCompare(String(a.createdAt?.seconds || '')));
-    }
-
-    function fileTypeAllowed(file) {
-      return !!ALLOWED_FILE_TYPES[file.type] || file.name.endsWith('.xlsx') || file.name.endsWith('.xls') || file.name.endsWith('.xlsm') && file.size <= MAX_FILE_SIZE;
     }
 
     async function uploadFiles(parentId, input, module='study') {
@@ -524,118 +515,62 @@
       const isStudyModule = (module === 'study' || module === MODULES.STUDIES);
 
       for (const file of files) {
-        if (!fileTypeAllowed(file)) {
-          showMessage('Invalid file', `${file.name}: invalid type or size exceeds 25MB.`, 'error');
-          continue;
-        }
-
         const fileId = crypto.randomUUID();
         const safeName = safeFileName(file.name);
         const storagePath = `${appId}/${module}/${parentId}/${fileId}_${safeName}`;
 
         try {
-          $('uploadProgress').textContent = `Uploading ${esc(file.name)} to Supabase...`;
-          
-          const { data, error } = await supabaseClient.storage
-            .from("documents")
-            .upload(storagePath, file, { cacheControl: '3600', upsert: false });
-
+          const { error } = await supabaseClient.storage.from("documents").upload(storagePath, file, { cacheControl: '3600', upsert: false });
           if (error) throw new Error(error.message);
 
           await addDoc(colRef('studyFiles'), {
-            parentId: parentId,
-            studyId: isStudyModule ? parentId : null,
-            module: module,
-            name: file.name,
-            contentType: file.type || 'application/octet-stream',
-            size: file.size,
-            storagePath: storagePath,
-            uploadedByUid: currentUser.uid,
-            uploadedByName: currentProfile.displayName || currentUser.email,
-            uploadedAt: serverTimestamp(),
-            createdAt: serverTimestamp()
+            parentId: parentId, studyId: isStudyModule ? parentId : null, module: module,
+            name: file.name, contentType: file.type || 'application/octet-stream', size: file.size,
+            storagePath: storagePath, uploadedByUid: currentUser.uid, uploadedByName: currentProfile.displayName || currentUser.email,
+            uploadedAt: serverTimestamp(), createdAt: serverTimestamp()
           });
-
           await logAudit('File Uploaded', parentId, '', `${file.name}`);
-        } catch(e) {
-          console.error('Supabase Upload Error:', e);
-          showMessage('Upload failed', friendlyError(e), 'error');
-        }
+        } catch(e) { showMessage('Upload failed', friendlyError(e), 'error'); }
       }
-
-      $('uploadProgress').textContent = '';
       await loadFiles(parentId, module);
       renderFileList(parentId, module);
     }
 
     async function viewFile(file, download=false) {
       try {
-        const { data, error } = await supabaseClient.storage
-          .from("documents")
-          .createSignedUrl(file.storagePath, 60, {
-            download: download ? file.name : false
-          });
-
+        const { data, error } = await supabaseClient.storage.from("documents").createSignedUrl(file.storagePath, 60, { download: download ? file.name : false });
         if (error) throw new Error(error.message);
-
         if (download) {
-          const a = document.createElement('a');
-          a.href = data.signedUrl;
-          a.download = file.name;
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
-        } else {
-          window.open(data.signedUrl, '_blank', 'noopener');
-        }
-      } catch(e) {
-        showMessage('Access denied', friendlyError(e), 'error');
-      }
+          const a = document.createElement('a'); a.href = data.signedUrl; a.download = file.name;
+          document.body.appendChild(a); a.click(); a.remove();
+        } else { window.open(data.signedUrl, '_blank', 'noopener'); }
+      } catch(e) { showMessage('Access denied', friendlyError(e), 'error'); }
     }
 
     async function deleteFile(file) {
       if (isViewer()) return showMessage('Unauthorized', 'Viewers cannot delete files.', 'error');
-      
       confirmAction('Delete file', `Are you sure you want to delete "${file.name}"?`, async () => {
         try {
-          const { error } = await supabaseClient.storage
-            .from("documents")
-            .remove([file.storagePath]);
-            
-          if (error) throw new Error(error.message);
-
+          await supabaseClient.storage.from("documents").remove([file.storagePath]);
           await updateDoc(docRef('studyFiles', file.id), { deletedAt: serverTimestamp() });
-          
-          const targetParent = file.parentId || file.studyId;
-          await logAudit('File Deleted', targetParent, '', `Deleted file: ${file.name}`);
-          
-          await loadFiles(targetParent, file.module);
-          renderFileList(targetParent, file.module);
+          await loadFiles(file.parentId || file.studyId, file.module);
+          renderFileList(file.parentId || file.studyId, file.module);
           showMessage('Deleted', 'File successfully removed.', 'success');
-        } catch(e) {
-          showMessage('Delete failed', friendlyError(e), 'error');
-        }
+        } catch(e) { showMessage('Delete failed', friendlyError(e), 'error'); }
       });
     }
 
     function renderFileList(parentId, module='study') {
-      const uploadContainer = $('uploadFileContainer');
-      if (uploadContainer) uploadContainer.classList.toggle('hidden', isViewer());
-
+      $('uploadFileContainer').classList.toggle('hidden', isViewer());
       const activeFiles = filesByParent.filter(f => !f.deletedAt);
-
       $('fileList').innerHTML = activeFiles.map(f => `<div class="border rounded-lg p-3 flex flex-wrap items-center justify-between gap-3 bg-gray-50">
-        <div>
-          <div class="font-semibold text-sm">${esc(f.name)}</div>
-          <div class="text-xs text-gray-500">${esc(f.contentType)} · ${(f.size/1024/1024).toFixed(2)} MB · ${esc(nowLabel(f.uploadedAt))}</div>
-        </div>
+        <div><div class="font-semibold text-sm">${esc(f.name)}</div><div class="text-xs text-gray-500">${esc(f.contentType)} · ${(f.size/1024/1024).toFixed(2)} MB</div></div>
         <div class="flex gap-3 items-center">
           ${!isViewer() ? `<button data-view-file="${esc(f.id)}" class="text-blue-600 text-xs font-semibold hover:underline">View</button>` : ''}
           <button data-download-file="${esc(f.id)}" class="text-gray-700 text-xs font-semibold hover:underline">Download</button>
-          ${!isViewer() ? `<button data-delete-file="${esc(f.id)}" class="text-red-600 text-xs font-semibold hover:underline flex items-center gap-1"><i class="fas fa-trash-alt text-[10px]"></i>Delete</button>` : ''}
+          ${!isViewer() ? `<button data-delete-file="${esc(f.id)}" class="text-red-600 text-xs font-semibold hover:underline">Delete</button>` : ''}
         </div>
       </div>`).join('') || '<div class="text-sm text-gray-500">No documents found.</div>';
-
       $('fileParentId').value = parentId;
       $('fileModule').value = module;
       $('fileModal').classList.add('active');
@@ -658,7 +593,9 @@
       $('historyModal').classList.add('active');
     }
 
-    function renderAudit() {
+    async function loadAudit() {
+      const snap = await getDocs(query(colRef('audit'), orderBy('createdAt', 'desc'), limit(500)));
+      auditLogs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       $('auditTableBody').innerHTML = auditLogs.map(x => `<tr>
         <td class="px-3 py-2 text-xs">${esc(nowLabel(x.createdAt))}</td>
         <td class="px-3 py-2 text-xs">${esc(x.userName)}<div class="text-gray-500">${esc(x.userRole)}</div></td>
@@ -666,888 +603,163 @@
         <td class="px-3 py-2 text-xs">${esc(x.studyName || x.studyId || '—')}</td>
         <td class="px-3 py-2 text-xs">${esc(x.previousStatus || '—')} → ${esc(x.newStatus || '—')}<div>${esc(x.details || '')}</div></td>
       </tr>`).join('');
-    }
-
-    async function loadAudit() {
-      const snap = await getDocs(query(colRef('audit'), orderBy('createdAt', 'desc'), limit(500)));
-      auditLogs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      renderAudit();
       $('auditModal').classList.add('active');
-    }
-
-    function renderUserRoleOptions(selectedRole = '') {
-      const el = document.getElementById('newRole');
-      if (el) el.innerHTML = ROLE_LIST.map(r => `<option value="${r}" ${r === selectedRole ? 'selected' : ''}>${r}</option>`).join('');
     }
 
     async function loadUsers() {
       if (!isAdmin()) return;
       const snap = await getDocs(colRef('users'));
       users = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      renderUserRoleOptions();
+      $('newRole').innerHTML = ROLE_LIST.map(r => `<option value="${r}">${r}</option>`).join('');
       $('userTableBody').innerHTML = users.map(u => `<tr>
         <td class="px-3 py-2 text-xs font-medium">${esc(u.displayName || u.username)}<div class="text-gray-500">${esc(u.email)}</div></td>
         <td class="px-3 py-2 text-xs">${esc(u.role)}</td>
         <td class="px-3 py-2 text-xs">${esc(u.department || '—')}</td>
         <td class="px-3 py-2 text-xs">${u.disabled ? '<span class="text-red-600 font-bold">Disabled</span>' : '<span class="text-green-600 font-bold">Active</span>'}</td>
-        <td class="px-3 py-2 text-center text-xs">
-          <button data-edit-user="${esc(u.id)}" class="text-blue-600 font-semibold mr-2">Edit</button>
-          <button data-toggle-user="${esc(u.id)}" class="text-amber-600 font-semibold">${u.disabled ? 'Enable' : 'Disable'}</button>
-        </td>
+        <td class="px-3 py-2 text-center text-xs"><button data-edit-user="${esc(u.id)}" class="text-blue-600 font-semibold mr-2">Edit</button></td>
       </tr>`).join('');
       $('userModal').classList.add('active');
     }
 
-    async function createOrUpdateUser(e) {
-      e.preventDefault();
-      if (!isAdmin()) return;
-      const email = $('newEmail').value.trim().toLowerCase();
-      const displayName = $('newDisplayName').value.trim();
-      const role = $('newRole').value;
-      const department = $('newDepartment').value.trim();
-      const editing = $('editUserId').value;
+    // SOPs Module Logic
+    async function loadSops() {
+      if (!canManageSops()) return showMessage('Access Denied', 'SOPs module is restricted to creators, section heads, deputy QA managers, and QA managers.', 'error');
       try {
-        if (editing) {
-          await updateDoc(docRef('users', editing), { displayName, role, department, updatedAt: serverTimestamp(), disabled: $('newDisabled').checked });
-          await logAudit('User Updated', editing, displayName, `Role=${role}`);
-        } else {
-          const secondary = initializeApp(firebaseConfig, `ValidAppUserCreation_${Date.now()}`);
-          const secAuth = getAuth(secondary);
-          const password = $('newPassword').value;
-          if (password.length < 8) throw new Error('Password must contain at least 8 characters.');
-          const cred = await createUserWithEmailAndPassword(secAuth, email, password);
-          await setDoc(docRef('users', cred.user.uid), { email, displayName, username: email.split('@')[0], role, department, disabled: false, createdAt: serverTimestamp() });
-          await signOut(secAuth);
-          await deleteApp(secondary);
-          await logAudit('User Created', cred.user.uid, displayName, `Role=${role}`);
-          
-          await sendEmailNotification(email, 'ValidApp Account Created', displayName, 'New User Account', 'Active', `Your account has been created with role: ${role}.`);
-          showMessage('Created', `User profile created for ${email}`, 'success');
-        }
-        $('userForm').reset();
-        $('editUserId').value = '';
-        await loadUsers();
-      } catch (err) {
-        console.error(err);
-        showMessage('User operation failed', friendlyError(err), 'error');
-      }
+        const snap = await getDocs(query(colRef('sops'), orderBy('createdAt', 'desc')));
+        sopsRecords = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        renderSopsTable();
+      } catch (e) { showMessage('Error', friendlyError(e), 'error'); }
     }
 
-    async function editUser(id) { 
-      const u = users.find(x => x.id === id); 
-      if(!u) return; 
-      $('editUserId').value = id; 
-      $('newEmail').value = u.email || ''; 
-      $('newDisplayName').value = u.displayName || ''; 
-      renderUserRoleOptions(u.role || ROLES.VIEWER); 
-      $('newDepartment').value = u.department || ''; 
-      $('newDisabled').checked = !!u.disabled; 
-      $('newPassword').value = ''; 
+    function renderSopsTable() {
+      $('sopsTableBody').innerHTML = sopsRecords.map(s => `
+        <tr class="hover:bg-gray-50">
+          <td class="px-4 py-3 font-semibold text-sm">${esc(s.sopNo)}</td>
+          <td class="px-4 py-3 text-sm">${esc(s.title)}</td>
+          <td class="px-4 py-3 text-xs">${esc(s.version || 'v1.0')}</td>
+          <td class="px-4 py-3 text-xs">${esc(s.department || 'Validation')}</td>
+          <td class="px-4 py-3 text-xs">${esc(nowLabel(s.createdAt))}</td>
+          <td class="px-4 py-3 text-center">
+            <button data-sop-files="${esc(s.id)}" class="text-blue-600 text-xs font-semibold mr-2 hover:underline">View Files</button>
+            ${isAdmin() || s.createdByUid === currentUser?.uid ? `<button data-sop-delete="${esc(s.id)}" class="text-red-600 text-xs font-semibold hover:underline">Delete</button>` : ''}
+          </td>
+        </tr>
+      `).join('') || '<tr><td colspan="6" class="text-center py-6 text-gray-500 text-sm">No SOPs uploaded yet.</td></tr>';
     }
 
-    async function toggleUser(id){ 
-      const u = users.find(x => x.id === id); 
-      if(!u || id === currentUser.uid) return; 
-      confirmAction(u.disabled ? 'Enable User' : 'Disable User', `${u.disabled ? 'Enable' : 'Disable'} ${u.email}?`, async () => {
-        try {
-          await updateDoc(docRef('users', id), { disabled: !u.disabled, updatedAt: serverTimestamp() }); 
-          await logAudit(u.disabled ? 'User Enabled' : 'User Disabled', id, u.displayName || u.email); 
-          await loadUsers();
-        } catch(e) { showMessage('Operation failed', friendlyError(e), 'error'); }
-      }); 
+    // PR & PO Module Logic
+    async function loadPrpo() {
+      try {
+        const snap = await getDocs(query(colRef('prpo'), orderBy('createdAt', 'desc')));
+        prpoRecords = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        renderPrpoTable();
+      } catch (e) { showMessage('Error', friendlyError(e), 'error'); }
     }
 
-    async function addModuleRecord(e) {
-      e.preventDefault(); 
-      if (!(isAdmin() || isCreator())) return showMessage('Unauthorized', 'Cannot create record.', 'error');
-      
-      const module = currentModule;
-      const editId = $('moduleEditId').value;
-      const collectionName = module === MODULES.CALIBRATION ? 'calibration' : 'qualification'; 
-
-      let data = {};
-      if (module === MODULES.CALIBRATION) {
-        data = {
-          certificateNo: $('calCertificateNo').value.trim(),
-          department: $('calDept').value.trim(),
-          instrument: $('calInstrument').value.trim(),
-          manufacturer: $('calManuf').value.trim(),
-          model: $('calModel').value.trim(),
-          serialNumber: $('calSN').value.trim(),
-          code: $('calCode').value.trim(),
-          location: $('calLocation').value.trim(),
-          calRange: $('calRange').value.trim(),
-          acceptanceLimits: $('calAcceptanceLimits').value.trim(),
-          interval: $('calInterval').value.trim(),
-          calDate: $('calDate').value,
-          dueDate: $('calDueDate').value,
-          monthYear: $('calMonthYear').value.trim(),
-          isAddendum: $('calIsAddendum').checked,
-          isOutOfCalibration: $('calIsOutOfCalibration').checked,
-          action: $('calAction').value,
-          executedTracker: false,
-          name: $('calInstrument').value.trim(),
-          reference: $('calCertificateNo').value.trim(),
-          status: STATUS.DRAFT,
-          createdByUid: currentUser.uid,
-          createdByName: currentProfile.displayName || currentUser.email,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp()
-        };
-        if (!data.certificateNo || !data.instrument || !data.code) {
-          return showMessage('Missing fields', 'Certificate No., Instrument, and Code are required.', 'error');
-        }
-      } else {
-        const qualType = $('qualType').value;
-        const subUtility = qualType === 'utilities' ? $('qualUtilityType').value : '';
-        const eqInfo = qualType === 'equipment' ? $('qualEquipmentInfo').value.trim() : (qualType === 'system' ? $('qualSystemInfo').value.trim() : '');
-
-        data = {
-          name: $('qualName').value.trim(),
-          reference: $('qualReference').value.trim(),
-          qualificationType: qualType,
-          utilitySubtype: subUtility,
-          equipmentSystemInfo: eqInfo,
-          stage: $('qualStage').value,
-          plannedDate: $('qualDate').value,
-          dueDate: $('qualDueDate').value,
-          action: $('qualAction').value,
-          executedTracker: false,
-          description: $('qualDescription').value.trim(),
-          status: STATUS.DRAFT,
-          createdByUid: currentUser.uid,
-          createdByName: currentProfile.displayName || currentUser.email,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp()
-        };
-        if (!data.name || !data.reference) {
-          return showMessage('Missing fields', 'Name and Reference ID are required.', 'error');
-        }
-      }
-
-      try { 
-        if (editId) { 
-          await updateDoc(docRef(collectionName, editId), {...data, updatedAt: serverTimestamp()}); 
-          await logAudit(`${module} Record Modified`, editId, data.name, 'Updated.'); 
-          showMessage('Updated', `${module} record updated.`, 'success'); 
-        } else { 
-          const refDoc = await addDoc(colRef(collectionName), data); 
-          await logAudit(`${module} Record Created`, refDoc.id, data.name, 'Created as Draft.', '', STATUS.DRAFT); 
-          showMessage('Created', `${module} record created successfully.`, 'success'); 
-        } 
-        $('moduleForm').reset(); closeModals(); await loadModule(module);
-      } catch(e) { showMessage('Save failed', friendlyError(e), 'error'); }
+    function renderPrpoTable() {
+      $('prpoTableBody').innerHTML = prpoRecords.map(p => `
+        <tr class="hover:bg-gray-50">
+          <td class="px-4 py-3 font-semibold text-xs">${esc(p.prNumber)}</td>
+          <td class="px-4 py-3 text-xs">${esc(p.poNumber || 'Pending PO')}</td>
+          <td class="px-4 py-3 text-sm">${esc(p.itemDescription)}</td>
+          <td class="px-4 py-3 text-xs">${esc(p.supplier || '—')}</td>
+          <td class="px-4 py-3 text-xs">${esc(p.estimatedCost || '—')}</td>
+          <td class="px-4 py-3 text-xs">${statusBadge(p.status || STATUS.DRAFT)}</td>
+          <td class="px-4 py-3 text-center">
+            <button data-prpo-edit="${esc(p.id)}" class="text-purple-600 text-xs font-semibold mr-2 hover:underline">Edit</button>
+            <button data-prpo-delete="${esc(p.id)}" class="text-red-600 text-xs font-semibold hover:underline">Delete</button>
+          </td>
+        </tr>
+      `).join('') || '<tr><td colspan="7" class="text-center py-6 text-gray-500 text-sm">No PR/PO records found.</td></tr>';
     }
 
-    async function handleModuleExcelImport(event) {
-      const file = event.target.files[0];
-      if (!file) return;
-      const reader = new FileReader();
-      
-      reader.onload = async function(e) {
-        try {
-          const data = new Uint8Array(e.target.result);
-          const workbook = XLSX.read(data, { type: 'array' });
-          
-          let rows = [];
-          workbook.SheetNames.forEach(sheetName => {
-            const worksheet = workbook.Sheets[sheetName];
-            const sheetRows = XLSX.utils.sheet_to_json(worksheet);
-            if (sheetRows && sheetRows.length > 0) {
-              rows = rows.concat(sheetRows);
-            }
-          });
-
-          if (!rows.length) return showMessage('Empty File', 'No records found in the uploaded spreadsheet across all sheets.', 'error');
-
-          let importedCount = 0;
-          const isCalibration = currentModule === MODULES.CALIBRATION;
-          const collectionName = isCalibration ? 'calibration' : 'qualification';
-
-          for (const row of rows) {
-            const cleanRow = {};
-            Object.keys(row).forEach(k => {
-              cleanRow[k.trim().toLowerCase().replace(/[^a-z0-9]/g, '')] = row[k];
-            });
-
-            if (isCalibration) {
-              const certNo = String(cleanRow['certificateno'] || cleanRow['certno'] || cleanRow['reference'] || '');
-              const instrument = String(cleanRow['instrument'] || cleanRow['name'] || '');
-              const code = String(cleanRow['code'] || cleanRow['instrumentcode'] || '');
-              const isAdd = String(cleanRow['isaddendum'] || cleanRow['addendum'] || '').toLowerCase();
-              const isOut = String(cleanRow['isoutofcalibration'] || cleanRow['outofcal'] || cleanRow['out'] || '').toLowerCase();
-              const actionInput = String(cleanRow['action'] || '').toLowerCase();
-              const parsedAction = actionInput.includes('plan') ? ACTIONS.IN_PLAN : ACTIONS.EXECUTED;
-
-              const payload = {
-                certificateNo: certNo,
-                department: String(cleanRow['dept'] || cleanRow['department'] || ''),
-                instrument: instrument,
-                manufacturer: String(cleanRow['manuf'] || cleanRow['manufacturer'] || ''),
-                model: String(cleanRow['model'] || ''),
-                serialNumber: String(cleanRow['sn'] || cleanRow['serialno'] || ''),
-                code: code,
-                location: String(cleanRow['location'] || ''),
-                calRange: String(cleanRow['calrange'] || cleanRow['range'] || ''),
-                acceptanceLimits: String(cleanRow['acceptancelimits'] || cleanRow['limits'] || ''),
-                interval: String(cleanRow['interval'] || ''),
-                calDate: String(cleanRow['caldate'] || cleanRow['date'] || ''),
-                dueDate: String(cleanRow['duedate'] || ''),
-                monthYear: String(cleanRow['monthyear'] || ''),
-                isAddendum: isAdd === 'true' || isAdd === 'yes' || isAdd === '1',
-                isOutOfCalibration: isOut === 'true' || isOut === 'yes' || isOut === '1',
-                action: parsedAction,
-                executedTracker: false,
-                name: instrument || 'Imported Instrument',
-                reference: certNo || 'IMP-' + Date.now(),
-                status: STATUS.DRAFT,
-                createdByUid: currentUser.uid,
-                createdByName: currentProfile.displayName || currentUser.email,
-                createdAt: serverTimestamp(),
-                updatedAt: serverTimestamp()
-              };
-
-              if (payload.instrument || payload.code) {
-                await addDoc(colRef(collectionName), payload);
-                importedCount++;
-              }
-            } else {
-              const name = String(cleanRow['name'] || cleanRow['equipmentname'] || cleanRow['systemname'] || '');
-              const reference = String(cleanRow['reference'] || cleanRow['refid'] || cleanRow['protocol'] || '');
-              const typeVal = String(cleanRow['qualificationtype'] || cleanRow['type'] || 'equipment').toLowerCase();
-              const stageVal = String(cleanRow['stage'] || cleanRow['qualificationstage'] || 'IQ').toUpperCase();
-              const actionInput = String(cleanRow['action'] || '').toLowerCase();
-              const parsedAction = actionInput.includes('plan') ? ACTIONS.IN_PLAN : ACTIONS.EXECUTED;
-
-              const payload = {
-                name: name,
-                reference: reference,
-                qualificationType: ['equipment', 'utilities', 'system'].includes(typeVal) ? typeVal : 'equipment',
-                utilitySubtype: String(cleanRow['utilitysubtype'] || cleanRow['utility'] || 'HVAC'),
-                equipmentSystemInfo: String(cleanRow['equipmentsysteminfo'] || cleanRow['info'] || cleanRow['details'] || ''),
-                stage: ['DQ', 'IQ', 'OQ', 'PQ', 'PERIODIC PQ'].includes(stageVal) ? stageVal : 'IQ',
-                plannedDate: String(cleanRow['planneddate'] || cleanRow['date'] || ''),
-                dueDate: String(cleanRow['duedate'] || ''),
-                action: parsedAction,
-                executedTracker: false,
-                description: String(cleanRow['description'] || cleanRow['scope'] || ''),
-                status: STATUS.DRAFT,
-                createdByUid: currentUser.uid,
-                createdByName: currentProfile.displayName || currentUser.email,
-                createdAt: serverTimestamp(),
-                updatedAt: serverTimestamp()
-              };
-
-              if (payload.name && payload.reference) {
-                await addDoc(colRef(collectionName), payload);
-                importedCount++;
-              }
-            }
-          }
-
-          await logAudit(`${currentModule} Excel/Macro Imported`, '', '', `Imported ${importedCount} records via multi-sheet spreadsheet file.`);
-          showMessage('Success', `Successfully imported ${importedCount} ${currentModule.toLowerCase()} entries from all sheets!`, 'success');
-          await loadModule(currentModule);
-        } catch (err) {
-          console.error(err);
-          showMessage('Import Error', 'Failed to parse Excel sheet. Ensure columns match header specifications.', 'error');
-        }
-      };
-      
-      reader.readAsArrayBuffer(file);
-      event.target.value = '';
-    }
-
-    async function loadModule(module) { 
-      currentModule = module; 
+    async function loadModule(module) {
+      currentModule = module;
       selectedModuleIds.clear();
-      const collectionName = module === MODULES.CALIBRATION ? 'calibration' : 'qualification'; 
-      try {
-        let q = query(colRef(collectionName), orderBy('createdAt', 'desc')); 
-        const snap = await getDocs(q); 
-        moduleRecords = snap.docs.map(d => ({id:d.id, ...d.data()})); 
-        populateModuleFilters();
-        renderModuleTable();
-      } catch(e) { showMessage('Module access error', friendlyError(e), 'error'); }
-    }
-
-    function populateModuleFilters() {
-      const isCal = currentModule === MODULES.CALIBRATION;
-      $('modSearchLabel').textContent = isCal ? 'Search Cert / Instrument / Code' : 'Search Name / Reference';
-      $('modFilterLabel1').textContent = isCal ? 'Department' : 'Type';
-      $('modFilterLabel2').textContent = isCal ? 'Location' : 'Stage';
-
-      const filter1El = $('modFilter1');
-      const filter2El = $('modFilter2');
-
-      if (isCal) {
-        const depts = [...new Set(moduleRecords.map(r => r.department).filter(Boolean))].sort();
-        const locations = [...new Set(moduleRecords.map(r => r.location).filter(Boolean))].sort();
-        
-        filter1El.innerHTML = `<option value="All">All Departments</option>` + depts.map(d => `<option value="${esc(d)}">${esc(d)}</option>`).join('');
-        filter2El.innerHTML = `<option value="All">All Locations</option>` + locations.map(l => `<option value="${esc(l)}">${esc(l)}</option>`).join('');
-      } else {
-        const types = [...new Set(moduleRecords.map(r => r.qualificationType).filter(Boolean))].sort();
-        const stages = [...new Set(moduleRecords.map(r => r.stage).filter(Boolean))].sort();
-
-        filter1El.innerHTML = `<option value="All">All Types</option>` + types.map(t => `<option value="${esc(t)}">${esc(t.toUpperCase())}</option>`).join('');
-        filter2El.innerHTML = `<option value="All">All Stages</option>` + stages.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
-      }
-    }
-
-    function renderModuleTable() { 
-      $('moduleTitle').textContent = currentModule; 
-      $('moduleDescription').textContent = currentModule === MODULES.CALIBRATION ? 'Calibration records & plans' : 'Qualification lifecycle & plans';
-      
-      const isCalibration = currentModule === MODULES.CALIBRATION;
-      const isQualification = currentModule === MODULES.QUALIFICATION;
-
-      $('calibrationSubTabs').classList.toggle('hidden', !isCalibration);
-      $('deptSubTabs').classList.toggle('hidden', !isCalibration || currentCalibrationTab !== 'dept');
-      $('monthlySubTabs').classList.toggle('hidden', !isCalibration || currentCalibrationTab !== 'monthly');
-
-      $('qualificationSubTabs').classList.toggle('hidden', !isQualification);
-      $('qualMonthlySubTabs').classList.toggle('hidden', !isQualification || currentQualificationTab !== 'monthly');
-
-      if ($('excelImportBtnText')) {
-        $('excelImportBtnText').textContent = isCalibration ? 'Import Calibration Excel/Macro' : 'Import Qualification Excel/Macro';
-      }
-
-      let displayRecords = moduleRecords;
-      if (isViewer()) {
-        displayRecords = displayRecords.filter(r => r.status === STATUS.APPROVED || r.status === STATUS.COMPLETED);
-      }
-
-      const q = $('modSearchInput').value.trim().toLowerCase();
-      const f1 = $('modFilter1').value;
-      const f2 = $('modFilter2').value;
-      const st = $('modFilterStatus').value;
-
-      displayRecords = displayRecords.filter(r => {
-        const matchQ = !q || (isCalibration ? 
-          `${r.certificateNo||''} ${r.instrument||''} ${r.code||''} ${r.serialNumber||''}`.toLowerCase().includes(q) : 
-          `${r.name||''} ${r.reference||''} ${r.equipmentSystemInfo||''}`.toLowerCase().includes(q));
-        
-        let matchF1 = true;
-        let matchF2 = true;
-        if (isCalibration) {
-          if (f1 !== 'All' && r.department !== f1) matchF1 = false;
-          if (f2 !== 'All' && r.location !== f2) matchF2 = false;
-
-          if (currentCalibrationTab === 'dept') {
-            if (!r.department || r.department.toLowerCase() !== currentCalibrationTabDept.toLowerCase()) return false;
-          } else if (currentCalibrationTab === 'monthly') {
-            const dateStr = (r.monthYear || r.dueDate || r.calDate || '').toLowerCase();
-            const monthMatch = dateStr.includes(currentCalibrationMonth.toLowerCase()) || dateStr.includes(currentCalibrationMonth.slice(0, 3).toLowerCase());
-            if (!monthMatch) return false;
-          } else if (currentCalibrationTab === 'addendum') {
-            if (!r.isAddendum) return false;
-          } else if (currentCalibrationTab === 'out') {
-            if (!r.isOutOfCalibration) return false;
-          }
-        } else if (isQualification) {
-          if (f1 !== 'All' && r.qualificationType !== f1) matchF1 = false;
-          if (f2 !== 'All' && r.stage !== f2) matchF2 = false;
-
-          if (currentQualificationTab === 'monthly') {
-            const dateStr = (r.plannedDate || r.dueDate || '').toLowerCase();
-            const monthMatch = dateStr.includes(currentQualificationMonth.toLowerCase()) || dateStr.includes(currentQualificationMonth.slice(0, 3).toLowerCase());
-            if (!monthMatch) return false;
-          } else if (currentQualificationTab === 'utilities') {
-            if (r.qualificationType !== 'utilities') return false;
-          } else if (currentQualificationTab === 'system') {
-            if (r.qualificationType !== 'system') return false;
-          } else if (currentQualificationTab === 'machine') {
-            if (r.qualificationType !== 'equipment') return false;
-          }
-        }
-
-        const matchStatus = st === 'All' || r.status === st;
-        return matchQ && matchF1 && matchF2 && matchStatus;
-      });
-
-      const headerEl = $('moduleTableHead');
-      const allSelected = displayRecords.length > 0 && displayRecords.every(r => selectedModuleIds.has(r.id));
-
-      if (isCalibration) {
-        headerEl.innerHTML = `
-          <tr>
-            <th class="px-4 py-3 text-left text-xs w-10"><input type="checkbox" id="selectAllModule" ${allSelected && displayRecords.length > 0 ? 'checked' : ''}></th>
-            <th class="px-4 py-3 text-left text-xs">Cert. No & Instrument</th>
-            <th class="px-4 py-3 text-left text-xs">Code / S.N</th>
-            <th class="px-4 py-3 text-left text-xs">Dept / Location</th>
-            <th class="px-4 py-3 text-left text-xs">Cal / Due Date</th>
-            <th class="px-4 py-3 text-left text-xs">Action & Status</th>
-            <th class="px-4 py-3 text-center text-xs">Execution Tracker</th>
-            <th class="px-4 py-3 text-center text-xs">Actions</th>
-          </tr>
-        `;
-      } else {
-        headerEl.innerHTML = `
-          <tr>
-            <th class="px-4 py-3 text-left text-xs w-10"><input type="checkbox" id="selectAllModule" ${allSelected && displayRecords.length > 0 ? 'checked' : ''}></th>
-            <th class="px-4 py-3 text-left text-xs">Name / Reference</th>
-            <th class="px-4 py-3 text-left text-xs">Type & Subtype</th>
-            <th class="px-4 py-3 text-left text-xs">Stage / Info</th>
-            <th class="px-4 py-3 text-left text-xs">Action & Status</th>
-            <th class="px-4 py-3 text-center text-xs">Execution Tracker</th>
-            <th class="px-4 py-3 text-center text-xs">Actions</th>
-          </tr>
-        `;
-      }
-
-      $('moduleTableBody').innerHTML = displayRecords.map(r => {
-        const owner = isAdmin() || r.createdByUid === currentUser?.uid || r.createdByName === currentProfile?.displayName; 
-        const review = (can(ROLES.SECTION_HEAD) && r.status === STATUS.PENDING_SECTION_HEAD) || (can(ROLES.QA_MANAGER) && r.status === STATUS.PENDING_QA); 
-        const isChecked = selectedModuleIds.has(r.id);
-        
-        const canCheckExecution = isAdmin() || isCreator() || owner;
-        const trackerCheckbox = `<input type="checkbox" data-tracker-id="${esc(r.id)}" ${r.executedTracker ? 'checked' : ''} ${!canCheckExecution || isViewer() ? 'disabled' : ''} class="w-4 h-4 text-primary rounded cursor-pointer">`;
-
-        if (isCalibration) {
-          const flags = [];
-          if (r.isAddendum) flags.push(`<span class="bg-purple-100 text-purple-800 px-1.5 py-0.5 rounded text-[10px] font-semibold">Addendum</span>`);
-          if (r.isOutOfCalibration) flags.push(`<span class="bg-red-100 text-red-800 px-1.5 py-0.5 rounded text-[10px] font-semibold">Out of Cal</span>`);
-          
-          return `<tr class="hover:bg-gray-50">
-            <td class="px-4 py-3"><input type="checkbox" data-select-id="${esc(r.id)}" ${isChecked ? 'checked' : ''}></td>
-            <td class="px-4 py-3 font-medium">${esc(r.certificateNo || r.reference)}<div class="text-xs text-gray-500">${esc(r.instrument || r.name)}</div></td>
-            <td class="px-4 py-3 text-xs">${esc(r.code)}<div class="text-gray-400">S/N: ${esc(r.serialNumber || '—')}</div></td>
-            <td class="px-4 py-3 text-xs"><span class="font-semibold text-primary">${esc(r.department || '—')}</span><div class="text-gray-400">${esc(r.location || '—')}</div></td>
-            <td class="px-4 py-3 text-xs">Cal: ${esc(r.calDate || r.monthYear || '—')}<div class="text-red-500">Due: ${esc(r.dueDate || '—')}</div></td>
-            <td class="px-4 py-3 space-y-1">${statusBadge(r.status)}<div class="flex flex-wrap gap-1 mt-1">${actionBadge(r.action)} ${flags.join('')}</div></td>
-            <td class="px-4 py-3 text-center">${trackerCheckbox}</td>
-            <td class="px-4 py-3 text-center">
-              <button data-module-files="${esc(r.id)}" class="text-gray-600 text-xs font-semibold mr-2 hover:underline">Files</button>
-              ${owner && [STATUS.DRAFT, STATUS.RETURNED].includes(r.status) ? `<button data-module-edit="${esc(r.id)}" class="text-purple-600 text-xs font-semibold mr-2 hover:underline">Edit</button>` : ''}
-              ${owner && r.status === STATUS.DRAFT ? `<button data-module-submit="${esc(r.id)}" class="text-purple-600 text-xs font-semibold mr-2 hover:underline">Submit</button>` : ''}
-              ${owner && r.status === STATUS.DRAFT ? `<button data-module-delete="${esc(r.id)}" class="text-red-600 text-xs font-semibold mr-2 hover:underline">Delete</button>` : ''}
-              ${review ? `<button data-module-review="${esc(r.id)}" class="text-blue-600 text-xs font-semibold mr-2 hover:underline">Review</button>` : ''}
-            </td>
-          </tr>`;
-        } else {
-          return `<tr class="hover:bg-gray-50">
-            <td class="px-4 py-3"><input type="checkbox" data-select-id="${esc(r.id)}" ${isChecked ? 'checked' : ''}></td>
-            <td class="px-4 py-3 font-medium">${esc(r.name)}<div class="text-xs text-gray-500">${esc(r.reference)}</div></td>
-            <td class="px-4 py-3 text-xs uppercase font-semibold text-blue-600">${esc(r.qualificationType)}<div class="text-gray-500 normal-case font-normal">${esc(r.utilitySubtype || '—')}</div></td>
-            <td class="px-4 py-3 text-xs"><span class="bg-gray-100 font-semibold px-1 py-0.5 rounded">${esc(r.stage)}</span><div class="text-gray-500 truncate max-w-[150px]">${esc(r.equipmentSystemInfo || '')}</div></td>
-            <td class="px-4 py-3 space-y-1">${statusBadge(r.status)}<div class="mt-1">${actionBadge(r.action)}</div></td>
-            <td class="px-4 py-3 text-center">${trackerCheckbox}</td>
-            <td class="px-4 py-3 text-center">
-              <button data-module-files="${esc(r.id)}" class="text-gray-600 text-xs font-semibold mr-2 hover:underline">Files</button>
-              ${owner && [STATUS.DRAFT, STATUS.RETURNED].includes(r.status) ? `<button data-module-edit="${esc(r.id)}" class="text-purple-600 text-xs font-semibold mr-2 hover:underline">Edit</button>` : ''}
-              ${owner && r.status === STATUS.DRAFT ? `<button data-module-submit="${esc(r.id)}" class="text-purple-600 text-xs font-semibold mr-2 hover:underline">Submit</button>` : ''}
-              ${owner && r.status === STATUS.DRAFT ? `<button data-module-delete="${esc(r.id)}" class="text-red-600 text-xs font-semibold mr-2 hover:underline">Delete</button>` : ''}
-              ${review ? `<button data-module-review="${esc(r.id)}" class="text-blue-600 text-xs font-semibold mr-2 hover:underline">Review</button>` : ''}
-            </td>
-          </tr>`;
-        }
-      }).join(''); 
-
-      $('moduleEmptyState').classList.toggle('hidden', displayRecords.length !== 0);
-      updateModuleBulkBar();
-    }
-
-    async function toggleExecutionTracker(recordId, isChecked) {
-      const collectionName = currentModule === MODULES.CALIBRATION ? 'calibration' : 'qualification';
-      try {
-        await updateDoc(docRef(collectionName, recordId), {
-          executedTracker: isChecked,
-          updatedAt: serverTimestamp()
-        });
-        const r = moduleRecords.find(x => x.id === recordId);
-        if (r) r.executedTracker = isChecked;
-        await logAudit(`${currentModule} Tracker Updated`, recordId, r?.name || r?.certificateNo, `Execution tracker set to: ${isChecked}`);
-      } catch (e) {
-        showMessage('Update Failed', friendlyError(e), 'error');
-        await loadModule(currentModule);
-      }
-    }
-
-    function updateModuleBulkBar() {
-      const count = selectedModuleIds.size;
-      $('moduleSelectedCount').textContent = count;
-      $('moduleBulkBar').classList.toggle('hidden', count === 0);
-    }
-
-    async function bulkSubmitModuleRecords() {
-      if (selectedModuleIds.size === 0) return;
-      confirmAction('Bulk Submit', `Are you sure you want to submit ${selectedModuleIds.size} selected record(s) for review?`, async () => {
-        try {
-          const collectionName = currentModule === MODULES.CALIBRATION ? 'calibration' : 'qualification';
-          let count = 0;
-          for (const id of selectedModuleIds) {
-            const r = moduleRecords.find(x => x.id === id);
-            if (r && r.status === STATUS.DRAFT && (isAdmin() || r.createdByUid === currentUser?.uid)) {
-              await updateDoc(docRef(collectionName, id), {
-                status: STATUS.PENDING_SECTION_HEAD,
-                submittedAt: serverTimestamp(),
-                updatedAt: serverTimestamp()
-              });
-              await logAudit(`${currentModule} Bulk Submitted`, id, r.name || r.certificateNo, 'Submitted via bulk action.');
-              count++;
-            }
-          }
-          selectedModuleIds.clear();
-          await loadModule(currentModule);
-          showMessage('Success', `Successfully submitted ${count} record(s).`, 'success');
-        } catch (e) {
-          showMessage('Bulk action failed', friendlyError(e), 'error');
-        }
-      });
-    }
-
-    async function bulkDeleteModuleRecords() {
-      if (selectedModuleIds.size === 0) return;
-      confirmAction('Bulk Delete', `Are you sure you want to delete ${selectedModuleIds.size} selected draft record(s)?`, async () => {
-        try {
-          const collectionName = currentModule === MODULES.CALIBRATION ? 'calibration' : 'qualification';
-          let count = 0;
-          const idsToDelete = Array.from(selectedModuleIds);
-          for (const id of idsToDelete) {
-            const r = moduleRecords.find(x => x.id === id);
-            if (r && r.status === STATUS.DRAFT && (isAdmin() || r.createdByUid === currentUser?.uid || r.createdByName === currentProfile?.displayName)) {
-              await deleteDoc(docRef(collectionName, id));
-              await logAudit(`${currentModule} Bulk Deleted`, id, r.name || r.certificateNo || r.reference, 'Deleted via bulk action.');
-              count++;
-            }
-          }
-          selectedModuleIds.clear();
-          await loadModule(currentModule);
-          showMessage('Success', `Successfully deleted ${count} draft record(s).`, 'success');
-        } catch (e) {
-          console.error(e);
-          showMessage('Bulk action failed', friendlyError(e), 'error');
-        }
-      });
-    }
-
-    async function moduleReview(id) {
-      const r = moduleRecords.find(x => x.id === id); if (!r) return; 
-      const target = r.status === STATUS.PENDING_SECTION_HEAD ? STATUS.PENDING_QA : STATUS.COMPLETED; 
-      confirmAction('Complete Review', `Complete review of ${r.name || r.certificateNo}?`, async comment => {
-        try {
-          const c = currentModule === MODULES.CALIBRATION ? 'calibration' : 'qualification';
-          await updateDoc(docRef(c, id), {status: target, updatedAt: serverTimestamp()});
-          await logAudit(`${currentModule} Review Completed`, id, r.name || r.certificateNo, comment || '', r.status, target);
-          
-          await sendEmailNotification(currentUser.email, `${currentModule} Review Completed: ${r.name || r.certificateNo}`, currentProfile?.displayName || currentUser.email, r.name || r.certificateNo, target, comment || `Advanced to ${target}.`);
-          closeModals(); await loadModule(currentModule); showMessage('Review completed', `Advanced to ${target}.`, 'success');
-        } catch(e) { showMessage('Review failed', friendlyError(e), 'error'); }
-      }, false, 'Review comment');
-    }
-
-    async function moduleSubmit(id) {
-      const r = moduleRecords.find(x => x.id === id); if (!r) return;
-      const c = currentModule === MODULES.CALIBRATION ? 'calibration' : 'qualification';
-      try {
-        await updateDoc(docRef(c, id), {status: STATUS.PENDING_SECTION_HEAD, submittedAt: serverTimestamp(), updatedAt: serverTimestamp()});
-        await logAudit(`${currentModule} Submitted`, id, r.name || r.certificateNo, 'Submitted for review.', r.status, STATUS.PENDING_SECTION_HEAD);
-        
-        await sendEmailNotification(currentUser.email, `${currentModule} Submitted: ${r.name || r.certificateNo}`, currentProfile?.displayName || currentUser.email, r.name || r.certificateNo, STATUS.PENDING_SECTION_HEAD, 'Record submitted for review.');
-        await loadModule(currentModule); showMessage('Submitted', 'Record submitted to Section Head.', 'success');
-      } catch(e) { showMessage('Submission failed', friendlyError(e), 'error'); }
-    }
-
-    function openModuleModal(record = null) { 
-      if (isViewer()) return;
-      $('moduleForm').reset(); 
-      $('moduleEditId').value = record?.id || ''; 
-      $('moduleType').value = currentModule; 
-
-      const isCal = currentModule === MODULES.CALIBRATION;
-      $('calibrationFields').classList.toggle('hidden', !isCal);
-      $('qualificationFields').classList.toggle('hidden', isCal);
-
-      if (isCal) {
-        $('calCertificateNo').value = record?.certificateNo || '';
-        $('calDept').value = record?.department || '';
-        $('calInstrument').value = record?.instrument || '';
-        $('calManuf').value = record?.manufacturer || '';
-        $('calModel').value = record?.model || '';
-        $('calSN').value = record?.serialNumber || '';
-        $('calCode').value = record?.code || '';
-        $('calLocation').value = record?.location || '';
-        $('calRange').value = record?.calRange || '';
-        $('calAcceptanceLimits').value = record?.acceptanceLimits || '';
-        $('calInterval').value = record?.interval || '';
-        $('calDate').value = record?.calDate || '';
-        $('calDueDate').value = record?.dueDate || '';
-        $('calMonthYear').value = record?.monthYear || '';
-        $('calIsAddendum').checked = !!record?.isAddendum;
-        $('calIsOutOfCalibration').checked = !!record?.isOutOfCalibration;
-        $('calAction').value = record?.action || ACTIONS.IN_PLAN;
-      } else {
-        $('qualName').value = record?.name || '';
-        $('qualReference').value = record?.reference || '';
-        $('qualType').value = record?.qualificationType || 'equipment';
-        $('qualStage').value = record?.stage || 'IQ';
-        $('qualDate').value = record?.plannedDate || '';
-        $('qualDueDate').value = record?.dueDate || '';
-        $('qualAction').value = record?.action || ACTIONS.IN_PLAN;
-        $('qualDescription').value = record?.description || '';
-        
-        const qType = $('qualType').value;
-        $('utilitySubtypeGroup').classList.toggle('hidden', qType !== 'utilities');
-        $('equipmentGroup').classList.toggle('hidden', qType !== 'equipment');
-        $('systemGroup').classList.toggle('hidden', qType !== 'system');
-
-        if (qType === 'utilities') $('qualUtilityType').value = record?.utilitySubtype || 'HVAC';
-        if (qType === 'equipment') $('qualEquipmentInfo').value = record?.equipmentSystemInfo || '';
-        if (qType === 'system') $('qualSystemInfo').value = record?.equipmentSystemInfo || '';
-      }
-
-      $('moduleModalTitle').textContent = record ? `Edit ${currentModule} Record` : `Add ${currentModule} Record`; 
-      $('moduleModal').classList.add('active'); 
-    }
-
-    function setCategoryTabs() {
-      document.querySelectorAll('.study-tab').forEach(x => x.classList.remove('bg-white', 'text-primary', 'shadow-sm'));
-      const id = currentCategory === CATEGORIES.PROCESS ? 'tabProcess' : currentCategory === CATEGORIES.HOLD_TIME ? 'tabHoldTime' : 'tabCleaning';
-      if ($(id)) $(id).classList.add('bg-white', 'text-primary', 'shadow-sm');
-      
-      document.querySelectorAll('.main-nav-tab').forEach(x => x.classList.remove('bg-blue-700', 'font-bold'));
-      $('studiesNav').classList.add('bg-blue-700', 'font-bold');
-    }
-
-    function setActiveMainNavLink(navId) {
-      document.querySelectorAll('.main-nav-tab').forEach(x => x.classList.remove('bg-blue-700', 'font-bold'));
-      $(navId).classList.add('bg-blue-700', 'font-bold');
-    }
-
-    function showStudies() {
-      currentModule = MODULES.STUDIES;
-      $('studiesView').classList.remove('hidden');
-      $('moduleView').classList.add('hidden');
-      setCategoryTabs();
-      setActiveMainNavLink('studiesNav');
-      configureNavigation();
-      loadData();
-    }
-
-    async function showModule(modName) {
-      currentModule = modName;
+      $('homeView').classList.add('hidden');
       $('studiesView').classList.add('hidden');
-      $('moduleView').classList.remove('hidden');
-      setActiveMainNavLink(modName === MODULES.CALIBRATION ? 'calibrationNav' : 'qualificationNav');
-      configureNavigation();
-      await loadModule(currentModule);
+      $('moduleView').classList.add('hidden');
+      $('sopsView').classList.add('hidden');
+      $('prpoView').classList.add('hidden');
+
+      if (module === MODULES.HOME) {
+        $('homeView').classList.remove('hidden');
+        await loadData();
+      } else if (module === MODULES.STUDIES) {
+        $('studiesView').classList.remove('hidden');
+        renderStudySubTabs();
+        await loadData();
+        renderStudies();
+      } else if (module === MODULES.SOPS) {
+        if (!canManageSops()) { showMessage('Access Denied', 'SOPs module restricted.', 'error'); return; }
+        $('sopsView').classList.remove('hidden');
+        await loadSops();
+      } else if (module === MODULES.PRPO) {
+        $('prpoView').classList.remove('hidden');
+        await loadPrpo();
+      } else {
+        $('moduleView').classList.remove('hidden');
+        const collectionName = module === MODULES.CALIBRATION ? 'calibration' : 'qualification';
+        try {
+          const snap = await getDocs(query(colRef(collectionName), orderBy('createdAt', 'desc')));
+          moduleRecords = snap.docs.map(d => ({id:d.id, ...d.data()}));
+          renderModuleTable();
+        } catch(e) { showMessage('Error', friendlyError(e), 'error'); }
+      }
     }
 
-    async function handleAzureSSO() {
-      try {
-        const loginResponse = await msalInstance.loginPopup({
-          scopes: ["User.Read", "openid", "profile", "email"]
-        });
-        const email = loginResponse.account.username.toLowerCase();
-        $('username').value = email;
-        $('loginError').classList.add('hidden');
-        showMessage('Azure AD Success', `Authenticated as ${loginResponse.account.name}. Signing you in...`, 'info');
-      } catch (error) {
-        console.error("SSO Error:", error);
-        $('loginError').textContent = 'Azure AD authentication failed.';
-        $('loginError').classList.remove('hidden');
-      }
+    function renderModuleTable() {
+      $('moduleTitle').textContent = currentModule;
+      const isCalibration = currentModule === MODULES.CALIBRATION;
+      $('moduleTableBody').innerHTML = moduleRecords.map(r => `
+        <tr class="hover:bg-gray-50">
+          <td class="px-4 py-3 font-medium">${esc(r.certificateNo || r.name)}</td>
+          <td class="px-4 py-3 text-xs">${esc(r.instrument || r.reference)}</td>
+          <td class="px-4 py-3 text-xs">${esc(r.code || r.qualificationType)}</td>
+          <td class="px-4 py-3 text-xs">${statusBadge(r.status)}</td>
+          <td class="px-4 py-3 text-center">
+            <button data-mod-files="${esc(r.id)}" class="text-blue-600 text-xs font-semibold mr-2 hover:underline">Files</button>
+          </td>
+        </tr>
+      `).join('') || '<tr><td colspan="5" class="text-center py-6 text-gray-500 text-sm">No records found.</td></tr>';
     }
 
     document.addEventListener('DOMContentLoaded', () => {
       $('loginForm').addEventListener('submit', async e => {
         e.preventDefault();
         try {
-          await signInWithEmailAndPassword(auth, $('username').value.trim(), $('password').value);
-          $('loginError').classList.add('hidden');
+          await signInWithEmailAndPassword(auth, $('username').value.trim(), $('password').value);$('loginError').classList.add('hidden');
         } catch (err) {
-          $('loginError').textContent = 'Invalid email or password.';
-          $('loginError').classList.remove('hidden');
+          $('loginError').textContent = 'Invalid email or password.';$('loginError').classList.remove('hidden');
         }
       });
 
-      $('azureSsoBtn').addEventListener('click', handleAzureSSO);
-      $('logoutBtn').addEventListener('click', () => signOut(auth));
-      $('recordForm').addEventListener('submit', saveStudy);
-      $('moduleForm').addEventListener('submit', addModuleRecord);
-      $('userForm').addEventListener('submit', createOrUpdateUser);
-
-      $('sendResetBtn').addEventListener('click', async () => {
-        const email = $('newEmail').value.trim();
-        if (!email) return showMessage('Email required', 'Enter email first.', 'error');
+      $('azureSsoBtn').addEventListener('click', async () => {
         try {
-          await sendPasswordResetEmail(auth, email);
-          showMessage('Reset Sent', 'Password reset email sent.', 'success');
-        } catch (e) { showMessage('Reset failed', friendlyError(e), 'error'); }
+          const res = await msalInstance.loginPopup({ scopes: ["User.Read", "openid", "profile", "email"] });
+          $('username').value = res.account.username.toLowerCase();
+        } catch (e) { $('loginError').classList.remove('hidden'); }
       });
 
-      $('addRecordBtn').addEventListener('click', () => openRecordModal());
-      $('addModuleBtn').addEventListener('click', () => openModuleModal());
-      $('userManagementBtn').addEventListener('click', loadUsers);
-      $('auditTrailBtn').addEventListener('click', loadAudit);
-      $('calibrationNav').addEventListener('click', () => showModule(MODULES.CALIBRATION));
-      $('qualificationNav').addEventListener('click', () => showModule(MODULES.QUALIFICATION));
-      $('studiesNav').addEventListener('click', () => showStudies());
-      
-      $('tabProcess').addEventListener('click', () => { currentCategory = CATEGORIES.PROCESS; setCategoryTabs(); renderStudies(); });
-      $('tabHoldTime').addEventListener('click', () => { currentCategory = CATEGORIES.HOLD_TIME; setCategoryTabs(); renderStudies(); });
-      $('tabCleaning').addEventListener('click', () => { currentCategory = CATEGORIES.CLEANING; setCategoryTabs(); renderStudies(); });
+      $('logoutBtn').addEventListener('click', () => signOut(auth));
+      $('recordForm').addEventListener('submit', saveStudy);$('addRecordBtn').addEventListener('click', () => openRecordModal());
 
-      document.querySelectorAll('.cal-sub-tab').forEach(btn => {
-        btn.addEventListener('click', e => {
-          document.querySelectorAll('.cal-sub-tab').forEach(b => {
-            b.classList.remove('bg-white', 'text-primary', 'shadow-sm');
-            b.classList.add('text-gray-600');
-          });
-          const target = e.currentTarget;
-          target.classList.add('bg-white', 'text-primary', 'shadow-sm');
-          target.classList.remove('text-gray-600');
-          currentCalibrationTab = target.dataset.calTab;
-          renderModuleTable();
-        });
-      });
+      // Navigation tab bindings
+      $('homeNav').addEventListener('click', () => loadModule(MODULES.HOME));$('studiesNav').addEventListener('click', () => loadModule(MODULES.STUDIES));
+      $('calibrationNav').addEventListener('click', () => loadModule(MODULES.CALIBRATION));$('qualificationNav').addEventListener('click', () => loadModule(MODULES.QUALIFICATION));
+      $('sopsNav').addEventListener('click', () => loadModule(MODULES.SOPS));$('prpoNav').addEventListener('click', () => loadModule(MODULES.PRPO));
+      $('userManagementBtn').addEventListener('click', loadUsers);$('auditTrailBtn').addEventListener('click', loadAudit);
 
-      document.querySelectorAll('.dept-sub-tab').forEach(btn => {
-        btn.addEventListener('click', e => {
-          document.querySelectorAll('.dept-sub-tab').forEach(b => {
-            b.classList.remove('bg-white', 'text-blue-800', 'shadow-sm');
-            b.classList.add('text-blue-100');
-          });
-          const target = e.currentTarget;
-          target.classList.add('bg-white', 'text-blue-800', 'shadow-sm');
-          target.classList.remove('text-blue-100');
-          currentCalibrationTabDept = target.dataset.deptTab;
-          renderModuleTable();
-        });
-      });
-
-      document.querySelectorAll('.monthly-sub-tab').forEach(btn => {
-        btn.addEventListener('click', e => {
-          document.querySelectorAll('.monthly-sub-tab').forEach(b => {
-            b.classList.remove('bg-white', 'text-indigo-800', 'shadow-sm');
-            b.classList.add('text-indigo-100');
-          });
-          const target = e.currentTarget;
-          target.classList.add('bg-white', 'text-indigo-800', 'shadow-sm');
-          target.classList.remove('text-indigo-100');
-          currentCalibrationMonth = target.dataset.monthTab;
-          renderModuleTable();
-        });
-      });
-
-      document.querySelectorAll('.qual-sub-tab').forEach(btn => {
-        btn.addEventListener('click', e => {
-          document.querySelectorAll('.qual-sub-tab').forEach(b => {
-            b.classList.remove('bg-white', 'text-primary', 'shadow-sm');
-            b.classList.add('text-gray-600');
-          });
-          const target = e.currentTarget;
-          target.classList.add('bg-white', 'text-primary', 'shadow-sm');
-          target.classList.remove('text-gray-600');
-          currentQualificationTab = target.dataset.qualTab;
-          renderModuleTable();
-        });
-      });
-
-      document.querySelectorAll('.qual-monthly-sub-tab').forEach(btn => {
-        btn.addEventListener('click', e => {
-          document.querySelectorAll('.qual-monthly-sub-tab').forEach(b => {
-            b.classList.remove('bg-white', 'text-purple-800', 'shadow-sm');
-            b.classList.add('text-purple-100');
-          });
-          const target = e.currentTarget;
-          target.classList.add('bg-white', 'text-purple-800', 'shadow-sm');
-          target.classList.remove('text-purple-100');
-          currentQualificationMonth = target.dataset.qualMonthTab;
-          renderModuleTable();
-        });
-      });
-
-      $('qualType').addEventListener('change', e => {
-        const val = e.target.value;
-        $('utilitySubtypeGroup').classList.toggle('hidden', val !== 'utilities');
-        $('equipmentGroup').classList.toggle('hidden', val !== 'equipment');
-        $('systemGroup').classList.toggle('hidden', val !== 'system');
-      });
-
-      $('excelImportInput').addEventListener('change', handleModuleExcelImport);
+      $('tabProcess').addEventListener('click', () => { currentCategory = CATEGORIES.PROCESS; currentStudySubTab = 'all'; renderStudySubTabs(); renderStudies(); });
+      $('tabHoldTime').addEventListener('click', () => { currentCategory = CATEGORIES.HOLD_TIME; currentStudySubTab = 'all'; renderStudySubTabs(); renderStudies(); });$('tabCleaning').addEventListener('click', () => { currentCategory = CATEGORIES.CLEANING; currentStudySubTab = 'all'; renderStudySubTabs(); renderStudies(); });
 
       ['searchInput', 'filterStage', 'filterStatus', 'filterScale'].forEach(id => {
-        if ($(id)) $(id).addEventListener('input', renderStudies);
+        if ($(id))$(id).addEventListener('input', renderStudies);
       });
-      $('clearFiltersBtn').addEventListener('click', () => {
-        $('searchInput').value = '';
-        ['filterStage', 'filterStatus', 'filterScale'].forEach(id => $(id).value = 'All');
-        renderStudies();
-      });
-
-      ['modSearchInput', 'modFilter1', 'modFilter2', 'modFilterStatus'].forEach(id => {
-        if ($(id)) $(id).addEventListener('input', renderModuleTable);
-        if ($(id)) $(id).addEventListener('change', renderModuleTable);
-      });
-
-      if ($('modClearFiltersBtn')) {
-        $('modClearFiltersBtn').addEventListener('click', () => {
-          $('modSearchInput').value = '';
-          $('modFilter1').value = 'All';
-          $('modFilter2').value = 'All';
-          $('modFilterStatus').value = 'All';
-          renderModuleTable();
-        });
-      }
-
-      document.addEventListener('change', e => {
-        if (e.target && e.target.dataset.trackerId) {
-          const recordId = e.target.dataset.trackerId;
-          const isChecked = e.target.checked;
-          toggleExecutionTracker(recordId, isChecked);
-        }
-
-        if (e.target && e.target.id === 'selectAllModule') {
-          const checked = e.target.checked;
-          const q = $('modSearchInput').value.trim().toLowerCase();
-          const f1 = $('modFilter1').value;
-          const f2 = $('modFilter2').value;
-          const st = $('modFilterStatus').value;
-
-          let displayRecords = moduleRecords;
-          if (isViewer()) {
-            displayRecords = displayRecords.filter(r => r.status === STATUS.APPROVED || r.status === STATUS.COMPLETED);
-          }
-
-          displayRecords = displayRecords.filter(r => {
-            const matchQ = !q || (currentModule === MODULES.CALIBRATION ? 
-              `${r.certificateNo||''} ${r.instrument||''} ${r.code||''} ${r.serialNumber||''}`.toLowerCase().includes(q) : 
-              `${r.name||''} ${r.reference||''} ${r.equipmentSystemInfo||''}`.toLowerCase().includes(q));
-            let matchF1 = true; let matchF2 = true;
-            if (currentModule === MODULES.CALIBRATION) {
-              if (f1 !== 'All' && r.department !== f1) matchF1 = false;
-              if (f2 !== 'All' && r.location !== f2) matchF2 = false;
-            } else {
-              if (f1 !== 'All' && r.qualificationType !== f1) matchF1 = false;
-              if (f2 !== 'All' && r.stage !== f2) matchF2 = false;
-            }
-            const matchStatus = st === 'All' || r.status === st;
-            return matchQ && matchF1 && matchF2 && matchStatus;
-          });
-
-          if (checked) displayRecords.forEach(r => selectedModuleIds.add(r.id));
-          else displayRecords.forEach(r => selectedModuleIds.delete(r.id));
-          renderModuleTable();
-        }
-
-        if (e.target && e.target.dataset.selectId) {
-          const id = e.target.dataset.selectId;
-          if (e.target.checked) selectedModuleIds.add(id);
-          else selectedModuleIds.delete(id);
-          updateModuleBulkBar();
-        }
-      });
-
-      if ($('bulkModuleSubmitBtn')) $('bulkModuleSubmitBtn').addEventListener('click', bulkSubmitModuleRecords);
-      if ($('bulkModuleDeleteBtn')) $('bulkModuleDeleteBtn').addEventListener('click', bulkDeleteModuleRecords);
 
       $('acceptConfirmBtn').addEventListener('click', async () => {
         const cb = pendingAction;
-        const reason = $('reasonInput').value.trim();
-        if (!$('reasonWrap').classList.contains('hidden') && !reason) return showMessage('Comment required', 'A reason is mandatory.', 'error');
-        $('confirmModal').classList.remove('active');
+        const reason = $('reasonInput').value.trim();$('confirmModal').classList.remove('active');
         pendingAction = null;
         if (cb) await cb(reason);
       });
@@ -1561,45 +773,15 @@
         if (t.dataset.deleteStudy) await deleteStudy(t.dataset.deleteStudy);
         if (t.dataset.executeStudy) await setStudyActionStatus(t.dataset.executeStudy, ACTIONS.EXECUTED);
         if (t.dataset.revertStudy) await setStudyActionStatus(t.dataset.revertStudy, ACTIONS.IN_PLAN);
-        if (t.dataset.review) {
-          const r = records.find(x => x.id === t.dataset.review);
-          if (r) confirmAction('Complete Review', `Complete review for ${r.productName}?`, async comment => {
-            try { await updateWorkflow(r.id, nextStatusForReview(r), comment); showMessage('Success', 'Advanced to next stage.', 'success'); }
-            catch (err) { showMessage('Failed', friendlyError(err), 'error'); }
-          });
-        }
-        if (t.dataset.approve) {
-          const r = records.find(x => x.id === t.dataset.approve);
-          if (r) confirmAction('Approve Study', `Approve ${r.productName}?`, async () => {
-            try { await updateWorkflow(r.id, STATUS.APPROVED, 'QA Approval'); showMessage('Approved', 'Study approved.', 'success'); }
-            catch (err) { showMessage('Failed', friendlyError(err), 'error'); }
-          });
-        }
-        if (t.dataset.reject) {
-          const r = records.find(x => x.id === t.dataset.reject);
-          if (r) confirmAction('Reject Study', `Reject ${r.productName}?`, async reason => {
-            try { await updateWorkflow(r.id, STATUS.REJECTED, reason); showMessage('Rejected', 'Study rejected.', 'success'); }
-            catch (err) { showMessage('Failed', friendlyError(err), 'error'); }
-          }, true, 'Rejection reason *');
-        }
-        if (t.dataset.return) await returnStudy(t.dataset.return);
         if (t.dataset.files) await openFiles(t.dataset.files, 'study');
         if (t.dataset.history) await showHistory(t.dataset.history);
         if (t.dataset.viewFile) { const f = filesByParent.find(x => x.id === t.dataset.viewFile); if (f) await viewFile(f, false); }
         if (t.dataset.downloadFile) { const f = filesByParent.find(x => x.id === t.dataset.downloadFile); if (f) await viewFile(f, true); }
         if (t.dataset.deleteFile) { const f = filesByParent.find(x => x.id === t.dataset.deleteFile); if (f) await deleteFile(f); }
-        if (t.dataset.editUser) await editUser(t.dataset.editUser);
-        if (t.dataset.toggleUser) await toggleUser(t.dataset.toggleUser);
-        if (t.dataset.moduleFiles) await openFiles(t.dataset.moduleFiles, currentModule);
-        if (t.dataset.moduleReview) await moduleReview(t.dataset.moduleReview);
-        if (t.dataset.moduleEdit) { const r = moduleRecords.find(x => x.id === t.dataset.moduleEdit); if (r) openModuleModal(r); }
-        if (t.dataset.moduleSubmit) await moduleSubmit(t.dataset.moduleSubmit);
-        if (t.dataset.moduleDelete) await deleteModuleRecord(t.dataset.moduleDelete);
       });
 
       $('fileInput').addEventListener('change', e => {
-        const id = $('fileParentId').value, mod = $('fileModule').value;
-        uploadFiles(id, e.target, mod);
+        uploadFiles($('fileParentId').value, e.target, $('fileModule').value);
         e.target.value = '';
       });
 
@@ -1612,10 +794,8 @@
           $('dashboardSection').classList.remove('hidden');$('dashboardSection').classList.add('flex');
           $('userInfo').classList.remove('hidden');$('userInfo').classList.add('flex');
           configureNavigation();
-          await logAudit('Login', '', '', 'Session established.');
-          showStudies();
+          await loadModule(MODULES.HOME);
         } catch (e) {
-          console.error(e);
           await signOut(auth);
           $('loginError').textContent = e.message;
           $('loginError').classList.remove('hidden');
@@ -1630,383 +810,279 @@
     body { font-family: Inter, Arial, sans-serif; background: #f3f4f6; scroll-behavior: smooth; }
     .modal { display: none; }
     .modal.active { display: flex; }
-    .study-tab { transition: .2s; }
     .scrollbar::-webkit-scrollbar { width: 8px; height: 8px; }
     .scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
-    .scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-    * { scrollbar-width: thin; scrollbar-color: #cbd5e1 transparent; }
   </style>
 </head>
-<body class="text-gray-800 h-screen flex flex-col overflow-hidden">
+<body class="text-gray-800 h-screen flex flex-col overflow-x-auto overflow-y-auto">
+  <!-- Top Navigation Bar -->
   <nav class="bg-primary text-white shadow-lg p-4 flex-shrink-0">
-    <div class="container mx-auto flex justify-between items-center gap-4">
+    <div class="container mx-auto flex flex-wrap justify-between items-center gap-4">
       <div class="flex items-center gap-3">
+        <!-- ODF dosage form badge beside ValidApp -->
+        <div class="bg-blue-500 border border-blue-300 text-[10px] font-black px-2 py-1 rounded shadow-inner uppercase tracking-wider text-blue-50">ODF Strip</div>
         <i class="fas fa-flask text-2xl"></i>
         <h1 class="text-2xl font-bold tracking-wider">ValidApp</h1>
         <span class="hidden md:inline text-blue-100 text-sm">Validation & Qualification Nerhadou</span>
       </div>
-      <div id="userInfo" class="hidden items-center gap-3">
-        <span class="bg-blue-800 px-3 py-1 rounded-full text-sm font-semibold">
+      <div id="userInfo" class="hidden items-center flex-wrap gap-2">
+        <span class="bg-blue-800 px-3 py-1 rounded-full text-xs font-semibold">
           <i class="fas fa-user-circle mr-1"></i>
           <span id="currentUserDisplay"></span> · <span id="currentUserRole"></span> · <span id="currentUserDepartment"></span>
         </span>
-        <button id="studiesNav" class="main-nav-tab hover:bg-blue-700 px-2 py-1 rounded">Studies</button>
-        <button id="calibrationNav" class="main-nav-tab hover:bg-blue-700 px-2 py-1 rounded">Calibration</button>
-        <button id="qualificationNav" class="main-nav-tab hover:bg-blue-700 px-2 py-1 rounded">Qualification</button>
-        <button id="userManagementBtn" class="hidden hover:bg-blue-700 px-2 py-1 rounded"><i class="fas fa-users-cog mr-1"></i>Users</button>
-        <button id="auditTrailBtn" class="hidden hover:bg-blue-700 px-2 py-1 rounded"><i class="fas fa-history mr-1"></i>Audit</button>
-        <button id="logoutBtn" class="bg-red-500 hover:bg-red-600 px-3 py-1 rounded font-semibold"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
+        <div class="flex items-center gap-1 overflow-x-auto">
+          <button id="homeNav" class="hover:bg-blue-700 px-2.5 py-1.5 rounded text-xs font-semibold">Home</button>
+          <button id="studiesNav" class="hover:bg-blue-700 px-2.5 py-1.5 rounded text-xs font-semibold">Studies</button>
+          <button id="calibrationNav" class="hover:bg-blue-700 px-2.5 py-1.5 rounded text-xs font-semibold">Calibration</button>
+          <button id="qualificationNav" class="hover:bg-blue-700 px-2.5 py-1.5 rounded text-xs font-semibold">Qualification</button>
+          <button id="sopsNav" class="hidden hover:bg-blue-700 px-2.5 py-1.5 rounded text-xs font-semibold">SOPs</button>
+          <button id="prpoNav" class="hover:bg-blue-700 px-2.5 py-1.5 rounded text-xs font-semibold">PR & PO</button>
+          <button id="userManagementBtn" class="hidden hover:bg-blue-700 px-2.5 py-1.5 rounded text-xs"><i class="fas fa-users-cog mr-1"></i>Users</button>
+          <button id="auditTrailBtn" class="hidden hover:bg-blue-700 px-2.5 py-1.5 rounded text-xs"><i class="fas fa-history mr-1"></i>Audit</button>
+        </div>
+        <button id="logoutBtn" class="bg-red-500 hover:bg-red-600 px-3 py-1 rounded text-xs font-semibold"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
       </div>
     </div>
   </nav>
 
-  <main class="flex-grow container mx-auto p-4 overflow-hidden flex flex-col">
-    <section id="loginSection" class="max-w-md mx-auto mt-16 bg-white p-8 rounded-xl shadow-2xl w-full">
-      <div class="text-center mb-6">
-        <div class="inline-block bg-blue-100 p-4 rounded-full mb-4"><i class="fas fa-shield-alt text-4xl text-primary"></i></div>
-        <h2 class="text-2xl font-bold">System Login</h2>
-        <p class="text-gray-500 text-sm mt-1">Single Sign-On & Controlled Access</p>
+  <!-- Login Section -->
+  <section id="loginSection" class="max-w-md mx-auto mt-16 bg-white p-8 rounded-xl shadow-2xl w-full">
+    <div class="text-center mb-6">
+      <div class="inline-block bg-blue-100 p-4 rounded-full mb-4 text-primary text-3xl"><i class="fas fa-shield-alt"></i></div>
+      <h2 class="text-2xl font-bold">Sign In to ValidApp</h2>
+      <p class="text-xs text-gray-500 mt-1">Nerhadou Pharmaceutical Validation</p>
+    </div>
+    <form id="loginForm" class="space-y-4">
+      <div>
+        <label class="block text-xs font-semibold mb-1">Email Address</label>
+        <input type="email" id="username" required class="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary">
       </div>
-
-      <button id="azureSsoBtn" type="button" class="w-full mb-6 bg-slate-800 hover:bg-slate-900 text-white font-semibold py-3 px-4 rounded-lg flex items-center justify-center gap-3 shadow-md transition-all">
-        <svg class="w-5 h-5" viewBox="0 0 23 23">
-          <path fill="#f35325" d="M1 1h10v10H1z"/>
-          <path fill="#81bc06" d="M12 1h10v10H12z"/>
-          <path fill="#05a6f0" d="M1 12h10v10H1z"/>
-          <path fill="#ffba08" d="M12 12h10v10H12z"/>
-        </svg>
-        Sign in with Microsoft 365
+      <div>
+        <label class="block text-xs font-semibold mb-1">Password</label>
+        <input type="password" id="password" required class="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary">
+      </div>
+      <button type="submit" class="w-full bg-primary text-white py-2.5 rounded-lg text-sm font-bold hover:bg-blue-800 transition">Sign In</button>
+      <button type="button" id="azureSsoBtn" class="w-full bg-gray-900 text-white py-2.5 rounded-lg text-sm font-bold hover:bg-black transition flex items-center justify-center gap-2">
+        <i class="fab fa-microsoft"></i> Sign in with Azure AD SSO
       </button>
+      <div id="loginError" class="hidden text-red-600 text-xs text-center font-semibold mt-2"></div>
+    </form>
+  </section>
 
-      <div class="relative flex py-2 items-center mb-6">
-        <div class="flex-grow border-t border-gray-300"></div>
-        <span class="flex-shrink mx-4 text-xs text-gray-400 font-semibold uppercase">Or local account</span>
-        <div class="flex-grow border-t border-gray-300"></div>
+  <!-- Main App Dashboard View container -->
+  <main id="dashboardSection" class="hidden flex-grow container mx-auto p-4 flex flex-col overflow-auto">
+    <!-- HOME DASHBOARD VIEW -->
+    <div id="homeView" class="space-y-6">
+      <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h2 class="text-2xl font-black text-gray-900">Interactive Dashboard</h2>
+          <p class="text-xs text-gray-500 mt-0.5">Validation department overview & quick metrics.</p>
+        </div>
       </div>
+      <div id="homeQuickStats" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4"></div>
+      <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+        <h3 class="font-bold text-base mb-3">Quick System Overview</h3>
+        <p class="text-xs text-gray-600 leading-relaxed">Welcome to ValidApp. Navigate between modules using the tabs above to manage validation studies, calibrations, qualifications, standard operating procedures (SOPs), and departmental PR/PO tracking.</p>
+      </div>
+    </div>
 
-      <form id="loginForm" class="space-y-5">
-        <div><label class="block text-sm font-medium mb-1">Email</label><input type="email" id="username" class="w-full p-3 border rounded-lg" required autocomplete="username"></div>
-        <div><label class="block text-sm font-medium mb-1">Password</label><input type="password" id="password" class="w-full p-3 border rounded-lg" required autocomplete="current-password"></div>
-        <div id="loginError" class="text-red-600 text-sm hidden font-medium text-center bg-red-50 p-3 rounded"></div>
-        <button class="w-full bg-primary hover:bg-blue-800 text-white font-bold py-3 rounded-lg">Sign In</button>
-      </form>
-    </section>
-
-    <section id="dashboardSection" class="hidden flex-col h-full overflow-hidden flex-grow">
-      <div id="studiesView" class="flex flex-col h-full overflow-hidden">
-        <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4">
-          <div class="flex bg-gray-200 p-1 rounded-lg overflow-x-auto">
-            <button id="tabProcess" class="study-tab bg-white text-primary shadow-sm px-4 py-2 rounded-md font-semibold">Process Validation</button>
-            <button id="tabHoldTime" class="study-tab text-gray-600 px-4 py-2 rounded-md font-semibold">Hold Time Studies</button>
-            <button id="tabCleaning" class="study-tab text-gray-600 px-4 py-2 rounded-md font-semibold">Cleaning Validation</button>
-          </div>
-          <button id="addRecordBtn" class="hidden bg-accent hover:bg-green-600 text-white px-5 py-2 rounded-lg font-semibold"><i class="fas fa-plus mr-2"></i>Add Study</button>
+    <!-- STUDIES VIEW -->
+    <div id="studiesView" class="hidden space-y-4">
+      <div class="flex flex-wrap items-center justify-between gap-4 bg-white p-4 rounded-xl shadow-sm">
+        <div class="flex gap-2">
+          <button id="tabProcess" class="study-tab px-4 py-2 rounded-lg text-xs font-bold bg-white text-primary shadow-sm">Process Validation</button>
+          <button id="tabHoldTime" class="study-tab px-4 py-2 rounded-lg text-xs font-bold bg-gray-100 text-gray-700">Hold Time Study</button>
+          <button id="tabCleaning" class="study-tab px-4 py-2 rounded-lg text-xs font-bold bg-gray-100 text-gray-700">Cleaning Validation</button>
         </div>
-        <div class="bg-white p-4 rounded-t-xl shadow-sm border flex flex-wrap gap-4 items-end">
-          <div class="flex-grow min-w-[200px]"><label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Search Product / API</label><input id="searchInput" class="w-full p-2 border rounded-md" placeholder="Search by name..."></div>
-          <div><label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Stage</label><select id="filterStage" class="p-2 border rounded-md"><option>All</option><option>Raw</option><option>Bulk</option><option>Finished Product</option><option>Cleaning Validation</option><option>CHT</option><option>DHT</option><option>Campaign Length</option></select></div>
-          <div><label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Status</label><select id="filterStatus" class="p-2 border rounded-md"><option>All</option><option>Draft</option><option>Pending Section Head</option><option>Pending Reviewer</option><option>Pending Deputy QA</option><option>Pending QA Manager</option><option>Returned for Revision</option><option>Approved</option><option>Rejected</option></select></div>
-          <div><label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Scale</label><select id="filterScale" class="p-2 border rounded-md"><option>All</option><option>Lab Scale</option><option>Pilot Scale</option><option>Commercial Scale</option></select></div>
-          <button id="clearFiltersBtn" class="px-4 py-2 text-gray-500 hover:bg-gray-100 rounded">Clear Filters</button>
-        </div>
-        <div class="bg-white rounded-b-xl shadow-md border flex-grow overflow-hidden flex flex-col">
-          <div class="overflow-y-auto scrollbar flex-grow max-h-[calc(100vh-280px)]">
-            <table class="min-w-full divide-y divide-gray-200">
-              <thead class="bg-gray-50 sticky top-0 z-10">
-                <tr>
-                  <th class="px-4 py-3 text-left text-xs">Product / API</th>
-                  <th class="px-4 py-3 text-left text-xs">Category</th>
-                  <th class="px-4 py-3 text-left text-xs">Date & Stage</th>
-                  <th class="px-4 py-3 text-left text-xs">Scale & Version</th>
-                  <th class="px-4 py-3 text-left text-xs">Reason / Notes</th>
-                  <th class="px-4 py-3 text-left text-xs">Status</th>
-                  <th class="px-4 py-3 text-center text-xs">Actions</th>
-                </tr>
-              </thead>
-              <tbody id="dataTableBody" class="divide-y text-sm"></tbody>
-            </table>
-          </div>
-          <div id="emptyState" class="hidden p-10 text-center text-gray-500">No records match your criteria.</div>
+        <div class="flex gap-2">
+          <button id="addRecordBtn" class="bg-primary text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-blue-800 transition"><i class="fas fa-plus mr-1"></i>New Study</button>
         </div>
       </div>
 
-      <div id="moduleView" class="hidden flex-col h-full overflow-hidden">
-        <div class="flex justify-between items-center mb-4 flex-wrap gap-3">
-          <div>
-            <h2 id="moduleTitle" class="text-2xl font-bold">Module</h2>
-            <p id="moduleDescription" class="text-gray-500 text-sm">Calibration and qualification tracking</p>
-          </div>
-          <div class="flex items-center gap-3">
-            <div id="excelImportContainer">
-              <label class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg cursor-pointer text-sm font-semibold inline-flex items-center gap-2">
-                <i class="fas fa-file-excel"></i> <span id="excelImportBtnText">Import Excel / Macro Data</span>
-                <input id="excelImportInput" type="file" class="hidden" accept=".xlsx, .xls, .xlsm">
-              </label>
-            </div>
-            <button id="addModuleBtn" class="bg-accent hover:bg-green-600 text-white px-5 py-2 rounded-lg font-semibold text-sm"><i class="fas fa-plus mr-2"></i>Add Record</button>
-          </div>
-        </div>
+      <!-- Sub-tabs for specific study categories -->
+      <div id="studySubTabsContainer" class="flex flex-wrap gap-2 bg-white p-3 rounded-xl shadow-sm border border-gray-100"></div>
 
-        <div id="calibrationSubTabs" class="hidden flex flex-col gap-2 mb-3">
-          <div class="flex bg-gray-200 p-1 rounded-lg overflow-x-auto gap-1">
-            <button data-cal-tab="all" class="cal-sub-tab bg-white text-primary px-3 py-1.5 rounded-md text-xs font-semibold shadow-sm"><i class="fas fa-list mr-1"></i>All Items</button>
-            <button data-cal-tab="dept" class="cal-sub-tab text-gray-600 px-3 py-1.5 rounded-md text-xs font-semibold"><i class="fas fa-building mr-1"></i>By Department</button>
-            <button data-cal-tab="monthly" class="cal-sub-tab text-gray-600 px-3 py-1.5 rounded-md text-xs font-semibold"><i class="fas fa-calendar-alt mr-1"></i>Monthly Plan</button>
-            <button data-cal-tab="addendum" class="cal-sub-tab text-gray-600 px-3 py-1.5 rounded-md text-xs font-semibold"><i class="fas fa-file-medical mr-1"></i>Addendum of Calibration</button>
-            <button data-cal-tab="out" class="cal-sub-tab text-gray-600 px-3 py-1.5 rounded-md text-xs font-semibold"><i class="fas fa-exclamation-triangle mr-1"></i>Out of Calibration</button>
-          </div>
-
-          <div id="deptSubTabs" class="hidden flex bg-blue-900 p-1.5 rounded-lg overflow-x-auto gap-1">
-            <span class="text-white text-xs font-bold px-2 py-1 flex items-center"><i class="fas fa-filter mr-1"></i>Dept:</span>
-            <button data-dept-tab="QA" class="dept-sub-tab bg-white text-blue-800 px-3 py-1 rounded text-xs font-semibold shadow-sm">QA</button>
-            <button data-dept-tab="QC" class="dept-sub-tab text-blue-100 hover:text-white px-3 py-1 rounded text-xs font-semibold">QC</button>
-            <button data-dept-tab="Production" class="dept-sub-tab text-blue-100 hover:text-white px-3 py-1 rounded text-xs font-semibold">Production</button>
-            <button data-dept-tab="Warehouse" class="dept-sub-tab text-blue-100 hover:text-white px-3 py-1 rounded text-xs font-semibold">Warehouse</button>
-            <button data-dept-tab="Safety" class="dept-sub-tab text-blue-100 hover:text-white px-3 py-1 rounded text-xs font-semibold">Safety</button>
-          </div>
-
-          <div id="monthlySubTabs" class="hidden flex bg-indigo-900 p-1.5 rounded-lg overflow-x-auto gap-1">
-            <span class="text-white text-xs font-bold px-2 py-1 flex items-center"><i class="fas fa-calendar mr-1"></i>Month:</span>
-            <button data-month-tab="January" class="monthly-sub-tab bg-white text-indigo-800 px-2.5 py-1 rounded text-xs font-semibold shadow-sm">Jan</button>
-            <button data-month-tab="February" class="monthly-sub-tab text-indigo-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Feb</button>
-            <button data-month-tab="March" class="monthly-sub-tab text-indigo-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Mar</button>
-            <button data-month-tab="April" class="monthly-sub-tab text-indigo-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Apr</button>
-            <button data-month-tab="May" class="monthly-sub-tab text-indigo-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">May</button>
-            <button data-month-tab="June" class="monthly-sub-tab text-indigo-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Jun</button>
-            <button data-month-tab="July" class="monthly-sub-tab text-indigo-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Jul</button>
-            <button data-month-tab="August" class="monthly-sub-tab text-indigo-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Aug</button>
-            <button data-month-tab="September" class="monthly-sub-tab text-indigo-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Sep</button>
-            <button data-month-tab="October" class="monthly-sub-tab text-indigo-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Oct</button>
-            <button data-month-tab="November" class="monthly-sub-tab text-indigo-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Nov</button>
-            <button data-month-tab="December" class="monthly-sub-tab text-indigo-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Dec</button>
-          </div>
-        </div>
-
-        <div id="qualificationSubTabs" class="hidden flex flex-col gap-2 mb-3">
-          <div class="flex bg-gray-200 p-1 rounded-lg overflow-x-auto gap-1">
-            <button data-qual-tab="all" class="qual-sub-tab bg-white text-primary px-3 py-1.5 rounded-md text-xs font-semibold shadow-sm"><i class="fas fa-list mr-1"></i>All Items</button>
-            <button data-qual-tab="monthly" class="qual-sub-tab text-gray-600 px-3 py-1.5 rounded-md text-xs font-semibold"><i class="fas fa-calendar-alt mr-1"></i>Monthly Plan of Qualification</button>
-            <button data-qual-tab="utilities" class="qual-sub-tab text-gray-600 px-3 py-1.5 rounded-md text-xs font-semibold"><i class="fas fa-tint mr-1"></i>Utilities</button>
-            <button data-qual-tab="system" class="qual-sub-tab text-gray-600 px-3 py-1.5 rounded-md text-xs font-semibold"><i class="fas fa-network-wired mr-1"></i>System</button>
-            <button data-qual-tab="machine" class="qual-sub-tab text-gray-600 px-3 py-1.5 rounded-md text-xs font-semibold"><i class="fas fa-cogs mr-1"></i>Machine / Equipment</button>
-          </div>
-
-          <div id="qualMonthlySubTabs" class="hidden flex bg-purple-900 p-1.5 rounded-lg overflow-x-auto gap-1">
-            <span class="text-white text-xs font-bold px-2 py-1 flex items-center"><i class="fas fa-calendar mr-1"></i>Month:</span>
-            <button data-qual-month-tab="January" class="qual-monthly-sub-tab bg-white text-purple-800 px-2.5 py-1 rounded text-xs font-semibold shadow-sm">Jan</button>
-            <button data-qual-month-tab="February" class="qual-monthly-sub-tab text-purple-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Feb</button>
-            <button data-qual-month-tab="March" class="qual-monthly-sub-tab text-purple-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Mar</button>
-            <button data-qual-month-tab="April" class="qual-monthly-sub-tab text-purple-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Apr</button>
-            <button data-qual-month-tab="May" class="qual-monthly-sub-tab text-purple-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">May</button>
-            <button data-qual-month-tab="June" class="qual-monthly-sub-tab text-purple-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Jun</button>
-            <button data-qual-month-tab="July" class="qual-monthly-sub-tab text-purple-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Jul</button>
-            <button data-qual-month-tab="August" class="qual-monthly-sub-tab text-purple-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Aug</button>
-            <button data-qual-month-tab="September" class="qual-monthly-sub-tab text-purple-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Sep</button>
-            <button data-qual-month-tab="October" class="qual-monthly-sub-tab text-purple-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Oct</button>
-            <button data-qual-month-tab="November" class="qual-monthly-sub-tab text-purple-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Nov</button>
-            <button data-qual-month-tab="December" class="qual-monthly-sub-tab text-purple-100 hover:text-white px-2.5 py-1 rounded text-xs font-semibold">Dec</button>
-          </div>
-        </div>
-
-        <div class="bg-white p-4 rounded-t-xl shadow-sm border flex flex-wrap gap-4 items-end">
-          <div class="flex-grow min-w-[200px]">
-            <label id="modSearchLabel" class="block text-xs font-semibold text-gray-500 uppercase mb-1">Search</label>
-            <input id="modSearchInput" class="w-full p-2 border rounded-md text-sm" placeholder="Search records...">
-          </div>
-          <div id="modFilterGroup1">
-            <label id="modFilterLabel1" class="block text-xs font-semibold text-gray-500 uppercase mb-1">Department / Type</label>
-            <select id="modFilter1" class="p-2 border rounded-md text-sm"><option value="All">All</option></select>
-          </div>
-          <div id="modFilterGroup2">
-            <label id="modFilterLabel2" class="block text-xs font-semibold text-gray-500 uppercase mb-1">Location</label>
-            <select id="modFilter2" class="p-2 border rounded-md text-sm"><option value="All">All</option></select>
-          </div>
-          <div>
-            <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Status</label>
-            <select id="modFilterStatus" class="p-2 border rounded-md text-sm">
-              <option value="All">All Statuses</option>
-              <option value="Draft">Draft</option>
-              <option value="Pending Section Head">Pending Section Head</option>
-              <option value="Completed">Completed</option>
-            </select>
-          </div>
-          <button id="modClearFiltersBtn" class="px-4 py-2 text-gray-500 hover:bg-gray-100 rounded text-sm">Clear Filters</button>
-        </div>
-
-        <div class="bg-white rounded-b-xl shadow-md border flex-grow overflow-hidden flex flex-col">
-          <div id="moduleBulkBar" class="hidden bg-blue-50 border-b px-4 py-2 flex items-center justify-between text-sm">
-            <div><span id="moduleSelectedCount" class="font-bold">0</span> items selected</div>
-            <div class="flex gap-2">
-              <button id="bulkModuleSubmitBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-xs font-semibold">Submit Selected</button>
-              <button id="bulkModuleDeleteBtn" class="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-xs font-semibold">Delete Selected</button>
-            </div>
-          </div>
-
-          <div class="overflow-y-auto scrollbar flex-grow max-h-[calc(100vh-320px)]">
-            <table class="min-w-full divide-y divide-gray-200">
-              <thead id="moduleTableHead" class="bg-gray-50 sticky top-0 z-10"></thead>
-              <tbody id="moduleTableBody" class="divide-y text-sm"></tbody>
-            </table>
-          </div>
-          <div id="moduleEmptyState" class="hidden p-10 text-center text-gray-500">No records found.</div>
-        </div>
+      <!-- Search & Filters -->
+      <div class="bg-white p-4 rounded-xl shadow-sm flex flex-wrap gap-3 items-center">
+        <input type="text" id="searchInput" placeholder="Search product or type..." class="border rounded-lg px-3 py-2 text-xs flex-grow min-w-[200px]">
+        <select id="filterStage" class="border rounded-lg px-3 py-2 text-xs">
+          <option value="All">All Stages</option>
+          <option value="Raw">Raw</option>
+          <option value="Protocol">Protocol</option>
+          <option value="Report">Report</option>
+        </select>
+        <select id="filterStatus" class="border rounded-lg px-3 py-2 text-xs">
+          <option value="All">All Statuses</option>
+          <option value="Draft">Draft</option>
+          <option value="Pending Section Head">Pending Section Head</option>
+          <option value="Approved">Approved</option>
+        </select>
+        <select id="filterScale" class="border rounded-lg px-3 py-2 text-xs">
+          <option value="All">All Scales</option>
+          <option value="Lab Scale">Lab Scale</option>
+          <option value="Pilot Scale">Pilot Scale</option>
+          <option value="Commercial Scale">Commercial Scale</option>
+        </select>
       </div>
-    </section>
+
+      <!-- Data Table -->
+      <div class="bg-white rounded-xl shadow-sm overflow-x-auto">
+        <table class="w-full text-left border-collapse">
+          <thead class="bg-gray-50 border-b text-xs text-gray-600 uppercase">
+            <tr>
+              <th class="px-4 py-3">Product Name</th>
+              <th class="px-4 py-3">Category / Subtype</th>
+              <th class="px-4 py-3">Date / Stage</th>
+              <th class="px-4 py-3">Scale & Version</th>
+              <th class="px-4 py-3">Reason / Scope</th>
+              <th class="px-4 py-3">Status</th>
+              <th class="px-4 py-3 text-center">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="dataTableBody" class="divide-y divide-gray-100 text-xs"></tbody>
+        </table>
+        <div id="emptyState" class="text-center py-12 text-gray-400 text-sm hidden">No studies found matching filters.</div>
+      </div>
+    </div>
+
+    <!-- MODULE VIEW (Calibration / Qualification) -->
+    <div id="moduleView" class="hidden space-y-4">
+      <div class="bg-white p-4 rounded-xl shadow-sm flex justify-between items-center">
+        <div><h2 id="moduleTitle" class="text-lg font-bold">Module</h2></div>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm overflow-x-auto">
+        <table class="w-full text-left border-collapse">
+          <thead id="moduleTableHead" class="bg-gray-50 border-b text-xs text-gray-600 uppercase"></thead>
+          <tbody id="moduleTableBody" class="divide-y divide-gray-100 text-xs"></tbody>
+        </table>
+        <div id="moduleEmptyState" class="text-center py-12 text-gray-400 text-sm hidden">No records found.</div>
+      </div>
+    </div>
+
+    <!-- SOPS MODULE VIEW -->
+    <div id="sopsView" class="hidden space-y-4">
+      <div class="bg-white p-4 rounded-xl shadow-sm flex justify-between items-center">
+        <h2 class="text-lg font-bold">Department SOPs (Validation)</h2>
+        <span class="text-xs bg-purple-100 text-purple-800 px-2.5 py-1 rounded font-semibold">Restricted Access Module</span>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm overflow-x-auto">
+        <table class="w-full text-left border-collapse">
+          <thead class="bg-gray-50 border-b text-xs text-gray-600 uppercase">
+            <tr>
+              <th class="px-4 py-3">SOP Number</th>
+              <th class="px-4 py-3">Title</th>
+              <th class="px-4 py-3">Version</th>
+              <th class="px-4 py-3">Department</th>
+              <th class="px-4 py-3">Uploaded At</th>
+              <th class="px-4 py-3 text-center">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="sopsTableBody" class="divide-y divide-gray-100 text-xs"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- PR & PO MODULE VIEW -->
+    <div id="prpoView" class="hidden space-y-4">
+      <div class="bg-white p-4 rounded-xl shadow-sm flex justify-between items-center">
+        <h2 class="text-lg font-bold">PR & PO Department Tracking</h2>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm overflow-x-auto">
+        <table class="w-full text-left border-collapse">
+          <thead class="bg-gray-50 border-b text-xs text-gray-600 uppercase">
+            <tr>
+              <th class="px-4 py-3">PR Number</th>
+              <th class="px-4 py-3">PO Number</th>
+              <th class="px-4 py-3">Item Description</th>
+              <th class="px-4 py-3">Supplier</th>
+              <th class="px-4 py-3">Estimated Cost</th>
+              <th class="px-4 py-3">Status</th>
+              <th class="px-4 py-3 text-center">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="prpoTableBody" class="divide-y divide-gray-100 text-xs"></tbody>
+        </table>
+      </div>
+    </div>
   </main>
+
+  <!-- Footer -->
+  <footer class="bg-white border-t py-3 text-center text-xs flex-shrink-0">
+    <span class="font-bold text-blue-600 capitalize">Powered By Nerhadou Validation Team</span>
+  </footer>
 
   <!-- Modals -->
   <div id="recordModal" class="modal fixed inset-0 bg-black/50 z-50 items-center justify-center p-4">
-    <div class="bg-white rounded-xl shadow-2xl max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto scrollbar">
-      <div class="flex justify-between items-center mb-4 pb-2 border-b">
-        <h3 id="modalTitle" class="text-xl font-bold">Add Validation Study</h3>
-        <button data-close class="text-gray-500 hover:text-gray-700"><i class="fas fa-times text-lg"></i></button>
-      </div>
-      <form id="recordForm" class="space-y-4">
+    <div class="bg-white rounded-xl max-w-lg w-full p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+      <h3 id="modalTitle" class="text-lg font-bold mb-4">Study Form</h3>
+      <form id="recordForm" class="space-y-3">
         <input type="hidden" id="recordId">
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-xs font-semibold mb-1">Product Name *</label>
+          <input type="text" id="productName" required class="w-full border rounded px-3 py-2 text-xs">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold mb-1">Category</label>
+          <select id="studyCategory" class="w-full border rounded px-3 py-2 text-xs">
+            <option value="Process Validation">Process Validation</option>
+            <option value="Hold Time Study">Hold Time Study</option>
+            <option value="Cleaning Validation">Cleaning Validation</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold mb-1">Sub-Category / Subtype</label>
+          <input type="text" id="subCategoryInput" placeholder="e.g. Bulk hold time study for ODF" class="w-full border rounded px-3 py-2 text-xs">
+        </div>
+        <div class="grid grid-cols-2 gap-2">
           <div>
-            <label class="block text-sm font-medium mb-1">Product Name / API *</label>
-            <input type="text" id="productName" class="w-full p-2.5 border rounded-lg" required>
+            <label class="block text-xs font-semibold mb-1">Product Type</label>
+            <input type="text" id="productType" class="w-full border rounded px-3 py-2 text-xs" value="Finished Product">
           </div>
           <div>
-            <label class="block text-sm font-medium mb-1">Study Category *</label>
-            <select id="studyCategory" class="w-full p-2.5 border rounded-lg">
-              <option value="Process Validation">Process Validation</option>
-              <option value="Hold Time Study">Hold Time Study</option>
-              <option value="Cleaning Validation">Cleaning Validation</option>
-            </select>
+            <label class="block text-xs font-semibold mb-1">Study Date *</label>
+            <input type="date" id="studyDate" required class="w-full border rounded px-3 py-2 text-xs">
           </div>
+        </div>
+        <div class="grid grid-cols-3 gap-2">
           <div>
-            <label class="block text-sm font-medium mb-1">Product Type</label>
-            <input type="text" id="productType" class="w-full p-2.5 border rounded-lg" value="Finished Product">
-          </div>
-          <div>
-            <label class="block text-sm font-medium mb-1">Study Date *</label>
-            <input type="date" id="studyDate" class="w-full p-2.5 border rounded-lg" required>
-          </div>
-          <div>
-            <label class="block text-sm font-medium mb-1">Stage *</label>
-            <select id="stage" class="w-full p-2.5 border rounded-lg">
+            <label class="block text-xs font-semibold mb-1">Stage</label>
+            <select id="stage" class="w-full border rounded px-3 py-2 text-xs">
               <option value="Raw">Raw</option>
-              <option value="Bulk">Bulk</option>
-              <option value="Finished Product">Finished Product</option>
-              <option value="Cleaning Validation">Cleaning Validation</option>
-              <option value="CHT">CHT</option>
-              <option value="DHT">DHT</option>
-              <option value="Campaign Length">Campaign Length</option>
+              <option value="Protocol">Protocol</option>
+              <option value="Report">Report</option>
             </select>
           </div>
           <div>
-            <label class="block text-sm font-medium mb-1">Scale *</label>
-            <select id="scale" class="w-full p-2.5 border rounded-lg">
+            <label class="block text-xs font-semibold mb-1">Version *</label>
+            <input type="text" id="version" required value="v1.0" class="w-full border rounded px-3 py-2 text-xs">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold mb-1">Scale</label>
+            <select id="scale" class="w-full border rounded px-3 py-2 text-xs">
               <option value="Lab Scale">Lab Scale</option>
               <option value="Pilot Scale">Pilot Scale</option>
               <option value="Commercial Scale">Commercial Scale</option>
             </select>
           </div>
-          <div>
-            <label class="block text-sm font-medium mb-1">Version *</label>
-            <input type="text" id="version" class="w-full p-2.5 border rounded-lg" value="v1.0" required>
-          </div>
-          <div>
-            <label class="block text-sm font-medium mb-1">Action Type *</label>
-            <select id="studyAction" class="w-full p-2.5 border rounded-lg">
-              <option value="In Plan">In Plan</option>
-              <option value="Executed">Executed</option>
-            </select>
-          </div>
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">Reason / Scope *</label>
-          <textarea id="reason" rows="2" class="w-full p-2.5 border rounded-lg" required></textarea>
+          <label class="block text-xs font-semibold mb-1">Action</label>
+          <select id="studyAction" class="w-full border rounded px-3 py-2 text-xs">
+            <option value="In Plan">In Plan</option>
+            <option value="Executed">Executed</option>
+          </select>
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">Notes / Comments</label>
-          <textarea id="notes" rows="2" class="w-full p-2.5 border rounded-lg"></textarea>
+          <label class="block text-xs font-semibold mb-1">Reason / Scope *</label>
+          <textarea id="reason" required rows="2" class="w-full border rounded px-3 py-2 text-xs"></textarea>
         </div>
-        <div class="border-t pt-3 flex justify-end gap-3">
-          <button type="button" data-close class="px-4 py-2 border rounded-lg">Cancel</button>
-          <button type="submit" class="px-5 py-2 bg-primary hover:bg-blue-800 text-white font-bold rounded-lg">Save Study</button>
+        <div>
+          <label class="block text-xs font-semibold mb-1">Notes</label>
+          <textarea id="notes" rows="2" class="w-full border rounded px-3 py-2 text-xs"></textarea>
         </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- Module Modal -->
-  <div id="moduleModal" class="modal fixed inset-0 bg-black/50 z-50 items-center justify-center p-4">
-    <div class="bg-white rounded-xl shadow-2xl max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto scrollbar">
-      <div class="flex justify-between items-center mb-4 pb-2 border-b">
-        <h3 id="moduleModalTitle" class="text-xl font-bold">Add Module Record</h3>
-        <button data-close class="text-gray-500 hover:text-gray-700"><i class="fas fa-times text-lg"></i></button>
-      </div>
-      <form id="moduleForm" class="space-y-4">
-        <input type="hidden" id="moduleEditId">
-        <input type="hidden" id="moduleType">
-        
-        <!-- Calibration Fields -->
-        <div id="calibrationFields" class="space-y-4">
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div><label class="block text-sm font-medium mb-1">Certificate No. *</label><input type="text" id="calCertificateNo" class="w-full p-2.5 border rounded-lg"></div>
-            <div><label class="block text-sm font-medium mb-1">Department</label><input type="text" id="calDept" class="w-full p-2.5 border rounded-lg" placeholder="QA, QC, Production..."></div>
-            <div><label class="block text-sm font-medium mb-1">Instrument Name *</label><input type="text" id="calInstrument" class="w-full p-2.5 border rounded-lg"></div>
-            <div><label class="block text-sm font-medium mb-1">Code *</label><input type="text" id="calCode" class="w-full p-2.5 border rounded-lg"></div>
-            <div><label class="block text-sm font-medium mb-1">Manufacturer</label><input type="text" id="calManuf" class="w-full p-2.5 border rounded-lg"></div>
-            <div><label class="block text-sm font-medium mb-1">Model</label><input type="text" id="calModel" class="w-full p-2.5 border rounded-lg"></div>
-            <div><label class="block text-sm font-medium mb-1">Serial Number</label><input type="text" id="calSN" class="w-full p-2.5 border rounded-lg"></div>
-            <div><label class="block text-sm font-medium mb-1">Location</label><input type="text" id="calLocation" class="w-full p-2.5 border rounded-lg"></div>
-            <div><label class="block text-sm font-medium mb-1">Calibration Range</label><input type="text" id="calRange" class="w-full p-2.5 border rounded-lg"></div>
-            <div><label class="block text-sm font-medium mb-1">Acceptance Limits</label><input type="text" id="calAcceptanceLimits" class="w-full p-2.5 border rounded-lg"></div>
-            <div><label class="block text-sm font-medium mb-1">Interval</label><input type="text" id="calInterval" class="w-full p-2.5 border rounded-lg" placeholder="1 Year"></div>
-            <div><label class="block text-sm font-medium mb-1">Month / Year Label</label><input type="text" id="calMonthYear" class="w-full p-2.5 border rounded-lg" placeholder="October 2026"></div>
-            <div><label class="block text-sm font-medium mb-1">Calibration Date</label><input type="date" id="calDate" class="w-full p-2.5 border rounded-lg"></div>
-            <div><label class="block text-sm font-medium mb-1">Due Date</label><input type="date" id="calDueDate" class="w-full p-2.5 border rounded-lg"></div>
-          </div>
-          <div class="flex gap-6 mt-2">
-            <label class="flex items-center gap-2 text-sm font-medium"><input type="checkbox" id="calIsAddendum" class="w-4 h-4 text-primary rounded"> Is Addendum</label>
-            <label class="flex items-center gap-2 text-sm font-medium"><input type="checkbox" id="calIsOutOfCalibration" class="w-4 h-4 text-red-600 rounded"> Out of Calibration</label>
-          </div>
-          <div>
-            <label class="block text-sm font-medium mb-1">Action Status</label>
-            <select id="calAction" class="w-full p-2.5 border rounded-lg"><option value="In Plan">In Plan</option><option value="Executed">Executed</option></select>
-          </div>
-        </div>
-
-        <!-- Qualification Fields -->
-        <div id="qualificationFields" class="space-y-4 hidden">
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div><label class="block text-sm font-medium mb-1">Name *</label><input type="text" id="qualName" class="w-full p-2.5 border rounded-lg"></div>
-            <div><label class="block text-sm font-medium mb-1">Reference ID / Protocol *</label><input type="text" id="qualReference" class="w-full p-2.5 border rounded-lg"></div>
-            <div>
-              <label class="block text-sm font-medium mb-1">Qualification Type *</label>
-              <select id="qualType" class="w-full p-2.5 border rounded-lg">
-                <option value="equipment">Machine / Equipment</option>
-                <option value="utilities">Utilities</option>
-                <option value="system">System</option>
-              </select>
-            </div>
-            <div id="utilitySubtypeGroup" class="hidden">
-              <label class="block text-sm font-medium mb-1">Utility Subtype</label>
-              <select id="qualUtilityType" class="w-full p-2.5 border rounded-lg"><option value="HVAC">HVAC</option><option value="PW">PW</option><option value="WFI">WFI</option><option value="Clean Steam">Clean Steam</option><option value="Compressed Air">Compressed Air</option></select>
-            </div>
-            <div>
-              <label class="block text-sm font-medium mb-1">Stage *</label>
-              <select id="qualStage" class="w-full p-2.5 border rounded-lg"><option value="DQ">DQ</option><option value="IQ">IQ</option><option value="OQ">OQ</option><option value="PQ">PQ</option><option value="PERIODIC PQ">Periodic PQ</option></select>
-            </div>
-            <div><label class="block text-sm font-medium mb-1">Planned Date</label><input type="date" id="qualDate" class="w-full p-2.5 border rounded-lg"></div>
-            <div><label class="block text-sm font-medium mb-1">Due Date</label><input type="date" id="qualDueDate" class="w-full p-2.5 border rounded-lg"></div>
-            <div>
-              <label class="block text-sm font-medium mb-1">Action Status</label>
-              <select id="qualAction" class="w-full p-2.5 border rounded-lg"><option value="In Plan">In Plan</option><option value="Executed">Executed</option></select>
-            </div>
-          </div>
-          <div id="equipmentGroup"><label class="block text-sm font-medium mb-1">Equipment Details</label><input type="text" id="qualEquipmentInfo" class="w-full p-2.5 border rounded-lg"></div>
-          <div id="systemGroup" class="hidden"><label class="block text-sm font-medium mb-1">System Details</label><input type="text" id="qualSystemInfo" class="w-full p-2.5 border rounded-lg"></div>
-          <div><label class="block text-sm font-medium mb-1">Description / Scope</label><textarea id="qualDescription" rows="2" class="w-full p-2.5 border rounded-lg"></textarea></div>
-        </div>
-
-        <div class="border-t pt-3 flex justify-end gap-3">
-          <button type="button" data-close class="px-4 py-2 border rounded-lg">Cancel</button>
-          <button type="submit" class="px-5 py-2 bg-primary hover:bg-blue-800 text-white font-bold rounded-lg">Save Record</button>
+        <div class="flex justify-end gap-2 pt-3">
+          <button type="button" data-close class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-xs font-semibold">Cancel</button>
+          <button type="submit" class="bg-primary text-white px-4 py-2 rounded text-xs font-semibold">Save Study</button>
         </div>
       </form>
     </div>
@@ -2014,120 +1090,90 @@
 
   <!-- File Manager Modal -->
   <div id="fileModal" class="modal fixed inset-0 bg-black/50 z-50 items-center justify-center p-4">
-    <div class="bg-white rounded-xl shadow-2xl max-w-xl w-full p-6 max-h-[85vh] overflow-y-auto scrollbar">
-      <div class="flex justify-between items-center mb-4 pb-2 border-b">
-        <h3 class="text-xl font-bold">Documents & Attachments</h3>
-        <button data-close class="text-gray-500 hover:text-gray-700"><i class="fas fa-times text-lg"></i></button>
-      </div>
-      <div id="uploadFileContainer" class="mb-4 bg-gray-50 p-4 rounded-lg border border-dashed text-center">
+    <div class="bg-white rounded-xl max-w-xl w-full p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+      <h3 class="text-lg font-bold mb-4">Study Documents & Attachments</h3>
+      <div id="uploadFileContainer" class="mb-4">
+        <input type="file" id="fileInput" class="w-full border rounded px-3 py-2 text-xs" multiple>
         <input type="hidden" id="fileParentId">
         <input type="hidden" id="fileModule">
-        <input type="file" id="fileInput" class="hidden" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.xlsm,.jpg,.png">
-        <label for="fileInput" class="cursor-pointer bg-primary hover:bg-blue-800 text-white px-4 py-2 rounded-lg text-sm font-semibold inline-block"><i class="fas fa-cloud-upload-alt mr-2"></i>Upload Document(s)</label>
-        <p class="text-xs text-gray-400 mt-2">Supports PDF, Word, Excel, Images (Max 25MB)</p>
-        <div id="uploadProgress" class="text-xs font-semibold text-blue-600 mt-1"></div>
       </div>
-      <div id="fileList" class="space-y-2"></div>
+      <div id="fileList" class="space-y-2 mb-4"></div>
+      <div class="flex justify-end"><button type="button" data-close class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-xs font-semibold">Close</button></div>
     </div>
   </div>
 
   <!-- History Modal -->
   <div id="historyModal" class="modal fixed inset-0 bg-black/50 z-50 items-center justify-center p-4">
-    <div class="bg-white rounded-xl shadow-2xl max-w-xl w-full p-6 max-h-[85vh] overflow-y-auto scrollbar">
-      <div class="flex justify-between items-center mb-4 pb-2 border-b">
-        <h3 class="text-xl font-bold">Review History & Workflow Log</h3>
-        <button data-close class="text-gray-500 hover:text-gray-700"><i class="fas fa-times text-lg"></i></button>
-      </div>
-      <div id="historyBody" class="space-y-4"></div>
-    </div>
-  </div>
-
-  <!-- User Management Modal -->
-  <div id="userModal" class="modal fixed inset-0 bg-black/50 z-50 items-center justify-center p-4">
-    <div class="bg-white rounded-xl shadow-2xl max-w-3xl w-full p-6 max-h-[90vh] overflow-y-auto scrollbar">
-      <div class="flex justify-between items-center mb-4 pb-2 border-b">
-        <h3 class="text-xl font-bold">User Access & Role Management</h3>
-        <button data-close class="text-gray-500 hover:text-gray-700"><i class="fas fa-times text-lg"></i></button>
-      </div>
-      <form id="userForm" class="bg-gray-50 p-4 rounded-lg mb-4 space-y-3">
-        <input type="hidden" id="editUserId">
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <div><label class="block text-xs font-semibold mb-1">Email *</label><input type="email" id="newEmail" class="w-full p-2 border rounded text-sm" required></div>
-          <div><label class="block text-xs font-semibold mb-1">Display Name *</label><input type="text" id="newDisplayName" class="w-full p-2 border rounded text-sm" required></div>
-          <div><label class="block text-xs font-semibold mb-1">Role *</label><select id="newRole" class="w-full p-2 border rounded text-sm"></select></div>
-          <div><label class="block text-xs font-semibold mb-1">Department</label><input type="text" id="newDepartment" class="w-full p-2 border rounded text-sm"></div>
-          <div><label class="block text-xs font-semibold mb-1">Password (New User)</label><input type="password" id="newPassword" class="w-full p-2 border rounded text-sm"></div>
-          <div class="flex items-center pt-5"><label class="flex items-center gap-2 text-sm font-semibold text-red-600"><input type="checkbox" id="newDisabled" class="w-4 h-4"> Disable Account</label></div>
-        </div>
-        <div class="flex justify-end gap-2 pt-2">
-          <button type="button" id="sendResetBtn" class="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded text-xs font-semibold">Send Password Reset</button>
-          <button type="submit" class="bg-primary hover:bg-blue-800 text-white px-4 py-1.5 rounded text-xs font-bold">Save User Profile</button>
-        </div>
-      </form>
-      <div class="overflow-x-auto">
-        <table class="min-w-full divide-y divide-gray-200">
-          <thead class="bg-gray-50">
-            <tr>
-              <th class="px-3 py-2 text-left text-xs">User</th>
-              <th class="px-3 py-2 text-left text-xs">Role</th>
-              <th class="px-3 py-2 text-left text-xs">Dept</th>
-              <th class="px-3 py-2 text-left text-xs">Status</th>
-              <th class="px-3 py-2 text-center text-xs">Manage</th>
-            </tr>
-          </thead>
-          <tbody id="userTableBody" class="divide-y text-sm"></tbody>
-        </table>
-      </div>
+    <div class="bg-white rounded-xl max-w-lg w-full p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+      <h3 class="text-lg font-bold mb-4">Review & Audit History</h3>
+      <div id="historyBody" class="space-y-3 mb-4"></div>
+      <div class="flex justify-end"><button type="button" data-close class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-xs font-semibold">Close</button></div>
     </div>
   </div>
 
   <!-- Audit Trail Modal -->
   <div id="auditModal" class="modal fixed inset-0 bg-black/50 z-50 items-center justify-center p-4">
-    <div class="bg-white rounded-xl shadow-2xl max-w-4xl w-full p-6 max-h-[90vh] overflow-y-auto scrollbar">
-      <div class="flex justify-between items-center mb-4 pb-2 border-b">
-        <h3 class="text-xl font-bold">System Audit Trail</h3>
-        <button data-close class="text-gray-500 hover:text-gray-700"><i class="fas fa-times text-lg"></i></button>
-      </div>
-      <div class="overflow-x-auto">
-        <table class="min-w-full divide-y divide-gray-200">
-          <thead class="bg-gray-50">
-            <tr>
-              <th class="px-3 py-2 text-left text-xs">Timestamp</th>
-              <th class="px-3 py-2 text-left text-xs">User</th>
-              <th class="px-3 py-2 text-left text-xs">Action</th>
-              <th class="px-3 py-2 text-left text-xs">Target / Study</th>
-              <th class="px-3 py-2 text-left text-xs">Details</th>
-            </tr>
-          </thead>
-          <tbody id="auditTableBody" class="divide-y text-sm"></tbody>
-        </table>
-      </div>
+    <div class="bg-white rounded-xl max-w-4xl w-full p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+      <h3 class="text-lg font-bold mb-4">System Audit Trail</h3>
+      <table class="w-full text-left border-collapse">
+        <thead class="bg-gray-50 border-b text-xs uppercase text-gray-600">
+          <tr>
+            <th class="px-3 py-2">Timestamp</th>
+            <th class="px-3 py-2">User</th>
+            <th class="px-3 py-2">Action</th>
+            <th class="px-3 py-2">Study</th>
+            <th class="px-3 py-2">Details</th>
+          </tr>
+        </thead>
+        <tbody id="auditTableBody" class="divide-y divide-gray-100 text-xs"></tbody>
+      </table>
+      <div class="flex justify-end mt-4"><button type="button" data-close class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-xs font-semibold">Close</button></div>
     </div>
   </div>
 
-  <!-- Confirmation / Reason Modal -->
+  <!-- Users Management Modal -->
+  <div id="userModal" class="modal fixed inset-0 bg-black/50 z-50 items-center justify-center p-4">
+    <div class="bg-white rounded-xl max-w-3xl w-full p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+      <h3 class="text-lg font-bold mb-4">User Accounts Management</h3>
+      <table class="w-full text-left border-collapse mb-4">
+        <thead class="bg-gray-50 border-b text-xs uppercase text-gray-600">
+          <tr>
+            <th class="px-3 py-2">User</th>
+            <th class="px-3 py-2">Role</th>
+            <th class="px-3 py-2">Department</th>
+            <th class="px-3 py-2">Status</th>
+            <th class="px-3 py-2 text-center">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="userTableBody" class="divide-y divide-gray-100 text-xs"></tbody>
+      </table>
+      <div class="flex justify-end"><button type="button" data-close class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-xs font-semibold">Close</button></div>
+    </div>
+  </div>
+
+  <!-- Confirmation Modal -->
   <div id="confirmModal" class="modal fixed inset-0 bg-black/50 z-50 items-center justify-center p-4">
-    <div class="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
+    <div class="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl">
       <h3 id="confirmTitle" class="text-lg font-bold mb-2">Confirm Action</h3>
-      <p id="confirmText" class="text-sm text-gray-600 mb-4"></p>
+      <p id="confirmText" class="text-xs text-gray-600 mb-4"></p>
       <div id="reasonWrap" class="mb-4 hidden">
-        <label id="reasonLabel" class="block text-xs font-semibold mb-1">Reason / comment *</label>
-        <textarea id="reasonInput" rows="3" class="w-full p-2 border rounded-lg text-sm"></textarea>
+        <label id="reasonLabel" class="block text-xs font-semibold mb-1">Reason</label>
+        <textarea id="reasonInput" rows="2" class="w-full border rounded px-3 py-2 text-xs"></textarea>
       </div>
-      <div class="flex justify-end gap-3">
-        <button data-close class="px-4 py-2 border rounded-lg text-sm">Cancel</button>
-        <button id="acceptConfirmBtn" class="px-4 py-2 bg-primary text-white font-bold rounded-lg text-sm hover:bg-blue-800">Confirm</button>
+      <div class="flex justify-end gap-2">
+        <button type="button" data-close class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-xs font-semibold">Cancel</button>
+        <button type="button" id="acceptConfirmBtn" class="bg-primary text-white px-4 py-2 rounded text-xs font-semibold">Confirm</button>
       </div>
     </div>
   </div>
 
   <!-- Message Modal -->
   <div id="messageModal" class="modal fixed inset-0 bg-black/50 z-50 items-center justify-center p-4">
-    <div class="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 text-center">
-      <div id="messageIcon" class="mb-3"></div>
-      <h3 id="messageTitle" class="text-lg font-bold mb-1"></h3>
-      <p id="messageText" class="text-sm text-gray-600 mb-5"></p>
-      <button data-close class="w-full bg-primary text-white font-bold py-2 rounded-lg text-sm hover:bg-blue-800">OK</button>
+    <div class="bg-white rounded-xl max-w-sm w-full p-6 shadow-2xl text-center">
+      <div id="messageIcon" class="mb-3 flex justify-center"></div>
+      <h3 id="messageTitle" class="text-lg font-bold mb-2">Notification</h3>
+      <p id="messageText" class="text-xs text-gray-600 mb-4"></p>
+      <button type="button" data-close class="w-full bg-primary text-white py-2 rounded text-xs font-semibold">OK</button>
     </div>
   </div>
 </body>
