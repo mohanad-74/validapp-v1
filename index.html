@@ -396,9 +396,24 @@ async function workflow(id,target,comment="",actionName="Workflow Progressed"){
   await updateDoc(docRef("records",id),u);await addDoc(colRef("reviews"),{studyId:id,studyName:r.productName,reviewerUid:currentUser.uid,reviewerName:currentProfile.displayName||currentUser.email,reviewerRole:role(),comment,action:actionName,createdAt:serverTimestamp()});
   await audit(actionName,id,r.productName,comment||`${role()} action`,old,target,{delegatedApproval:isDelegatedDeputy()});await notifyEmails(actionName,r.productName,target,comment||`${old} → ${target}`);await loadStudies();
 }
-async function returnStudy(id){const r=records.find(x=>x.id===id);if(!r)return;confirmAction("Return for Revision",`Return "${r.productName}" to the Creator?`,async c=>{try{await workflow(id,STATUS.RETURNED,c,"Study Returned");showMsg("Returned","Study returned for revision.","success")}catch(e){showMsg("Return failed",friendly(e),"error")}},true)}
-async function reviewStudy(id){const r=records.find(x=>x.id===id);if(!r)return;confirmAction("Complete Review",`Complete review for "${r.productName}"?`,async c=>{try{await workflow(id,nextStatus(r),c,"Review Completed");showMsg("Review completed","Study advanced to the next workflow stage.","success")}catch(e){showMsg("Review failed",friendly(e),"error")})}
-async function approveStudy(id){const r=records.find(x=>x.id===id);if(!r)return;confirmAction(isDelegatedDeputy()?"Approve as QA Manager Delegate":"Approve Study",`Approve "${r.productName}"?`,async()=>{try{await workflow(id,STATUS.APPROVED,isDelegatedDeputy()?"Approved under active QA Manager delegation":"QA Manager Approval","Study Approved");showMsg("Approved",isDelegatedDeputy()?"Study approved by QA Deputy under active delegation.":"Study approved by QA Manager.","success")}catch(e){showMsg("Approval failed",friendly(e),"error")})}
+async function returnStudy(id){
+  const r=records.find(x=>x.id===id);if(!r)return;
+  confirmAction("Return for Revision", `Return "${r.productName}" to the Creator?`, async c=>{
+    try{await workflow(id,STATUS.DRAFT,c,"Returned for Revision");}catch(e){console.error(e);alert(e.message);}
+  });
+}
+async function reviewStudy(id){
+  const r=records.find(x=>x.id===id);if(!r)return;
+  confirmAction("Complete Review", `Complete review for "${r.productName}"?`, async c=>{
+    try{await workflow(id,STATUS.PENDING_DEPUTY,c,"Review Completed");}catch(e){console.error(e);alert(e.message);}
+  });
+}
+async function approveStudy(id){
+  const r=records.find(x=>x.id===id);if(!r)return;
+  confirmAction(isDelegatedDeputy()?"Approve as QA Manager Delegate":"Approve Study", `Approve "${r.productName}"?`, async c=>{
+    try{await workflow(id,STATUS.APPROVED,c,"Approved");}catch(e){console.error(e);alert(e.message);}
+  });
+}
 async function rejectStudy(id){confirmAction("Reject Study","Rejection requires a documented reason.",async c=>{try{await workflow(id,STATUS.REJECTED,c,"Study Rejected");showMsg("Rejected","Study rejected.","success")}catch(e){showMsg("Rejection failed",friendly(e),"error")},true,"Rejection reason *")}
 async function setStudyAction(id,a){
   const r=records.find(x=>x.id===id);if(!r)return;
